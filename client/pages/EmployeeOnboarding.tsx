@@ -10,30 +10,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useState } from "react";
-import { CheckCircle } from "lucide-react";
-
-interface EmployeeSubmission {
-  id: string;
-  timestamp: string;
-  name: string;
-  email: string;
-  telephone: string;
-  position: string;
-  startDate: string;
-  address: string;
-  ssn?: string;
-  itin?: string;
-  weeklyRate: string;
-  paymentMethod: string;
-  bankName?: string;
-  routingNumber?: string;
-  accountNumber?: string;
-  accountType?: string;
-  checkNumber?: string;
-  status: "pending" | "added";
-}
+import { CheckCircle, Loader2 } from "lucide-react";
+import { employeesService } from "@/lib/supabase-service";
+import { useToast } from "@/hooks/use-toast";
 
 export default function EmployeeOnboarding() {
+  const { toast } = useToast();
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -41,8 +24,6 @@ export default function EmployeeOnboarding() {
     position: "",
     startDate: "",
     address: "",
-    ssn: "",
-    itin: "",
     weeklyRate: "",
     paymentMethod: "cash",
     bankName: "",
@@ -63,9 +44,6 @@ export default function EmployeeOnboarding() {
     if (!formData.position.trim()) newErrors.position = "Position is required";
     if (!formData.startDate) newErrors.startDate = "Start date is required";
     if (!formData.address.trim()) newErrors.address = "Address is required";
-    if (!formData.ssn && !formData.itin) {
-      newErrors.tax = "Please provide either SSN or ITIN";
-    }
     if (!formData.weeklyRate) newErrors.weeklyRate = "Weekly rate is required";
     if (formData.weeklyRate && isNaN(parseFloat(formData.weeklyRate))) {
       newErrors.weeklyRate = "Weekly rate must be a valid number";
@@ -85,76 +63,77 @@ export default function EmployeeOnboarding() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!validateForm()) {
+      toast({ variant: "destructive", description: "Please fix the errors before submitting." });
       return;
     }
 
-    const submission: EmployeeSubmission = {
-      id: `SUB-${Date.now()}`,
-      timestamp: new Date().toISOString(),
-      name: formData.name,
-      email: formData.email,
-      telephone: formData.telephone,
-      position: formData.position,
-      startDate: formData.startDate,
-      address: formData.address,
-      ssn: formData.ssn || undefined,
-      itin: formData.itin || undefined,
-      weeklyRate: formData.weeklyRate,
-      paymentMethod: formData.paymentMethod,
-      bankName: formData.bankName || undefined,
-      routingNumber: formData.routingNumber || undefined,
-      accountNumber: formData.accountNumber || undefined,
-      accountType: formData.accountType,
-      checkNumber: formData.checkNumber || undefined,
-      status: "pending",
-    };
+    setIsSubmitting(true);
 
-    // Load existing submissions
-    const existingSubmissions = JSON.parse(
-      localStorage.getItem("employeeSubmissions") || "[]"
-    );
+    try {
+      // Construct the bank_details / extended info object
+      // We are storing contact info here since the schema is minimal
+      const extendedDetails = {
+        email: formData.email,
+        telephone: formData.telephone,
+        address: formData.address,
+        bankName: formData.bankName,
+        routingNumber: formData.routingNumber,
+        accountNumber: formData.accountNumber, // In a real app, encrypt this!
+        accountType: formData.accountType,
+        checkNumber: formData.checkNumber, // For reference
+      };
 
-    // Add new submission
-    existingSubmissions.push(submission);
-
-    // Save to localStorage
-    localStorage.setItem(
-      "employeeSubmissions",
-      JSON.stringify(existingSubmissions)
-    );
-
-    // Show success state
-    setSubmitted(true);
-
-    // Reset form after 3 seconds
-    setTimeout(() => {
-      setFormData({
-        name: "",
-        email: "",
-        telephone: "",
-        position: "",
-        startDate: "",
-        address: "",
-        ssn: "",
-        itin: "",
-        weeklyRate: "",
-        paymentMethod: "cash",
-        bankName: "",
-        routingNumber: "",
-        accountNumber: "",
-        accountType: "checking",
-        checkNumber: "",
+      await employeesService.createPublic({
+        name: formData.name,
+        position: formData.position,
+        weekly_rate: parseFloat(formData.weeklyRate),
+        hire_date: formData.startDate,
+        payment_method: formData.paymentMethod as any,
+        status: "active",
+        bank_details: extendedDetails,
       });
-      setSubmitted(false);
-    }, 3000);
+
+      setSubmitted(true);
+      toast({ title: "Success", description: "Employee information submitted successfully!" });
+
+      // Reset form after 3 seconds
+      setTimeout(() => {
+        setFormData({
+          name: "",
+          email: "",
+          telephone: "",
+          position: "",
+          startDate: "",
+          address: "",
+          weeklyRate: "",
+          paymentMethod: "cash",
+          bankName: "",
+          routingNumber: "",
+          accountNumber: "",
+          accountType: "checking",
+          checkNumber: "",
+        });
+        setSubmitted(false);
+        setIsSubmitting(false);
+      }, 3000);
+
+    } catch (error: any) {
+      console.error("Submission error:", error);
+      toast({ 
+        variant: "destructive", 
+        title: "Submission Failed", 
+        description: error.message || "Failed to submit employee information. Please try again." 
+      });
+      setIsSubmitting(false);
+    }
   };
 
   if (submitted) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center p-4">
-        <Card className="max-w-md border-green-200 shadow-lg">
+        <Card className="max-w-md border-green-200 shadow-lg w-full">
           <CardContent className="pt-8">
             <div className="text-center space-y-4">
               <div className="flex justify-center mb-4">
@@ -165,14 +144,6 @@ export default function EmployeeOnboarding() {
               <h2 className="text-2xl font-bold text-slate-900">Thank You!</h2>
               <p className="text-slate-600">
                 Your information has been successfully submitted. Our HR team will review your details and add you to the system shortly.
-              </p>
-              <p className="text-sm text-slate-500 font-medium">
-                Submission ID: {JSON.parse(
-                  localStorage.getItem("employeeSubmissions") || "[]"
-                )[
-                  JSON.parse(localStorage.getItem("employeeSubmissions") || "[]")
-                    .length - 1
-                ]?.id || ""}
               </p>
               <p className="text-sm text-slate-500 mt-4">
                 Redirecting you back in a moment...
@@ -339,50 +310,6 @@ export default function EmployeeOnboarding() {
                   </div>
                 </div>
               </div>
-            </div>
-
-            {/* Tax Information Section */}
-            <div>
-              <h3 className="text-sm font-semibold text-slate-700 mb-4 uppercase tracking-wide">
-                Tax Identification
-              </h3>
-              <p className="text-sm text-slate-600 mb-4">
-                Please provide at least one form of tax identification (SSN or ITIN)
-              </p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="ssn" className="text-slate-700 font-medium">
-                    Social Security Number (SSN)
-                  </Label>
-                  <Input
-                    id="ssn"
-                    placeholder="XXX-XX-XXXX"
-                    value={formData.ssn}
-                    onChange={(e) =>
-                      setFormData({ ...formData, ssn: e.target.value })
-                    }
-                    className="mt-1 border-slate-300"
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="itin" className="text-slate-700 font-medium">
-                    ITIN (Individual Tax ID)
-                  </Label>
-                  <Input
-                    id="itin"
-                    placeholder="XXX-XX-XXXX"
-                    value={formData.itin}
-                    onChange={(e) =>
-                      setFormData({ ...formData, itin: e.target.value })
-                    }
-                    className="mt-1 border-slate-300"
-                  />
-                </div>
-              </div>
-              {errors.tax && (
-                <p className="text-red-600 text-sm mt-2">{errors.tax}</p>
-              )}
             </div>
 
             {/* Payment Information Section */}
@@ -592,9 +519,17 @@ export default function EmployeeOnboarding() {
             <div className="flex gap-3">
               <Button
                 onClick={handleSubmit}
+                disabled={isSubmitting}
                 className="flex-1 bg-blue-600 hover:bg-blue-700 h-12 text-base font-semibold"
               >
-                Submit Information
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Submitting...
+                  </>
+                ) : (
+                  "Submit Information"
+                )}
               </Button>
             </div>
           </CardContent>

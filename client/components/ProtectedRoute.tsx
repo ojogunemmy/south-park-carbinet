@@ -1,22 +1,21 @@
-import { Navigate } from "react-router-dom";
-import { useAuth } from "@/contexts/AuthContext";
+import { ReactNode } from 'react';
+import { Navigate } from 'react-router-dom';
+import { useSupabaseAuth } from '@/contexts/SupabaseAuthContext';
 
 interface ProtectedRouteProps {
-  children: React.ReactNode;
-  requiredRole?: "admin" | "manager" | "worker";
+  children: ReactNode;
+  requiredRole?: 'admin' | 'coworker' | 'employee';
 }
 
-export const ProtectedRoute = ({ children, requiredRole }: ProtectedRouteProps) => {
-  const { user, isLoading } = useAuth();
+export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) {
+  const { user, role, loading } = useSupabaseAuth();
 
-  if (isLoading) {
+  if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
-          <div className="inline-flex items-center justify-center w-12 h-12 bg-blue-600 rounded-lg mb-4">
-            <span className="text-white font-bold text-lg">C</span>
-          </div>
-          <p className="text-slate-600">Loading...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading...</p>
         </div>
       </div>
     );
@@ -26,18 +25,16 @@ export const ProtectedRoute = ({ children, requiredRole }: ProtectedRouteProps) 
     return <Navigate to="/login" replace />;
   }
 
-  // Check role if specified
-  if (requiredRole) {
-    const roleHierarchy: Record<string, number> = {
-      admin: 3,
-      manager: 2,
-      worker: 1,
-    };
-
-    if (roleHierarchy[user.role] < roleHierarchy[requiredRole]) {
-      return <Navigate to="/" replace />;
-    }
+  if (requiredRole && role !== requiredRole && role !== 'admin') {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold text-red-600">Unauthorized</h1>
+          <p className="mt-2 text-gray-600">You don't have permission to access this page.</p>
+        </div>
+      </div>
+    );
   }
 
   return <>{children}</>;
-};
+}

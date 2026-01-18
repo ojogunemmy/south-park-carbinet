@@ -1,11 +1,12 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Plus, Edit2, Trash2, Download, Printer } from "lucide-react";
-import { useState, useEffect } from "react";
+import { Plus, Edit2, Trash2, Download, Printer, Loader2 } from "lucide-react";
+import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useYear } from "@/contexts/YearContext";
-import { getYearData, saveYearData, shouldUseExampleData } from "@/utils/yearStorage";
-import { useAutoSave } from "@/hooks/useAutoSave";
+import { useSupabaseAuth } from "@/contexts/SupabaseAuthContext";
+import { materialsService, type Material } from "@/lib/supabase-service";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import jsPDF from "jspdf";
 import {
   Dialog,
@@ -25,414 +26,113 @@ import {
 } from "@/components/ui/select";
 import { Toaster } from "sonner";
 
-interface Material {
-  id: string;
-  code: string;
-  name: string;
-  category: string;
-  unit: string;
-  price: number;
-  description?: string;
-  supplier?: string;
-}
-
-const defaultMaterials: Material[] = [
-  {
-    id: "MAT-001",
-    code: "PL170",
-    name: "Plywood Birch Prefinished 3/4\" 4x8 C2",
-    category: "Plywood",
-    unit: "EA",
-    price: 38.51,
-    description: "Prefinished birch plywood",
-    supplier: "Imeca Charlotte",
-  },
-  {
-    id: "MAT-002",
-    code: "PL71",
-    name: "Plywood Birch Prefinished 1/4\" 4x8",
-    category: "Plywood",
-    unit: "EA",
-    price: 22.83,
-    description: "1/4 inch birch plywood sheet",
-    supplier: "Imeca Charlotte",
-  },
-  {
-    id: "MAT-003",
-    code: "PL119",
-    name: "Plywood White Oak Natural 1/4\" 4x8 Rifcut",
-    category: "Plywood",
-    unit: "EA",
-    price: 52.00,
-    description: "White oak rift cut plywood",
-    supplier: "Imeca Charlotte",
-  },
-  {
-    id: "MAT-004",
-    code: "PL118RC",
-    name: "Plywood White Oak Natural 3/4\" 4x8 Rifcut B2",
-    category: "Plywood",
-    unit: "EA",
-    price: 110.01,
-    description: "Premium white oak rift cut plywood",
-    supplier: "Imeca Charlotte",
-  },
-  {
-    id: "MAT-005",
-    code: "PL6134-410-GAR",
-    name: "Plywood White Oak 3/4\" 4x10 A1 Rift Cut Garnica",
-    category: "Plywood",
-    unit: "EA",
-    price: 219.95,
-    description: "Premium white oak rift cut garnica",
-    supplier: "Imeca Charlotte",
-  },
-  {
-    id: "MAT-006",
-    code: "LUM69",
-    name: "Lumber Poplar S3S 16' 13/16\" 12\"+",
-    category: "Lumber",
-    unit: "EA",
-    price: 2.86,
-    description: "Poplar dimensional lumber",
-    supplier: "Imeca Charlotte",
-  },
-  {
-    id: "MAT-007",
-    code: "LUM71",
-    name: "Lumber Soft Maple UNS 13/16\" Stain Grade S3S 14'",
-    category: "Lumber",
-    unit: "EA",
-    price: 3.65,
-    description: "Soft maple stain grade lumber",
-    supplier: "Imeca Charlotte",
-  },
-  {
-    id: "MAT-008",
-    code: "LUM48",
-    name: "Lumber White Oak R1E 13/16\" S3S",
-    category: "Lumber",
-    unit: "EA",
-    price: 6.99,
-    description: "White oak rough lumber",
-    supplier: "Imeca Charlotte",
-  },
-  {
-    id: "MAT-009",
-    code: "LUM58",
-    name: "Lumber White Oak Rift Cut 13/16\" S3S",
-    category: "Lumber",
-    unit: "EA",
-    price: 13.98,
-    description: "White oak rift cut lumber",
-    supplier: "Imeca Charlotte",
-  },
-  {
-    id: "MAT-010",
-    code: "DS58RW04P800",
-    name: "Drawer Side 4\"x96\" 5/8\" Rubberwood Flat Edge UV 3-Sides w/ 1/4\" Groove",
-    category: "Drawer Parts",
-    unit: "EA",
-    price: 11.37,
-    description: "Rubberwood drawer side",
-    supplier: "Imeca Charlotte",
-  },
-  {
-    id: "MAT-011",
-    code: "DS58RW06P800",
-    name: "Drawer Side 6\"x96\" 5/8\" Rubberwood Flat Edge UV 3-Sides w/ 1/4\" Groove",
-    category: "Drawer Parts",
-    unit: "EA",
-    price: 19.12,
-    description: "Rubberwood drawer side 6 inch",
-    supplier: "Imeca Charlotte",
-  },
-  {
-    id: "MAT-012",
-    code: "DS58RW08P800",
-    name: "Drawer Side 8\"x96\" 5/8\" Rubberwood Flat Edge UV 3-Sides w/ 1/4\" Groove",
-    category: "Drawer Parts",
-    unit: "EA",
-    price: 21.65,
-    description: "Rubberwood drawer side 8 inch",
-    supplier: "Imeca Charlotte",
-  },
-  {
-    id: "MAT-013",
-    code: "DS58RW10P800",
-    name: "Drawer Side 10\"x96\" 5/8\" Rubberwood Flat Edge UV 3-Sides w/ 1/4\" Groove",
-    category: "Drawer Parts",
-    unit: "EA",
-    price: 25.34,
-    description: "Rubberwood drawer side 10 inch",
-    supplier: "Imeca Charlotte",
-  },
-  {
-    id: "MAT-014",
-    code: "563H5330B",
-    name: "Tandem Plus Blumotion 563 Full Extension Drawer Runners 21\" Zinc-Plated",
-    category: "Hardware",
-    unit: "EA",
-    price: 18.90,
-    description: "Blum drawer runner system",
-    supplier: "Imeca Charlotte",
-  },
-  {
-    id: "MAT-015",
-    code: "563H4570B",
-    name: "Tandem Plus Blumotion 563 Full Extension Drawer Runners 18\" Zinc-Plated",
-    category: "Hardware",
-    unit: "EA",
-    price: 17.70,
-    description: "Blum drawer runner 18 inch",
-    supplier: "Imeca Charlotte",
-  },
-  {
-    id: "MAT-016",
-    code: "563H3810B",
-    name: "Tandem Plus Blumotion 563 Full Extension Drawer Runners 15\" Zinc-Plated",
-    category: "Hardware",
-    unit: "EA",
-    price: 19.94,
-    description: "Blum drawer runner 15 inch",
-    supplier: "Imeca Charlotte",
-  },
-  {
-    id: "MAT-017",
-    code: "71B3590",
-    name: "Blum Clip Top Blumotion 110° Hinges Full Overlay Inserta Nickel",
-    category: "Hardware",
-    unit: "EA",
-    price: 3.95,
-    description: "Blum cabinet hinges",
-    supplier: "Imeca Charlotte",
-  },
-  {
-    id: "MAT-018",
-    code: "175H6000",
-    name: "Clip Mounting Plates Cam Height Adjustable 0mm Nickel",
-    category: "Hardware",
-    unit: "EA",
-    price: 0.87,
-    description: "Cabinet hinge mounting plates",
-    supplier: "Imeca Charlotte",
-  },
-  {
-    id: "MAT-019",
-    code: "MDF1-D",
-    name: "MDF Raw 3/4\" 4x8 A1 Door Core",
-    category: "MDF/Panels",
-    unit: "EA",
-    price: 45.33,
-    description: "Medium density fiberboard",
-    supplier: "Imeca Charlotte",
-  },
-  {
-    id: "MAT-020",
-    code: "MDF-U38-48",
-    name: "MDF Ultra Light 3/8\" 4x8",
-    category: "MDF/Panels",
-    unit: "EA",
-    price: 24.25,
-    description: "Ultra light MDF sheet",
-    supplier: "Imeca Charlotte",
-  },
-  {
-    id: "MAT-021",
-    code: "056815",
-    name: "Plywood Birch 18mm 4x8 C2 WPF UV1S Prefinished VC",
-    category: "Plywood",
-    unit: "EA",
-    price: 39.39,
-    description: "Prefinished birch plywood 18mm",
-    supplier: "Atlantic Plywood",
-  },
-  {
-    id: "MAT-022",
-    code: "056820",
-    name: "Plywood Birch 18mm 4x8 C2 WPF UV2S Prefinished VC",
-    category: "Plywood",
-    unit: "EA",
-    price: 41.78,
-    description: "Prefinished birch plywood 18mm UV2S",
-    supplier: "Atlantic Plywood",
-  },
-  {
-    id: "MAT-023",
-    code: "055150",
-    name: "Plywood White Oak 3/4\" 4x8 A1 Rift Cut Prefinished VC",
-    category: "Plywood",
-    unit: "EA",
-    price: 134.13,
-    description: "White oak rift cut prefinished plywood",
-    supplier: "Atlantic Plywood",
-  },
-  {
-    id: "MAT-024",
-    code: "055200",
-    name: "Plywood White Oak 3/4\" 4x10 A1 Rift Cut Prefinished VC",
-    category: "Plywood",
-    unit: "EA",
-    price: 239.98,
-    description: "White oak rift cut prefinished plywood 4x10",
-    supplier: "Atlantic Plywood",
-  },
-  {
-    id: "MAT-025",
-    code: "71B3590",
-    name: "Blum Clip Top Hinge 110 Blumotion F-OL Inserta",
-    category: "Hardware",
-    unit: "EA",
-    price: 3.70,
-    description: "Blum hinges full overlay inserta",
-    supplier: "Atlantic Plywood",
-  },
-  {
-    id: "MAT-026",
-    code: "563H5330B",
-    name: "Tandem Plus Blumotion 563H 21\" Full Ext Drawer Zinc",
-    category: "Hardware",
-    unit: "EA",
-    price: 17.82,
-    description: "Blum drawer runner 21 inch full extension",
-    supplier: "Atlantic Plywood",
-  },
-  {
-    id: "MAT-027",
-    code: "563H4570B",
-    name: "Tandem Plus Blumotion 563H 18\" Full Ext Drawer Zinc",
-    category: "Hardware",
-    unit: "EA",
-    price: 16.97,
-    description: "Blum drawer runner 18 inch full extension",
-    supplier: "Atlantic Plywood",
-  },
-  {
-    id: "MAT-028",
-    code: "T51.1901L",
-    name: "Tandem Plus Blumotion 563/9 Locking Device Left",
-    category: "Hardware",
-    unit: "EA",
-    price: 1.33,
-    description: "Blum locking device left",
-    supplier: "Atlantic Plywood",
-  },
-  {
-    id: "MAT-029",
-    code: "T51.1901R",
-    name: "Tandem Plus Blumotion 563/9 Locking Device Right",
-    category: "Hardware",
-    unit: "EA",
-    price: 1.33,
-    description: "Blum locking device right",
-    supplier: "Atlantic Plywood",
-  },
-];
-
 export default function Materials() {
   const { toast } = useToast();
   const { selectedYear } = useYear();
-  const [materials, setMaterials] = useState<Material[]>([]);
+  const { user } = useSupabaseAuth();
+  const queryClient = useQueryClient();
+  
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedMaterial, setSelectedMaterial] = useState<Material | null>(null);
   const [filterCategory, setFilterCategory] = useState<string>("all");
   const [formData, setFormData] = useState<Partial<Material>>({});
 
-  // Load materials from localStorage or use defaults
-  const getMaterials = () => {
-    if (shouldUseExampleData(selectedYear)) {
-      return getYearData<Material[]>("materials", selectedYear, defaultMaterials);
-    }
-    // For 2026-2030, start with empty array
-    return getYearData<Material[]>("materials", selectedYear, []);
-  };
-
-  useEffect(() => {
-    const loaded = getMaterials();
-    setMaterials(loaded);
-  }, [selectedYear]);
-
-  // Auto-save materials whenever they change
-  useAutoSave({
-    data: materials,
-    key: "materials",
-    year: selectedYear,
-    debounceMs: 500,
+  // Fetch Materials
+  const { data: materials = [], isLoading } = useQuery({
+    queryKey: ['materials'],
+    queryFn: materialsService.getAll,
+    enabled: !!user,
   });
 
-  const saveMaterials = (updated: Material[]) => {
-    setMaterials(updated);
-    // Auto-save will handle persistence
-  };
+  // Mutations
+  const createMaterialMutation = useMutation({
+    mutationFn: materialsService.create,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['materials'] });
+      setIsAddModalOpen(false);
+      setFormData({});
+      toast({ title: "Material Added", description: "Material added successfully" });
+    },
+    onError: (error: any) => {
+      toast({ variant: "destructive", description: error.message || "Failed to add material" });
+    }
+  });
 
-  const categories = [...new Set(materials.map((m) => m.category))].sort();
+  const updateMaterialMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Partial<Material> }) => materialsService.update(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['materials'] });
+      setIsEditModalOpen(false);
+      setSelectedMaterial(null);
+      setFormData({});
+      toast({ title: "Material Updated", description: "Material updated successfully" });
+    },
+    onError: (error: any) => {
+      toast({ variant: "destructive", description: error.message || "Failed to update material" });
+    }
+  });
+
+  const deleteMaterialMutation = useMutation({
+    mutationFn: materialsService.delete,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['materials'] });
+      toast({ title: "Material Removed", description: "Material removed successfully" });
+    },
+    onError: (error: any) => {
+      toast({ variant: "destructive", description: error.message || "Failed to delete material" });
+    }
+  });
+
+  const categories = [...new Set(materials.map((m) => m.category || 'Uncategorized'))].sort();
 
   const filteredMaterials =
     filterCategory === "all"
       ? materials
-      : materials.filter((m) => m.category === filterCategory);
+      : materials.filter((m) => (m.category || 'Uncategorized') === filterCategory);
 
   const handleAddMaterial = () => {
-    if (!formData.code || !formData.name || !formData.category || !formData.price) {
+    if (!formData.code || !formData.name || !formData.category || !formData.unit_price) {
       toast({ description: "Please fill in all required fields" });
       return;
     }
 
-    const newMaterial: Material = {
-      id: `MAT-${Date.now()}`,
-      code: formData.code || "",
-      name: formData.name || "",
-      category: formData.category || "",
+    createMaterialMutation.mutate({
+      code: formData.code,
+      name: formData.name,
+      category: formData.category,
       unit: formData.unit || "EA",
-      price: formData.price || 0,
+      unit_price: Number(formData.unit_price),
       description: formData.description,
       supplier: formData.supplier,
-    };
-
-    const updated = [...materials, newMaterial];
-    saveMaterials(updated);
-    setFormData({});
-    setIsAddModalOpen(false);
-    toast({ title: "Material Added", description: `${newMaterial.name} added successfully` });
+    });
   };
 
   const handleEditMaterial = () => {
-    if (!selectedMaterial || !formData.code || !formData.name || !formData.category || !formData.price) {
+    if (!selectedMaterial || !selectedMaterial.id) return;
+    if (!formData.code || !formData.name || !formData.category || !formData.unit_price) {
       toast({ description: "Please fill in all required fields" });
       return;
     }
 
-    const updated = materials.map((m) =>
-      m.id === selectedMaterial.id
-        ? {
-            ...m,
-            code: formData.code || m.code,
-            name: formData.name || m.name,
-            category: formData.category || m.category,
-            unit: formData.unit || m.unit,
-            price: formData.price || m.price,
-            description: formData.description,
-            supplier: formData.supplier,
-          }
-        : m
-    );
-
-    saveMaterials(updated);
-    setSelectedMaterial(null);
-    setFormData({});
-    setIsEditModalOpen(false);
-    toast({ title: "Material Updated", description: "Material updated successfully" });
+    updateMaterialMutation.mutate({
+      id: selectedMaterial.id,
+      data: {
+        code: formData.code,
+        name: formData.name,
+        category: formData.category,
+        unit: formData.unit,
+        unit_price: Number(formData.unit_price),
+        description: formData.description,
+        supplier: formData.supplier,
+      }
+    });
   };
 
-  const handleDeleteMaterial = (id: string) => {
-    const material = materials.find((m) => m.id === id);
-    const updated = materials.filter((m) => m.id !== id);
-    saveMaterials(updated);
-    toast({
-      title: "Material Removed",
-      description: `${material?.name} removed successfully`,
-    });
+  const handleDeleteMaterial = (id: string, name: string) => {
+    if (confirm(`Are you sure you want to delete ${name}?`)) {
+      deleteMaterialMutation.mutate(id);
+    }
   };
 
   const handleEdit = (material: Material) => {
@@ -444,11 +144,11 @@ export default function Materials() {
   const exportToCSV = () => {
     const headers = ["Code", "Name", "Category", "Unit", "Price", "Supplier"];
     const rows = filteredMaterials.map((m) => [
-      m.code,
+      m.code || "",
       m.name,
-      m.category,
-      m.unit,
-      m.price.toFixed(2),
+      m.category || "",
+      m.unit || "",
+      (m.unit_price || 0).toFixed(2),
       m.supplier || "",
     ]);
 
@@ -464,7 +164,7 @@ export default function Materials() {
     toast({ title: "Export Complete", description: "Materials exported to CSV" });
   };
 
-  const totalValue = filteredMaterials.reduce((sum, m) => sum + m.price, 0);
+  const totalValue = filteredMaterials.reduce((sum, m) => sum + (m.unit_price || 0), 0);
 
   const printMaterialsCatalog = () => {
     try {
@@ -508,7 +208,7 @@ export default function Materials() {
       const summaryData = [
         { label: "Total Materials", value: filteredMaterials.length, color: [59, 130, 246] },
         { label: "Categories", value: new Set(filteredMaterials.map(m => m.category)).size, color: [34, 197, 94] },
-        { label: "Avg Price", value: `$${(totalValue / filteredMaterials.length).toFixed(2)}`, color: [168, 85, 247] },
+        { label: "Avg Price", value: `$${(totalValue / (filteredMaterials.length || 1)).toFixed(2)}`, color: [168, 85, 247] },
         { label: "Total Value", value: `$${totalValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, color: [249, 115, 22] }
       ];
 
@@ -636,7 +336,7 @@ export default function Materials() {
         // Code (bold)
         pdf.setFont(undefined, "bold");
         pdf.setFontSize(10);
-        pdf.text(material.code, prodStartX, prodStartY);
+        pdf.text(material.code || "", prodStartX, prodStartY);
 
         // Product Name (bold, larger)
         pdf.setFont(undefined, "bold");
@@ -660,20 +360,20 @@ export default function Materials() {
         // Unit (right-aligned, larger)
         pdf.setFont(undefined, "normal");
         pdf.setFontSize(10);
-        pdf.text(material.unit, xPosition + colWidths[2] - 3, currentY + 1, { align: "right" });
+        pdf.text(material.unit || "EA", xPosition + colWidths[2] - 3, currentY + 1, { align: "right" });
         xPosition += colWidths[2];
 
         // Price (bold, right-aligned, larger)
         pdf.setFont(undefined, "bold");
         pdf.setFontSize(10);
-        const priceText = `$${material.price.toFixed(2)}`;
+        const priceText = `$${(material.unit_price || 0).toFixed(2)}`;
         pdf.text(priceText, xPosition + colWidths[3] - 3, currentY + 1, { align: "right" });
         xPosition += colWidths[3];
 
         // Amount (bold, right-aligned, larger)
         pdf.setFont(undefined, "bold");
         pdf.setFontSize(10);
-        const amountText = `$${material.price.toFixed(2)}`;
+        const amountText = `$${(material.unit_price || 0).toFixed(2)}`;
         pdf.text(amountText, xPosition + colWidths[4] - 3, currentY + 1, { align: "right" });
 
         yPosition += rowHeight;
@@ -701,6 +401,14 @@ export default function Materials() {
       toast({ description: "Error generating report. Please try again." });
     }
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center p-8">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -757,7 +465,7 @@ export default function Materials() {
           </CardHeader>
           <CardContent>
             <p className="text-3xl font-bold text-slate-900">
-              ${(totalValue / filteredMaterials.length).toFixed(2)}
+              ${(totalValue / (filteredMaterials.length || 1)).toFixed(2)}
             </p>
           </CardContent>
         </Card>
@@ -767,8 +475,8 @@ export default function Materials() {
           </CardHeader>
           <CardContent>
             <p className="text-sm font-medium text-slate-700">
-              ${Math.min(...filteredMaterials.map((m) => m.price)).toFixed(2)} - $
-              {Math.max(...filteredMaterials.map((m) => m.price)).toFixed(2)}
+              ${Math.min(...filteredMaterials.map((m) => m.unit_price || 0), 0).toFixed(2)} - $
+              {Math.max(...filteredMaterials.map((m) => m.unit_price || 0), 0).toFixed(2)}
             </p>
           </CardContent>
         </Card>
@@ -834,7 +542,7 @@ export default function Materials() {
                       </td>
                       <td className="p-3 text-slate-700 whitespace-nowrap">{material.unit}</td>
                       <td className="p-3 text-slate-700 font-semibold whitespace-nowrap">
-                        ${material.price.toFixed(2)}
+                        ${(material.unit_price || 0).toFixed(2)}
                       </td>
                       <td className="p-3 text-slate-700 text-xs whitespace-nowrap">
                         {material.supplier || "-"}
@@ -854,7 +562,7 @@ export default function Materials() {
                             variant="ghost"
                             size="sm"
                             className="text-red-600 hover:bg-red-50 gap-1"
-                            onClick={() => handleDeleteMaterial(material.id)}
+                            onClick={() => handleDeleteMaterial(material.id, material.name)}
                           >
                             <Trash2 className="w-3 h-3" />
                             Delete
@@ -925,8 +633,8 @@ export default function Materials() {
                   type="number"
                   step="0.01"
                   min="0"
-                  value={formData.price || ""}
-                  onChange={(e) => setFormData({ ...formData, price: parseFloat(e.target.value) || 0 })}
+                  value={formData.unit_price || ""}
+                  onChange={(e) => setFormData({ ...formData, unit_price: parseFloat(e.target.value) || 0 })}
                   placeholder="0.00"
                   className="border-slate-300"
                 />
@@ -1020,8 +728,8 @@ export default function Materials() {
                   type="number"
                   step="0.01"
                   min="0"
-                  value={formData.price || ""}
-                  onChange={(e) => setFormData({ ...formData, price: parseFloat(e.target.value) || 0 })}
+                  value={formData.unit_price || ""}
+                  onChange={(e) => setFormData({ ...formData, unit_price: parseFloat(e.target.value) || 0 })}
                   className="border-slate-300"
                 />
               </div>
