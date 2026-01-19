@@ -1,13 +1,14 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Plus, ChevronRight, ChevronLeft, Edit2, Trash2, Eye, ChevronDown, Download, Loader2 } from "lucide-react";
+import { Plus, Edit2, Trash2, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import jsPDF from "jspdf";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useYear } from "@/contexts/YearContext";
 import { useSupabaseAuth } from "@/contexts/SupabaseAuthContext";
-import { employeesService, paymentsService, type Employee, type Payment } from "@/lib/supabase-service";
+import { employeesService, paymentsService, profilesService, type Employee, type Payment, type Profile } from "@/lib/supabase-service";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { CheckCircle2, XCircle } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -26,13 +27,28 @@ import {
 } from "@/components/ui/select";
 import { Toaster } from "sonner";
 import { useToast } from "@/hooks/use-toast";
-import { format, addDays, startOfWeek, isBefore, parseISO } from "date-fns";
 
-// Helper for formatting dates cleanly
 const formatDate = (dateString: string | null) => {
   if (!dateString) return "-";
   return new Date(dateString).toLocaleDateString();
 };
+
+const addDays = (date: Date, days: number) => {
+  const result = new Date(date);
+  result.setDate(result.getDate() + days);
+  return result;
+};
+
+const formatYYYYMMDD = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const parseISO = (dateString: string) => new Date(dateString);
+
+const isBefore = (date1: Date, date2: Date) => date1 < date2;
 
 export default function Employees() {
   const { toast } = useToast();
@@ -44,7 +60,6 @@ export default function Employees() {
   const [isEditMode, setIsEditMode] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
   
-  // Form State
   const [formData, setFormData] = useState<any>({
     name: "",
     position: "",
@@ -67,21 +82,24 @@ export default function Employees() {
 
   const [filterStatus, setFilterStatus] = useState<string>("all");
 
-  // Fetch Employees
   const { data: employees = [], isLoading: isLoadingEmployees } = useQuery({
     queryKey: ['employees'],
     queryFn: employeesService.getAll,
     enabled: !!user,
   });
 
-  // Fetch Payments (needed for generation logic)
   const { data: payments = [], isLoading: isLoadingPayments } = useQuery({
     queryKey: ['payments'],
     queryFn: paymentsService.getAll,
     enabled: !!user,
   });
 
-  // Mutations
+  const { data: allProfiles = [] } = useQuery<Profile[]>({
+    queryKey: ['profiles'],
+    queryFn: profilesService.getAll,
+    enabled: !!user && user.role === 'admin',
+  });
+
   const createEmployeeMutation = useMutation({
     mutationFn: employeesService.create,
     onSuccess: () => {
@@ -166,8 +184,6 @@ export default function Employees() {
       weeklyRate: employee.weekly_rate?.toString() || "",
       paymentMethod: employee.payment_method || "cash",
       paymentStatus: employee.status || "active",
-      
-      // Extended details from JSONB
       telephone: details.telephone || "",
       email: details.email || "",
       paymentStartDate: details.paymentStartDate || "",
@@ -240,34 +256,26 @@ export default function Employees() {
     if (!confirm("This will generate weekly payments for all active employees for the entire year of 2026. Continue?")) return;
 
     const newPayments: Partial<Payment>[] = [];
-    let currentDate = new Date(2026, 0, 4); // Jan 4, 2026 (Sunday)
+    let currentDate = new Date(2026, 0, 4);
     const endOfYear = new Date(2026, 11, 31);
-    const existingDates = new Set(payments.map((p: any) => p.week_start_date));
 
-    // For each week
     while (currentDate <= endOfYear) {
-      const weekStartStr = format(currentDate, "yyyy-MM-dd");
-      
-      // If we haven't already generated payments for this week (simplification: checking if ANY payment exists for this week is risky if new employees added, but strictly following existing logic pattern for now)
-      // Better logic: Check per employee per week
-      
+      const weekStartStr = formatYYYYMMDD(currentDate);
       const activeEmployees = employees.filter(e => e.status === 'active');
       
       activeEmployees.forEach(emp => {
-        // Check if payment already exists for this employee and week
         const exists = payments.some((p: any) => p.employee_id === emp.id && p.week_start_date === weekStartStr);
         if (exists) return;
 
         const details = emp.bank_details || {};
         const paymentStart = details.paymentStartDate ? parseISO(details.paymentStartDate) : null;
         
-        // Skip if before payment start date
         if (paymentStart && isBefore(currentDate, paymentStart)) return;
 
         newPayments.push({
             employee_id: emp.id,
             week_start_date: weekStartStr,
-            week_end_date: format(addDays(currentDate, 6), "yyyy-MM-dd"),
+            week_end_date: formatYYYYMMDD(addDays(currentDate, 6)),
             amount: emp.weekly_rate || 0,
             status: 'pending',
             payment_method: emp.payment_method || 'cash',
@@ -288,8 +296,15 @@ export default function Employees() {
     }
   };
 
+  const isEmployeeVerified = (emp: Employee) => {
+    if (emp.is_verified) return true;
+    const profile = allProfiles.find(p => p.id === emp.user_id);
+    return profile?.is_verified === true;
+  };
+
   const filteredEmployees = employees.filter(e => {
     if (filterStatus === 'all') return true;
+    if (filterStatus === 'pending') return !isEmployeeVerified(e);
     return e.status === filterStatus;
   });
 
@@ -302,24 +317,23 @@ export default function Employees() {
   }
 
   return (
-    <div className="space-y-6">
-       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div className="space-y-4 sm:space-y-6 p-1 sm:p-6">
+       <div className="flex flex-col gap-3 sm:gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900">Employees</h1>
-          <p className="text-slate-600 mt-1">Manage your workforce</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">Employees</h1>
+          <p className="text-sm sm:text-base text-slate-600 mt-1">Manage your workforce</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-col sm:flex-row gap-2">
           <Button 
              variant="outline" 
              onClick={generatePaymentsForYear}
-             className="gap-2"
+             className="gap-2 w-full sm:w-auto text-sm sm:text-base"
           >
-            <Loader2 className="w-4 h-4" />
-            Generate 2026 Payments
+            <span className="text-bold text-md">Generate 2026 Payments</span>
           </Button>
           <Button 
             onClick={() => { resetForm(); setIsModalOpen(true); }}
-            className="bg-blue-600 hover:bg-blue-700 gap-2"
+            className="bg-blue-600 hover:bg-blue-700 gap-2 w-full sm:w-auto text-sm sm:text-base"
           >
             <Plus className="w-4 h-4" />
             Add Employee
@@ -327,11 +341,11 @@ export default function Employees() {
         </div>
       </div>
 
-      <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
-        <div className="flex items-center gap-2">
-           <Label>Filter Status:</Label>
+      <div className="bg-white p-3 sm:p-4 rounded-lg border border-slate-200 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+           <Label className="text-sm sm:text-base">Filter Status:</Label>
            <Select value={filterStatus} onValueChange={setFilterStatus}>
-             <SelectTrigger className="w-[180px]">
+             <SelectTrigger className="w-full sm:w-[180px]">
                <SelectValue />
              </SelectTrigger>
              <SelectContent>
@@ -345,36 +359,50 @@ export default function Employees() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
         {filteredEmployees.map((employee) => (
           <Card key={employee.id} className="border-slate-200 hover:shadow-md transition-shadow">
-            <CardHeader className="pb-2">
-              <div className="flex justify-between items-start">
-                <div>
-                  <CardTitle className="text-lg font-bold text-slate-900">{employee.name}</CardTitle>
-                  <CardDescription>{employee.position}</CardDescription>
+            <CardHeader className="pb-2 p-4 sm:p-6">
+              <div className="flex justify-between items-start gap-2">
+                <div className="min-w-0 flex-1">
+                  <CardTitle className="text-base sm:text-lg font-bold text-slate-900 truncate">{employee.name}</CardTitle>
+                  <CardDescription className="text-sm truncate">
+                    {employee.position}
+                    {employee.email && <span className="block text-[10px] text-slate-400 mt-0.5">{employee.email}</span>}
+                  </CardDescription>
                 </div>
-                <Badge className={
+                <Badge className={`shrink-0 text-xs ${
                   employee.status === 'active' ? "bg-green-100 text-green-700" : 
                   "bg-yellow-100 text-yellow-700"
-                }>
+                }`}>
                   {employee.status}
                 </Badge>
               </div>
+              <div className="mt-1 flex items-center gap-1">
+                {isEmployeeVerified(employee) ? (
+                  <div className="flex items-center text-green-600 text-xs font-medium">
+                    <CheckCircle2 className="w-3 h-3 mr-1" /> Verified Employee
+                  </div>
+                ) : (
+                  <div className="flex items-center text-amber-600 text-xs font-medium">
+                    <XCircle className="w-3 h-3 mr-1" /> Pending Validation
+                  </div>
+                )}
+              </div>
             </CardHeader>
-            <CardContent>
-              <div className="space-y-2 text-sm text-slate-600 mt-2">
-                 <div className="flex justify-between">
+            <CardContent className="p-4 sm:p-6 pt-0">
+              <div className="space-y-2 text-xs sm:text-sm text-slate-600 mt-2">
+                 <div className="flex justify-between gap-2">
                    <span>Weekly Rate:</span>
                    <span className="font-semibold text-slate-900">${employee.weekly_rate?.toLocaleString()}</span>
                  </div>
-                 <div className="flex justify-between">
+                 <div className="flex justify-between gap-2">
                    <span>Hired:</span>
-                   <span>{formatDate(employee.hire_date)}</span>
+                   <span className="truncate">{formatDate(employee.hire_date)}</span>
                  </div>
-                 <div className="flex justify-between">
+                 <div className="flex justify-between gap-2">
                    <span>Payment Method:</span>
-                   <span className="capitalize">{employee.payment_method?.replace('_', ' ')}</span>
+                   <span className="capitalize truncate">{employee.payment_method?.replace('_', ' ')}</span>
                  </div>
               </div>
               
@@ -382,7 +410,7 @@ export default function Employees() {
                 <Button 
                   variant="ghost" 
                   size="sm" 
-                  className="flex-1 text-blue-600 hover:bg-blue-50"
+                  className="flex-1 text-blue-600 hover:bg-blue-50 text-xs sm:text-sm"
                   onClick={() => handleEdit(employee)}
                 >
                   <Edit2 className="w-3 h-3 mr-1" /> Edit
@@ -390,11 +418,68 @@ export default function Employees() {
                 <Button 
                   variant="ghost" 
                   size="sm" 
-                  className="flex-1 text-red-600 hover:bg-red-50"
+                  className="flex-1 text-red-600 hover:bg-red-50 text-xs sm:text-sm"
                   onClick={() => handleDelete(employee.id, employee.name)}
                 >
                   <Trash2 className="w-3 h-3 mr-1" /> Delete
                 </Button>
+              </div>
+
+              <div className="mt-2 text-center">
+                <Button
+                  variant={isEmployeeVerified(employee) ? "outline" : "default"}
+                  size="sm"
+                  className={cn(
+                    "w-full text-xs h-8",
+                    !isEmployeeVerified(employee) && "bg-amber-600 hover:bg-amber-700 text-white"
+                  )}
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    const newStatus = !isEmployeeVerified(employee);
+                    const hasBeenVerified = employee.has_been_verified || 
+                                          (allProfiles.find(p => p.id === employee.user_id)?.has_been_verified === true);
+                    
+                    try {
+                      // 1. Update Profile if exists
+                      if (employee.user_id) {
+                        await profilesService.update(employee.user_id, { 
+                          is_verified: newStatus,
+                          has_been_verified: hasBeenVerified || newStatus
+                        });
+                      }
+
+                      // 2. Update Employee (HR record) - If columns exist
+                      try {
+                        await employeesService.update(employee.id, {
+                          is_verified: newStatus,
+                          has_been_verified: hasBeenVerified || newStatus
+                        });
+                      } catch (hrError) {
+                        console.warn("HR table update failed (legacy schema?):", hrError);
+                        // Silently continue if HR table lacks columns
+                      }
+
+                      queryClient.invalidateQueries({ queryKey: ['employees'] });
+                      queryClient.invalidateQueries({ queryKey: ['profiles'] });
+                      
+                      toast({ 
+                        title: newStatus ? "Verification Successful" : "Access Revoked", 
+                        description: newStatus 
+                          ? `${employee.name} is now verified. ${!employee.user_id ? "(Note: No account linked yet)" : ""}` 
+                          : `${employee.name}'s verification has been removed.`
+                      });
+                    } catch (err: any) {
+                      toast({ variant: "destructive", description: err.message });
+                    }
+                  }}
+                >
+                  {isEmployeeVerified(employee) ? "Unverify User" : "Verify User Now"}
+                </Button>
+                {!employee.user_id && !isEmployeeVerified(employee) && (
+                  <p className="text-[10px] text-slate-400 mt-1 italic">
+                    Employee hasn't created an account yet
+                  </p>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -402,39 +487,39 @@ export default function Employees() {
       </div>
 
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto w-[95vw] sm:w-full">
           <DialogHeader>
-            <DialogTitle>{isEditMode ? "Edit Employee" : "Add New Employee"}</DialogTitle>
-            <DialogDescription>
+            <DialogTitle className="text-lg sm:text-xl">{isEditMode ? "Edit Employee" : "Add New Employee"}</DialogTitle>
+            <DialogDescription className="text-sm">
               {isEditMode ? "Update employee details" : "Enter new employee information"}
             </DialogDescription>
           </DialogHeader>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 py-4">
              <div className="space-y-2">
-               <Label>Full Name *</Label>
-               <Input value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
+               <Label className="text-sm">Full Name *</Label>
+               <Input value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="text-sm" />
              </div>
              <div className="space-y-2">
-               <Label>Position</Label>
-               <Input value={formData.position} onChange={e => setFormData({...formData, position: e.target.value})} />
+               <Label className="text-sm">Position</Label>
+               <Input value={formData.position} onChange={e => setFormData({...formData, position: e.target.value})} className="text-sm" />
              </div>
              <div className="space-y-2">
-               <Label>Weekly Rate ($) *</Label>
-               <Input type="number" value={formData.weeklyRate} onChange={e => setFormData({...formData, weeklyRate: e.target.value})} />
+               <Label className="text-sm">Weekly Rate ($) *</Label>
+               <Input type="number" value={formData.weeklyRate} onChange={e => setFormData({...formData, weeklyRate: e.target.value})} className="text-sm" />
              </div>
              <div className="space-y-2">
-               <Label>Start Date</Label>
-               <Input type="date" value={formData.startDate} onChange={e => setFormData({...formData, startDate: e.target.value})} />
+               <Label className="text-sm">Start Date</Label>
+               <Input type="date" value={formData.startDate} onChange={e => setFormData({...formData, startDate: e.target.value})} className="text-sm" />
              </div>
              <div className="space-y-2">
-               <Label>Payment Start Date</Label>
-               <Input type="date" value={formData.paymentStartDate} onChange={e => setFormData({...formData, paymentStartDate: e.target.value})} />
+               <Label className="text-sm">Payment Start Date</Label>
+               <Input type="date" value={formData.paymentStartDate} onChange={e => setFormData({...formData, paymentStartDate: e.target.value})} className="text-sm" />
              </div>
               <div className="space-y-2">
-               <Label>Status</Label>
+               <Label className="text-sm">Status</Label>
                <Select value={formData.paymentStatus} onValueChange={val => setFormData({...formData, paymentStatus: val})}>
-                 <SelectTrigger><SelectValue /></SelectTrigger>
+                 <SelectTrigger className="text-sm"><SelectValue /></SelectTrigger>
                  <SelectContent>
                    <SelectItem value="active">Active</SelectItem>
                    <SelectItem value="paused">Paused</SelectItem>
@@ -444,9 +529,9 @@ export default function Employees() {
                </Select>
              </div>
              <div className="space-y-2">
-               <Label>Payment Method</Label>
+               <Label className="text-sm">Payment Method</Label>
                <Select value={formData.paymentMethod} onValueChange={val => setFormData({...formData, paymentMethod: val})}>
-                 <SelectTrigger><SelectValue /></SelectTrigger>
+                 <SelectTrigger className="text-sm"><SelectValue /></SelectTrigger>
                  <SelectContent>
                    <SelectItem value="cash">Cash</SelectItem>
                    <SelectItem value="check">Check</SelectItem>
@@ -455,34 +540,34 @@ export default function Employees() {
                </Select>
              </div>
              <div className="space-y-2">
-               <Label>Phone</Label>
-               <Input value={formData.telephone} onChange={e => setFormData({...formData, telephone: e.target.value})} />
+               <Label className="text-sm">Phone</Label>
+               <Input value={formData.telephone} onChange={e => setFormData({...formData, telephone: e.target.value})} className="text-sm" />
              </div>
              <div className="space-y-2">
-               <Label>Email</Label>
-               <Input value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} />
+               <Label className="text-sm">Email</Label>
+               <Input value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="text-sm" />
              </div>
              <div className="space-y-2">
-               <Label>Address</Label>
-               <Input value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} />
+               <Label className="text-sm">Address</Label>
+               <Input value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} className="text-sm" />
              </div>
              <div className="space-y-2">
-                <Label>Bank Name</Label>
-                <Input value={formData.bankName} onChange={e => setFormData({...formData, bankName: e.target.value})} />
+                <Label className="text-sm">Bank Name</Label>
+                <Input value={formData.bankName} onChange={e => setFormData({...formData, bankName: e.target.value})} className="text-sm" />
              </div>
               <div className="space-y-2">
-                <Label>Account Number</Label>
-                <Input value={formData.accountNumber} onChange={e => setFormData({...formData, accountNumber: e.target.value})} />
+                <Label className="text-sm">Account Number</Label>
+                <Input value={formData.accountNumber} onChange={e => setFormData({...formData, accountNumber: e.target.value})} className="text-sm" />
              </div>
               <div className="space-y-2">
-                <Label>Routing Number</Label>
-                <Input value={formData.routingNumber} onChange={e => setFormData({...formData, routingNumber: e.target.value})} />
+                <Label className="text-sm">Routing Number</Label>
+                <Input value={formData.routingNumber} onChange={e => setFormData({...formData, routingNumber: e.target.value})} className="text-sm" />
              </div>
           </div>
 
-          <div className="flex justify-end gap-2 mt-4">
-             <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
-             <Button onClick={handleSave}>{isEditMode ? "Save Changes" : "Create Employee"}</Button>
+          <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 mt-4">
+             <Button variant="outline" onClick={() => setIsModalOpen(false)} className="w-full sm:w-auto text-sm">Cancel</Button>
+             <Button onClick={handleSave} className="w-full sm:w-auto text-sm">{isEditMode ? "Save Changes" : "Create Employee"}</Button>
           </div>
         </DialogContent>
       </Dialog>

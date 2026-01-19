@@ -79,7 +79,7 @@ export default function Workers() {
   });
 
   // Fetch Employees from Supabase
-  const { data: workers = [], isLoading } = useQuery({
+  const { data: workers = [], isLoading } = useQuery<Employee[]>({
     queryKey: ['employees'],
     queryFn: employeesService.getAll,
     enabled: !!supabaseUser,
@@ -508,23 +508,23 @@ export default function Workers() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4 sm:space-y-6 p-2 sm:p-0">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900">Workers Management</h1>
-          <p className="text-slate-600 mt-1">Manage team members and track worker information</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">Workers Management</h1>
+          <p className="text-sm sm:text-base text-slate-600 mt-1">Manage team members and track worker information</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
           <Button
             onClick={printWorkersDetails}
-            className="gap-2 bg-amber-600 hover:bg-amber-700"
+            className="gap-2 bg-amber-600 hover:bg-amber-700 w-full sm:w-auto justify-center"
           >
             <Printer className="w-4 h-4" />
             Print Details
           </Button>
           <Button
             onClick={printWorkersList}
-            className="gap-2 bg-slate-600 hover:bg-slate-700"
+            className="gap-2 bg-slate-600 hover:bg-slate-700 w-full sm:w-auto justify-center"
           >
             <Printer className="w-4 h-4" />
             Print List
@@ -533,14 +533,14 @@ export default function Workers() {
             <Dialog open={isAddModalOpen} onOpenChange={setIsAddModalOpen}>
               <DialogTrigger asChild>
                 <Button
-                  className="gap-2 bg-blue-600 hover:bg-blue-700"
+                  className="gap-2 bg-blue-600 hover:bg-blue-700 w-full sm:w-auto justify-center"
                   onClick={() => resetForm()}
                 >
                   <Plus className="w-4 h-4" />
                   Add Worker
                 </Button>
               </DialogTrigger>
-              <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
+              <DialogContent className="w-[95vw] sm:max-w-md max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle>Add New Worker</DialogTitle>
                   <DialogDescription>Add a new team member</DialogDescription>
@@ -674,86 +674,149 @@ export default function Workers() {
         </div>
       </div>
 
-      <Card className="border-slate-200">
-        <CardHeader>
-          <CardTitle>Workers List</CardTitle>
-          <CardDescription>All team members ({workers.length})</CardDescription>
-        </CardHeader>
-        <CardContent>
+      <div className="space-y-4">
+        {/* Mobile View - Cards */}
+        <div className="md:hidden space-y-4">
           {workers.length === 0 ? (
-            <div className="text-center py-8">
-              <p className="text-slate-500">No workers added yet</p>
-            </div>
+            <Card className="border-slate-200">
+              <CardContent className="p-6 text-center text-slate-500">
+                No workers added yet
+              </CardContent>
+            </Card>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="border-b border-slate-200 bg-slate-50">
-                  <tr>
-                    <th className="text-left p-3 font-semibold text-slate-900">ID</th>
-                    <th className="text-left p-3 font-semibold text-slate-900">Name</th>
-                    <th className="text-left p-3 font-semibold text-slate-900">Position</th>
-                    <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Weekly Rate</th>
-                    <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Start Date</th>
-                    <th className="text-left p-3 font-semibold text-slate-900">Status</th>
-                    <th className="text-left p-3 font-semibold text-slate-900">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {workers.map((worker, idx) => (
-                    <tr key={worker.id} className={idx % 2 === 0 ? "bg-white" : "bg-slate-50"}>
-                      <td className="p-3 text-slate-700 font-medium">{worker.id.substring(0, 8)}</td>
-                      <td className="p-3 text-slate-700">{worker.name}</td>
-                      <td className="p-3 text-slate-700">{worker.position || "-"}</td>
-                      <td className="p-3 text-slate-700 whitespace-nowrap">${(worker.weekly_rate || 0).toLocaleString()}</td>
-                      <td className="p-3 text-slate-700 whitespace-nowrap">
-                        {worker.hire_date ? formatDateString(worker.hire_date) : "-"}
-                      </td>
-                      <td className="p-3">
-                        <span className={`inline-block px-2 py-1 rounded text-xs font-medium ${getStatusColor(worker.status)}`}>
-                          {worker.status || "active"}
-                        </span>
-                      </td>
-                      <td className="p-3">
-                        <div className="flex gap-2">
-                          {user?.role === "admin" || user?.role === "manager" ? (
-                            <>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="text-purple-600 hover:bg-purple-50 gap-1"
-                                onClick={() => handleEdit(worker)}
-                              >
-                                <Edit2 className="w-3 h-3" />
-                                Edit
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="text-red-600 hover:bg-red-50 gap-1"
-                                onClick={() => handleDeleteWorker(worker.id, worker.name)}
-                              >
-                                <Trash2 className="w-3 h-3" />
-                                Delete
-                              </Button>
-                            </>
-                          ) : (
-                            <span className="text-xs text-slate-500">View only</span>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            workers.map((worker) => (
+              <Card key={worker.id} className="border-slate-200 shadow-sm">
+                <CardHeader className="p-4 pb-2">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <CardTitle className="text-lg font-bold text-slate-900">{worker.name}</CardTitle>
+                      <CardDescription>{worker.position || "-"}</CardDescription>
+                    </div>
+                    <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusColor(worker.status)}`}>
+                      {worker.status || "active"}
+                    </span>
+                  </div>
+                </CardHeader>
+                <CardContent className="p-4 pt-2 space-y-3">
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div className="text-slate-500">Weekly Rate:</div>
+                    <div className="font-medium text-slate-900 text-right">${(worker.weekly_rate || 0).toLocaleString()}</div>
+                    
+                    <div className="text-slate-500">Start Date:</div>
+                    <div className="font-medium text-slate-900 text-right">{worker.hire_date ? formatDateString(worker.hire_date) : "-"}</div>
+                    
+                    <div className="text-slate-500">ID:</div>
+                    <div className="font-mono text-slate-900 text-right">{worker.id.substring(0, 8)}</div>
+                  </div>
+
+                  {(user?.role === "admin" || user?.role === "manager") && (
+                    <div className="flex gap-2 pt-2 border-t border-slate-100 mt-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="flex-1 text-purple-600 hover:bg-purple-50"
+                        onClick={() => handleEdit(worker)}
+                      >
+                        <Edit2 className="w-3 h-3 mr-1" /> Edit
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="flex-1 text-red-600 hover:bg-red-50"
+                        onClick={() => handleDeleteWorker(worker.id, worker.name)}
+                      >
+                        <Trash2 className="w-3 h-3 mr-1" /> Delete
+                      </Button>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            ))
           )}
-        </CardContent>
-      </Card>
+        </div>
+
+        {/* Desktop View - Table */}
+        <Card className="hidden md:block border-slate-200">
+          <CardHeader>
+            <CardTitle>Workers List</CardTitle>
+            <CardDescription>All team members ({workers.length})</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {workers.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-slate-500">No workers added yet</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="border-b border-slate-200 bg-slate-50">
+                    <tr>
+                      <th className="text-left p-3 font-semibold text-slate-900">ID</th>
+                      <th className="text-left p-3 font-semibold text-slate-900">Name</th>
+                      <th className="text-left p-3 font-semibold text-slate-900">Position</th>
+                      <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Weekly Rate</th>
+                      <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Start Date</th>
+                      <th className="text-left p-3 font-semibold text-slate-900">Status</th>
+                      <th className="text-left p-3 font-semibold text-slate-900">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {workers.map((worker, idx) => (
+                      <tr key={worker.id} className={idx % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+                        <td className="p-3 text-slate-700 font-medium">{worker.id.substring(0, 8)}</td>
+                        <td className="p-3 text-slate-700">{worker.name}</td>
+                        <td className="p-3 text-slate-700">{worker.position || "-"}</td>
+                        <td className="p-3 text-slate-700 whitespace-nowrap">${(worker.weekly_rate || 0).toLocaleString()}</td>
+                        <td className="p-3 text-slate-700 whitespace-nowrap">
+                          {worker.hire_date ? formatDateString(worker.hire_date) : "-"}
+                        </td>
+                        <td className="p-3">
+                          <span className={`inline-block px-2 py-1 rounded text-xs font-medium ${getStatusColor(worker.status)}`}>
+                            {worker.status || "active"}
+                          </span>
+                        </td>
+                        <td className="p-3">
+                          <div className="flex gap-2">
+                            {user?.role === "admin" || user?.role === "manager" ? (
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-purple-600 hover:bg-purple-50 gap-1"
+                                  onClick={() => handleEdit(worker)}
+                                >
+                                  <Edit2 className="w-3 h-3" />
+                                  Edit
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-red-600 hover:bg-red-50 gap-1"
+                                  onClick={() => handleDeleteWorker(worker.id, worker.name)}
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                  Delete
+                                </Button>
+                              </>
+                            ) : (
+                              <span className="text-xs text-slate-500">View only</span>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
 
       {/* Edit Dialog */}
       {isEditModalOpen && editingWorkerId && (user?.role === "admin" || user?.role === "manager") ? (
         <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
-          <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
+          <DialogContent className="w-[95vw] sm:max-w-md max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Edit Worker</DialogTitle>
               <DialogDescription>Update worker information</DialogDescription>

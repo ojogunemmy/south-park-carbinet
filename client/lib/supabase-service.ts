@@ -1,4 +1,4 @@
-import { supabase, type Employee, type Payment, type Contract, type Bill, type Material, type Settings } from './supabase';
+import { supabase, type Employee, type Payment, type Contract, type Bill, type Material, type Settings, type Profile } from './supabase';
 
 // ============================================
 // EMPLOYEES SERVICE
@@ -33,12 +33,53 @@ export const employeesService = {
     return data as Employee;
   },
 
-  // Public submission (no return data to avoid SELECT RLS issues)
+  // Public submission with deduplication logic
+  async upsertPublic(employee: Partial<Employee>) {
+    // 1. Try to find existing employee by email
+    if (employee.email) {
+      const { data: existing } = await supabase
+        .from('employees')
+        .select('id')
+        .eq('email', employee.email)
+        .maybeSingle();
+      
+      if (existing) {
+        const { error } = await supabase
+          .from('employees')
+          .update({ ...employee, updated_at: new Date().toISOString() })
+          .eq('id', existing.id);
+        if (error) throw error;
+        return;
+      }
+    }
+
+    // 2. Fallback to name-based match if email not found but name provided
+    if (employee.name) {
+      const { data: existingByName } = await supabase
+        .from('employees')
+        .select('id')
+        .eq('name', employee.name)
+        .is('user_id', null) // Only link to unlinked records
+        .maybeSingle();
+
+      if (existingByName) {
+        const { error } = await supabase
+          .from('employees')
+          .update({ ...employee, updated_at: new Date().toISOString() })
+          .eq('id', existingByName.id);
+        if (error) throw error;
+        return;
+      }
+    }
+
+    // 3. Create new if no match found
+    const { error } = await supabase.from('employees').insert(employee);
+    if (error) throw error;
+  },
+
+  // Public submission (legacy fallback)
   async createPublic(employee: Partial<Employee>) {
-    const { error } = await supabase
-      .from('employees')
-      .insert(employee);
-      // No .select() here ensures we don't hit "User cannot read row" RLS errors
+    const { error } = await supabase.from('employees').insert(employee);
     if (error) throw error;
   },
 
@@ -48,7 +89,7 @@ export const employeesService = {
       .update({ ...employee, updated_at: new Date().toISOString() })
       .eq('id', id)
       .select()
-      .single();
+      .maybeSingle();
     if (error) throw error;
     return data as Employee;
   },
@@ -59,6 +100,30 @@ export const employeesService = {
       .delete()
       .eq('id', id);
     if (error) throw error;
+  }
+};
+
+// ============================================
+// PROFILES SERVICE
+// ============================================
+export const profilesService = {
+  async update(id: string, profile: Partial<Profile>) {
+    const { data, error } = await supabase
+      .from('profiles')
+      .update({ ...profile, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select()
+      .maybeSingle();
+    if (error) throw error;
+    return data as Profile;
+  },
+
+  async getAll() {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*');
+    if (error) throw error;
+    return data as Profile[];
   }
 };
 

@@ -21,6 +21,7 @@ import Materials from "./pages/Materials";
 import Workers from "./pages/Workers";
 import EmployeeOnboarding from "./pages/EmployeeOnboarding";
 import Login from "./pages/Login";
+import Signup from "./pages/Signup";
 
 const queryClient = new QueryClient();
 
@@ -35,6 +36,7 @@ const App = () => (
             <BrowserRouter>
               <Routes>
                 <Route path="/login" element={<Login />} />
+                <Route path="/signup" element={<Signup />} />
                 <Route path="/onboarding" element={<EmployeeOnboarding />} />
                 <Route
                   path="/*"

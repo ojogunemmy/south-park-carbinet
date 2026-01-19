@@ -13,12 +13,16 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 export type Employee = {
   id: string;
   name: string;
+  email: string | null;
   position: string | null;
   weekly_rate: number | null;
   hire_date: string | null;
   payment_method: 'direct_deposit' | 'check' | 'cash' | 'ach' | 'wire' | null;
   bank_details: any;
   status: 'active' | 'paused' | 'leaving' | 'laid_off';
+  user_id: string | null;
+  is_verified: boolean;
+  has_been_verified: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -58,6 +62,10 @@ export type Contract = {
   labor_cost: number;
   misc_cost: number;
   profit_margin: number | null;
+  notes: string | null;
+  cabinet_type: string | null;
+  material: string | null;
+  installation_included: boolean | null;
   created_at: string;
   updated_at: string;
 };
@@ -109,6 +117,8 @@ export type Profile = {
   email: string;
   full_name: string | null;
   role: 'admin' | 'employee';
+  is_verified: boolean | null;
+  has_been_verified: boolean;
   created_at: string;
   updated_at: string;
 };

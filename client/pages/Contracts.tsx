@@ -52,19 +52,20 @@ export default function Contracts() {
     client_phone: "",
     client_email: "",
     client_address: "",
-    project_location: "",
+    project_address: "",
     cabinet_type: CABINET_TYPES[0],
     material: "Wood",
     installation_included: false,
-    additional_notes: "",
-    cost_tracking: {}, // Initialize as empty, logic handled in detail view or separate components
+    notes: "",
+    labor_cost: 0,
+    misc_cost: 0,
   });
 
   // Filter state
   const [filterStatus, setFilterStatus] = useState<string>("all");
 
   // Fetch Contracts
-  const { data: contracts = [], isLoading } = useQuery({
+  const { data: contracts = [], isLoading } = useQuery<Contract[]>({
     queryKey: ['contracts'],
     queryFn: contractsService.getAll,
     enabled: !!user,
@@ -120,12 +121,13 @@ export default function Contracts() {
       client_phone: "",
       client_email: "",
       client_address: "",
-      project_location: "",
+      project_address: "",
       cabinet_type: CABINET_TYPES[0],
       material: "Wood",
       installation_included: false,
-      additional_notes: "",
-      cost_tracking: {},
+      notes: "",
+      labor_cost: 0,
+      misc_cost: 0,
     });
     setSelectedContract(null);
     setIsEditMode(false);
@@ -135,12 +137,6 @@ export default function Contracts() {
     setSelectedContract(contract);
     setFormData({
       ...contract,
-      // Ensure these exist
-      cost_tracking: contract.cost_tracking || {},
-      payment_schedule: contract.payment_schedule || [],
-      expenses: contract.expenses || [],
-      attachments: contract.attachments || [],
-      down_payments: contract.down_payments || []
     });
     setIsEditMode(true);
     setIsModalOpen(true);
@@ -161,7 +157,14 @@ export default function Contracts() {
     if (isEditMode && selectedContract) {
       updateContractMutation.mutate({ id: selectedContract.id, data: formData });
     } else {
-      createContractMutation.mutate(formData as Omit<Contract, "id" | "created_at" | "updated_at">);
+      // Generate ID like CON-2026-xxx
+      const nextNum = contracts.length + 1;
+      const id = `CON-${new Date().getFullYear()}-${nextNum.toString().padStart(3, '0')}`;
+      
+      createContractMutation.mutate({
+        ...formData,
+        id,
+      } as Contract);
     }
   };
 
@@ -182,15 +185,15 @@ export default function Contracts() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900">Contracts</h1>
-          <p className="text-slate-600 mt-1">Manage client contracts and projects</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">Contracts</h1>
+          <p className="text-sm sm:text-base text-slate-600 mt-1">Manage client contracts and projects</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 w-full sm:w-auto">
           <Button 
             onClick={() => { resetForm(); setIsModalOpen(true); }}
-            className="bg-green-600 hover:bg-green-700 gap-2"
+            className="bg-green-600 hover:bg-green-700 gap-2 w-full sm:w-auto justify-center"
           >
             <Plus className="w-4 h-4" />
             New Contract
@@ -231,10 +234,10 @@ export default function Contracts() {
         </Card>
       </div>
 
-      <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm flex items-center gap-4">
-        <Label>Filter Status:</Label>
+      <div className="bg-white p-3 sm:p-4 rounded-lg border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+        <Label className="text-sm">Filter Status:</Label>
         <Select value={filterStatus} onValueChange={setFilterStatus}>
-          <SelectTrigger className="w-[180px]">
+          <SelectTrigger className="w-full sm:w-[180px] text-sm">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -249,7 +252,10 @@ export default function Contracts() {
       <div className="grid grid-cols-1 gap-4">
         {filteredContracts.length === 0 ? (
            <div className="text-center py-12 text-slate-500 bg-slate-50 rounded-lg border border-dashed border-slate-300">
-             No contracts found
+             <div className="flex flex-col items-center gap-2">
+                <FileIcon className="w-10 h-10 text-slate-300" />
+                <p>No contracts found</p>
+             </div>
            </div>
         ) : (
           filteredContracts.map((contract) => (
@@ -269,25 +275,25 @@ export default function Contracts() {
                     </div>
                     <p className="text-slate-600 font-medium">{contract.client_name}</p>
                     <div className="text-sm text-slate-500">
-                       <p>{contract.project_location}</p>
+                       <p>{contract.project_address}</p>
                        <p className="mt-1">Due: {contract.due_date ? format(new Date(contract.due_date), "MMM d, yyyy") : "No date"} | Value: <span className="font-semibold text-slate-900">${(contract.total_value || 0).toLocaleString()}</span></p>
                     </div>
                   </div>
                   
-                  <div className="flex md:flex-col gap-2 justify-center">
+                  <div className="flex flex-row md:flex-col gap-2 justify-end w-full md:w-auto mt-4 md:mt-0">
                     <Button 
                        variant="outline"
                        size="sm"
                        onClick={() => handleEdit(contract)}
-                       className="text-blue-600 hover:bg-blue-50"
+                       className="flex-1 md:flex-none text-blue-600 hover:bg-blue-50 justify-center"
                     >
-                      <Edit2 className="w-4 h-4 mr-2" /> Details/Edit
+                      <Edit2 className="w-4 h-4 mr-2" /> Details
                     </Button>
                     <Button 
                        variant="outline"
                        size="sm"
                        onClick={() => handleDelete(contract.id, contract.project_name)}
-                       className="text-red-600 hover:bg-red-50"
+                       className="flex-1 md:flex-none text-red-600 hover:bg-red-50 justify-center"
                     >
                       <Trash2 className="w-4 h-4 mr-2" /> Delete
                     </Button>
@@ -300,7 +306,7 @@ export default function Contracts() {
       </div>
 
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-[95vw] max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{isEditMode ? "Edit Contract" : "New Contract"}</DialogTitle>
             <DialogDescription>
@@ -353,13 +359,21 @@ export default function Contracts() {
                  </SelectContent>
                </Select>
              </div>
+             <div className="space-y-2">
+               <Label>Labor Cost ($)</Label>
+               <Input type="number" value={formData.labor_cost} onChange={e => setFormData({...formData, labor_cost: parseFloat(e.target.value) || 0})} />
+             </div>
+             <div className="space-y-2">
+               <Label>Misc Cost ($)</Label>
+               <Input type="number" value={formData.misc_cost} onChange={e => setFormData({...formData, misc_cost: parseFloat(e.target.value) || 0})} />
+             </div>
              <div className="space-y-2 md:col-span-2">
-               <Label>Project Location</Label>
-               <Input value={formData.project_location || ""} onChange={e => setFormData({...formData, project_location: e.target.value})} />
+               <Label>Project Address</Label>
+               <Input value={formData.project_address || ""} onChange={e => setFormData({...formData, project_address: e.target.value})} />
              </div>
              <div className="space-y-2 md:col-span-2">
                <Label>Additional Notes</Label>
-               <Input value={formData.additional_notes || ""} onChange={e => setFormData({...formData, additional_notes: e.target.value})} />
+               <Input value={formData.notes || ""} onChange={e => setFormData({...formData, notes: e.target.value})} />
              </div>
           </div>
 

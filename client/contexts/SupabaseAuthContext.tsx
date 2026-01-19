@@ -6,6 +6,7 @@ interface AuthContextType {
   user: User | null;
   profile: Profile | null;
   role: 'admin' | 'employee' | null;
+  isVerified: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   loading: boolean;
@@ -18,55 +19,83 @@ export function SupabaseAuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    // Check active session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchUserProfile(session.user.id);
-      }
-      setLoading(false);
-    });
-
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchUserProfile(session.user.id);
-      } else {
-        setProfile(null);
-      }
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
 
   const fetchUserProfile = async (userId: string) => {
     const { data, error } = await supabase
       .from('profiles')
       .select('*')
       .eq('id', userId)
-      .single();
+      .maybeSingle();
     
     if (!error && data) {
       setProfile(data);
     }
+    return data;
   };
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) throw error;
+    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({ email, password });
+    if (authError) throw authError;
+    
+    if (authData.user) {
+      const profileData = await fetchUserProfile(authData.user.id);
+      // Explicitly block login for unverified non-admins
+      if (profileData && profileData.role !== 'admin' && profileData.is_verified !== true) {
+        await supabase.auth.signOut();
+        setProfile(null);
+        throw new Error("ACCOUNT_NOT_VERIFIED");
+      }
+    }
   };
 
   const signOut = async () => {
+    setProfile(null);
+    setUser(null);
     await supabase.auth.signOut();
   };
+
+  useEffect(() => {
+    let mounted = true;
+
+    const initializeAuth = async () => {
+      setLoading(true);
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (mounted) {
+        setUser(session?.user ?? null);
+        if (session?.user) {
+          await fetchUserProfile(session.user.id);
+        }
+        setLoading(false);
+      }
+    };
+
+    initializeAuth();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (!mounted) return;
+
+      setUser(session?.user ?? null);
+      if (session?.user) {
+        await fetchUserProfile(session.user.id);
+      } else {
+        setProfile(null);
+      }
+      setLoading(false);
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
 
   return (
     <AuthContext.Provider value={{ 
       user, 
       profile,
       role: profile?.role ?? null,
+      isVerified: profile?.is_verified === true || profile?.role === 'admin',
       signIn, 
       signOut, 
       loading 
@@ -74,7 +103,7 @@ export function SupabaseAuthProvider({ children }: { children: ReactNode }) {
       {children}
     </AuthContext.Provider>
   );
-}
+};
 
 export const useSupabaseAuth = () => {
   const context = useContext(AuthContext);

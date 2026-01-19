@@ -65,12 +65,7 @@ export default function Settings() {
     updateSettingsMutation.mutate(formState);
   };
 
-  const handleClearAllData = () => {
-    if (confirm("⚠️ This will permanently delete ALL local storage data. It will NOT affect Supabase data. Continue?")) {
-      localStorage.clear();
-      window.location.href = "/";
-    }
-  };
+
 
   const handleLogout = async () => {
     try {
@@ -236,22 +231,7 @@ export default function Settings() {
             </CardContent>
           </Card>
 
-          <Card className="border-red-300 bg-red-50">
-            <CardHeader>
-              <CardTitle className="text-red-900">Legacy Data Cleanup</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <p className="text-sm text-red-800">
-                Remove local storage data from previous version. Only do this after confirming all data is in Supabase.
-              </p>
-              <Button
-                onClick={handleClearAllData}
-                className="bg-red-600 hover:bg-red-700 w-full"
-              >
-                Clear Local Storage
-              </Button>
-            </CardContent>
-          </Card>
+
         </>
       ) : (
         <Card>

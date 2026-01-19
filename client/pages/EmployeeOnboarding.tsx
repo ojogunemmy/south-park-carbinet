@@ -13,9 +13,11 @@ import { useState } from "react";
 import { CheckCircle, Loader2 } from "lucide-react";
 import { employeesService } from "@/lib/supabase-service";
 import { useToast } from "@/hooks/use-toast";
+import { useSupabaseAuth } from "@/contexts/SupabaseAuthContext";
 
 export default function EmployeeOnboarding() {
   const { toast } = useToast();
+  const { user } = useSupabaseAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     name: "",
@@ -85,14 +87,16 @@ export default function EmployeeOnboarding() {
         checkNumber: formData.checkNumber, // For reference
       };
 
-      await employeesService.createPublic({
+      await employeesService.upsertPublic({
         name: formData.name,
+        email: formData.email,
         position: formData.position,
         weekly_rate: parseFloat(formData.weeklyRate),
         hire_date: formData.startDate,
         payment_method: formData.paymentMethod as any,
         status: "active",
         bank_details: extendedDetails,
+        user_id: user?.id || null,
       });
 
       setSubmitted(true);
@@ -143,7 +147,10 @@ export default function EmployeeOnboarding() {
               </div>
               <h2 className="text-2xl font-bold text-slate-900">Thank You!</h2>
               <p className="text-slate-600">
-                Your information has been successfully submitted. Our HR team will review your details and add you to the system shortly.
+                Your information has been successfully submitted. Your account is now <strong>Pending Verification</strong>.
+              </p>
+              <p className="text-slate-600">
+                Our HR team will review your details. You will be able to log in once your account has been validated.
               </p>
               <p className="text-sm text-slate-500 mt-4">
                 Redirecting you back in a moment...

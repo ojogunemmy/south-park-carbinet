@@ -25,6 +25,12 @@ export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) 
     return <Navigate to="/login" replace />;
   }
 
+  const { isVerified } = useSupabaseAuth();
+
+  if (!isVerified) {
+    return <Navigate to="/login" replace />;
+  }
+
   if (requiredRole && role !== requiredRole && role !== 'admin') {
     return (
       <div className="min-h-screen flex items-center justify-center">

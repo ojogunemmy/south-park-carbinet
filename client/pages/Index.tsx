@@ -222,121 +222,122 @@ export default function Index() {
   // ADMIN / MANAGER VIEW (Full Access)
   // ==========================================
   return (
-    <div className="space-y-8">
-      {/* Welcome Section */}
-      <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-lg p-8 text-white">
-        <div className="flex items-center justify-between mb-4">
+    <div className="space-y-6">
+      {/* Welcome Section - White Mod */}
+      <div className="bg-white rounded-lg p-6 md:p-8 border border-slate-200 shadow-sm">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
           <div>
-            <h1 className="text-4xl font-bold mb-2">Welcome to Cabinet Business Management</h1>
-            <p className="text-blue-100">
+            <h1 className="text-2xl md:text-4xl font-bold text-slate-900 mb-2">Welcome to Cabinet Business Management</h1>
+            <p className="text-slate-500 text-md md:text-xl">
               Manage your cabinet business with ease. Track employees, contracts, and expenses all in one place.
             </p>
           </div>
           <Button
             onClick={printDashboard}
-            className="gap-2 bg-white text-blue-600 hover:bg-blue-50 h-fit"
+            variant="outline"
+            className="gap-2 border-slate-200 text-slate-700 hover:bg-slate-50 h-fit"
           >
             <Printer className="w-4 h-4" />
-            Print
+            Print Report
           </Button>
         </div>
         
         {/* Quick Links */}
-        <div className="flex flex-wrap gap-4 mt-6">
+        <div className="flex flex-wrap gap-3">
           <Link to="/employees">
-            <Button className="bg-white text-blue-600 hover:bg-blue-50">View Employees</Button>
+            <Button variant="secondary" className="bg-slate-100 text-slate-700 hover:bg-slate-200">View Employees</Button>
           </Link>
           <Link to="/contracts">
-            <Button className="bg-white text-blue-600 hover:bg-blue-50">View Contracts</Button>
+            <Button variant="secondary" className="bg-slate-100 text-slate-700 hover:bg-slate-200">View Contracts</Button>
           </Link>
           <Link to="/bills">
-            <Button className="bg-white text-blue-600 hover:bg-blue-50">View Bills</Button>
+            <Button variant="secondary" className="bg-slate-100 text-slate-700 hover:bg-slate-200">View Bills</Button>
           </Link>
           {role === 'admin' && (
             <Link to="/costs">
-              <Button className="bg-white text-blue-600 hover:bg-blue-50">View Costs</Button>
+              <Button variant="secondary" className="bg-slate-100 text-slate-700 hover:bg-slate-200">View Costs</Button>
             </Link>
           )}
         </div>
       </div>
 
-      {/* Quick Stats Rows */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+      {/* Quick Stats Rows - Improved Responsiveness */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
         {/* Employees */}
-        <Card className="border-slate-200">
+        <Card className="border-slate-200 shadow-sm hover:shadow-md transition-shadow">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-slate-600 flex items-center gap-2">
+            <CardTitle className="text-sm font-medium text-slate-500 flex items-center gap-2">
               <Users className="w-4 h-4 text-blue-600 flex-shrink-0" />
               <span>Total Employees</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-1">
-              <p className="text-3xl font-bold text-slate-900 whitespace-nowrap">{dashboardStats.totalEmployees}</p>
+              <p className="text-2xl font-bold text-slate-900 whitespace-nowrap">{dashboardStats.totalEmployees}</p>
               <p className="text-xs text-slate-500">Active employees</p>
             </div>
           </CardContent>
         </Card>
 
         {/* Contracts */}
-        <Card className="border-slate-200">
+        <Card className="border-slate-200 shadow-sm hover:shadow-md transition-shadow">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-slate-600 flex items-center gap-2">
+            <CardTitle className="text-sm font-medium text-slate-500 flex items-center gap-2">
               <FileText className="w-4 h-4 text-green-600 flex-shrink-0" />
               <span>Active Contracts</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-1">
-              <p className="text-3xl font-bold text-slate-900 whitespace-nowrap">{dashboardStats.totalContracts}</p>
+              <p className="text-2xl font-bold text-slate-900 whitespace-nowrap">{dashboardStats.totalContracts}</p>
               <p className="text-xs text-slate-500 whitespace-nowrap">Value: ${dashboardStats.totalContractValue.toLocaleString()}</p>
             </div>
           </CardContent>
         </Card>
 
         {/* Bills */}
-        <Card className="border-slate-200">
+        <Card className="border-slate-200 shadow-sm hover:shadow-md transition-shadow">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-slate-600 flex items-center gap-2">
+            <CardTitle className="text-sm font-medium text-slate-500 flex items-center gap-2">
               <Receipt className="w-4 h-4 text-orange-600 flex-shrink-0" />
               <span>Outstanding Bills</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-1">
-              <p className="text-3xl font-bold text-slate-900 whitespace-nowrap">{dashboardStats.totalBills}</p>
+              <p className="text-2xl font-bold text-slate-900 whitespace-nowrap">{dashboardStats.totalBills}</p>
               <p className="text-xs text-slate-500 whitespace-nowrap">Amount: ${dashboardStats.pendingBills.toLocaleString()}</p>
             </div>
           </CardContent>
         </Card>
 
         {/* Costs */}
-        <Card className="border-slate-200">
+        <Card className="border-slate-200 shadow-sm hover:shadow-md transition-shadow">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-slate-600 flex items-center gap-2">
+            <CardTitle className="text-sm font-medium text-slate-500 flex items-center gap-2">
               <DollarSign className="w-4 h-4 text-red-600 flex-shrink-0" />
               <span>Total Costs</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-1">
-              <p className="text-3xl font-bold text-slate-900 whitespace-nowrap">${dashboardStats.totalCosts.toLocaleString()}</p>
+              <p className="text-2xl font-bold text-slate-900 whitespace-nowrap">${dashboardStats.totalCosts.toLocaleString()}</p>
               <p className="text-xs text-slate-500">Estimated costs</p>
             </div>
           </CardContent>
         </Card>
 
         {/* Profit */}
-        <Card className={`border-slate-200 ${dashboardStats.totalProfit >= 0 ? "bg-green-50" : "bg-red-50"}`}>
+        <Card className={`border-slate-200 shadow-sm hover:shadow-md transition-shadow ${dashboardStats.totalProfit >= 0 ? "bg-green-50/50" : "bg-red-50/50"}`}>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-slate-600 flex items-center gap-2">
+            <CardTitle className="text-sm font-medium text-slate-500 flex items-center gap-2">
               <TrendingUp className={`w-4 h-4 ${dashboardStats.totalProfit >= 0 ? "text-green-600" : "text-red-600"} flex-shrink-0`} />
               <span>Profit</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-1">
-              <p className={`text-3xl font-bold whitespace-nowrap ${dashboardStats.totalProfit >= 0 ? "text-green-700" : "text-red-700"}`}>
+              <p className={`text-2xl font-bold whitespace-nowrap ${dashboardStats.totalProfit >= 0 ? "text-green-700" : "text-red-700"}`}>
                 ${dashboardStats.totalProfit.toLocaleString()}
               </p>
               <p className={`text-xs whitespace-nowrap ${dashboardStats.totalProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
@@ -348,48 +349,48 @@ export default function Index() {
       </div>
 
       {/* Payroll History Section */}
-      <Card className="border-slate-200">
+      <Card className="border-slate-200 shadow-sm">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <TrendingUp className="w-5 h-5 text-green-600" />
+          <CardTitle className="flex items-center gap-2 text-slate-900">
+            <TrendingUp className="w-5 h-5 text-blue-600" />
             {selectedYear} Payroll History
           </CardTitle>
           <CardDescription>Monthly payment summary and annual total</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="bg-green-50 rounded-lg p-4 border border-green-200">
-              <p className="text-sm font-medium text-green-700">Total Paid YTD</p>
-              <p className="text-3xl font-bold text-green-900 mt-2">${dashboardStats.totalPayroll.toLocaleString()}</p>
-              <p className="text-xs text-green-600 mt-1">Completed payments</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="bg-slate-50 rounded-lg p-4 border border-slate-100">
+              <p className="text-sm font-medium text-slate-500">Total Paid YTD</p>
+              <p className="text-3xl font-bold text-slate-900 mt-2">${dashboardStats.totalPayroll.toLocaleString()}</p>
+              <p className="text-xs text-slate-400 mt-1">Completed payments</p>
             </div>
-            <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-              <p className="text-sm font-medium text-blue-700">Weekly Obligation</p>
-              <p className="text-3xl font-bold text-blue-900 mt-2">${dashboardStats.totalWeeklyPayments.toLocaleString()}</p>
-              <p className="text-xs text-blue-600 mt-1">Active employees</p>
+            <div className="bg-slate-50 rounded-lg p-4 border border-slate-100">
+              <p className="text-sm font-medium text-slate-500">Weekly Obligation</p>
+              <p className="text-3xl font-bold text-slate-900 mt-2">${dashboardStats.totalWeeklyPayments.toLocaleString()}</p>
+              <p className="text-xs text-slate-400 mt-1">Active employees</p>
             </div>
           </div>
 
           <div className="space-y-3">
             <h4 className="text-sm font-semibold text-slate-900">Monthly Breakdown</h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-64 overflow-y-auto pr-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {Object.entries(dashboardStats.monthlyPayroll).map(([monthIdx, amount]) => {
                 const monthName = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"][parseInt(monthIdx) - 1];
                 const maxAmount = Math.max(...Object.values(dashboardStats.monthlyPayroll), 1);
                 const percentage = (amount / maxAmount) * 100;
 
                 return (
-                  <div key={monthIdx} className="space-y-1">
+                  <div key={monthIdx} className="space-y-1 p-2 hover:bg-slate-50 rounded transition-colors">
                     <div className="flex justify-between items-center text-xs">
                       <span className="font-medium text-slate-700">{monthName}</span>
-                      <span className={`font-semibold ${amount > 0 ? "text-green-700" : "text-slate-500"}`}>
+                      <span className={`font-semibold ${amount > 0 ? "text-slate-900" : "text-slate-400"}`}>
                         ${amount.toLocaleString()}
                       </span>
                     </div>
-                    <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                    <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
                       <div
-                        className="bg-gradient-to-r from-green-400 to-green-600 h-full transition-all duration-300"
-                        style={{ width: `${Math.max(percentage, 2)}%` }}
+                        className={`h-full transition-all duration-300 ${amount > 0 ? "bg-blue-500" : "bg-slate-200"}`}
+                        style={{ width: `${Math.max(percentage, 0)}%` }}
                       />
                     </div>
                   </div>
@@ -401,84 +402,84 @@ export default function Index() {
       </Card>
 
       {/* Main Feature Cards Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {/* Employees */}
-        <Card className="border-slate-200 hover:shadow-lg transition-shadow bg-white flex flex-col">
+        <Card className="border-slate-200 shadow-sm hover:shadow-md transition-all bg-white flex flex-col group cursor-pointer" onClick={() => window.location.href='/employees'}>
           <CardHeader>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center group-hover:bg-blue-100 transition-colors">
                 <Users className="w-6 h-6 text-blue-600" />
               </div>
               <div>
-                <CardTitle>Employees</CardTitle>
+                <CardTitle className="text-slate-900">Employees</CardTitle>
                 <CardDescription>Manage your team</CardDescription>
               </div>
             </div>
           </CardHeader>
           <CardContent className="flex-1 flex flex-col justify-end">
-             <Link to="/employees">
-              <Button className="w-full bg-blue-600 hover:bg-blue-700">Manage Employees</Button>
-            </Link>
+             <Button variant="ghost" className="w-full justify-start pl-0 text-blue-600 hover:text-blue-700 hover:bg-transparent group-hover:pl-2 transition-all">
+               Manage Employees →
+             </Button>
           </CardContent>
         </Card>
 
         {/* Contracts */}
-        <Card className="border-slate-200 hover:shadow-lg transition-shadow bg-white flex flex-col">
+        <Card className="border-slate-200 shadow-sm hover:shadow-md transition-all bg-white flex flex-col group cursor-pointer" onClick={() => window.location.href='/contracts'}>
           <CardHeader>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-green-50 rounded-xl flex items-center justify-center group-hover:bg-green-100 transition-colors">
                 <FileText className="w-6 h-6 text-green-600" />
               </div>
               <div>
-                <CardTitle>Contracts</CardTitle>
+                <CardTitle className="text-slate-900">Contracts</CardTitle>
                 <CardDescription>Track agreements</CardDescription>
               </div>
             </div>
           </CardHeader>
           <CardContent className="flex-1 flex flex-col justify-end">
-             <Link to="/contracts">
-              <Button className="w-full bg-green-600 hover:bg-green-700">View Contracts</Button>
-            </Link>
+            <Button variant="ghost" className="w-full justify-start pl-0 text-green-600 hover:text-green-700 hover:bg-transparent group-hover:pl-2 transition-all">
+               View Contracts →
+            </Button>
           </CardContent>
         </Card>
 
         {/* Bills */}
-        <Card className="border-slate-200 hover:shadow-lg transition-shadow bg-white flex flex-col">
+        <Card className="border-slate-200 shadow-sm hover:shadow-md transition-all bg-white flex flex-col group cursor-pointer" onClick={() => window.location.href='/bills'}>
           <CardHeader>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-orange-50 rounded-xl flex items-center justify-center group-hover:bg-orange-100 transition-colors">
                 <Receipt className="w-6 h-6 text-orange-600" />
               </div>
               <div>
-                <CardTitle>Bills</CardTitle>
+                <CardTitle className="text-slate-900">Bills</CardTitle>
                 <CardDescription>Manage expenses</CardDescription>
               </div>
             </div>
           </CardHeader>
           <CardContent className="flex-1 flex flex-col justify-end">
-             <Link to="/bills">
-              <Button className="w-full bg-orange-600 hover:bg-orange-700">Manage Bills</Button>
-            </Link>
+            <Button variant="ghost" className="w-full justify-start pl-0 text-orange-600 hover:text-orange-700 hover:bg-transparent group-hover:pl-2 transition-all">
+               Manage Bills →
+            </Button>
           </CardContent>
         </Card>
 
         {/* Costs */}
-        <Card className="border-slate-200 hover:shadow-lg transition-shadow bg-white flex flex-col">
+        <Card className="border-slate-200 shadow-sm hover:shadow-md transition-all bg-white flex flex-col group cursor-pointer" onClick={() => window.location.href='/costs'}>
           <CardHeader>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-red-50 rounded-xl flex items-center justify-center group-hover:bg-red-100 transition-colors">
                 <DollarSign className="w-6 h-6 text-red-600" />
               </div>
               <div>
-                <CardTitle>Project Costs</CardTitle>
+                <CardTitle className="text-slate-900">Project Costs</CardTitle>
                 <CardDescription>Track costs</CardDescription>
               </div>
             </div>
           </CardHeader>
           <CardContent className="flex-1 flex flex-col justify-end">
-             <Link to="/costs">
-              <Button className="w-full bg-red-600 hover:bg-red-700">View Costs</Button>
-            </Link>
+            <Button variant="ghost" className="w-full justify-start pl-0 text-red-600 hover:text-red-700 hover:bg-transparent group-hover:pl-2 transition-all">
+               View Costs →
+            </Button>
           </CardContent>
         </Card>
       </div>

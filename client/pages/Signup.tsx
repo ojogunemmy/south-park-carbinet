@@ -1,34 +1,54 @@
 import { useState, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useSupabaseAuth } from '@/contexts/SupabaseAuthContext';
+import { supabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
-export default function Login() {
+export default function Signup() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { signIn } = useSupabaseAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
+
+    if (password !== confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
+
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters');
+      return;
+    }
+
     setLoading(true);
 
     try {
-      await signIn(email, password);
-      navigate('/');
+      const { error: signUpError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            role: 'employee',
+          }
+        }
+      });
+
+      if (signUpError) throw signUpError;
+
+      // Upon successful signup, we redirect to onboarding
+      // Note: Supabase automatically logs the user in after signup by default
+      navigate('/onboarding');
     } catch (err: any) {
-      if (err.message === "ACCOUNT_NOT_VERIFIED") {
-        setError('Your account is waiting for admin confirmation. You will be notified once validated.');
-      } else {
-        setError(err.message || 'Invalid email or password');
-      }
+      setError(err.message || 'Failed to create account');
     } finally {
       setLoading(false);
     }
@@ -39,10 +59,10 @@ export default function Login() {
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1">
           <CardTitle className="text-2xl font-bold text-center">
-            South Park Cabinets
+            Join South Park Cabinets
           </CardTitle>
           <CardDescription className="text-center">
-            Sign in to access the management platform
+            Create your account to start onboarding
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -79,18 +99,31 @@ export default function Login() {
               />
             </div>
 
+            <div className="space-y-2">
+              <Label htmlFor="confirmPassword">Confirm Password</Label>
+              <Input
+                id="confirmPassword"
+                type="password"
+                placeholder="••••••••"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                required
+                disabled={loading}
+              />
+            </div>
+
             <Button 
               type="submit" 
               className="w-full" 
               disabled={loading}
             >
-              {loading ? 'Signing in...' : 'Sign In'}
+              {loading ? 'Creating account...' : 'Create Account'}
             </Button>
             
             <div className="text-center text-sm text-slate-500 mt-4">
-              New employee?{' '}
-              <a href="/signup" className="text-blue-600 hover:underline font-medium">
-                Create Account
+              Already have an account?{' '}
+              <a href="/login" className="text-blue-600 hover:underline font-medium">
+                Sign In
               </a>
             </div>
           </form>
