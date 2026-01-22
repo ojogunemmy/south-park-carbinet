@@ -1,21 +1,22 @@
-import { ReactNode } from 'react';
-import { Navigate } from 'react-router-dom';
-import { useSupabaseAuth } from '@/contexts/SupabaseAuthContext';
+import { Navigate } from "react-router-dom";
+import { useSupabaseAuth } from "@/contexts/SupabaseAuthContext";
 
 interface ProtectedRouteProps {
-  children: ReactNode;
-  requiredRole?: 'admin' | 'coworker' | 'employee';
+  children: React.ReactNode;
+  requiredRole?: "admin" | "manager" | "worker"; 
 }
 
-export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) {
-  const { user, role, loading } = useSupabaseAuth();
+export const ProtectedRoute = ({ children, requiredRole }: ProtectedRouteProps) => {
+  const { user, profile, loading, isVerified } = useSupabaseAuth();
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading...</p>
+          <div className="inline-flex items-center justify-center w-12 h-12 bg-blue-600 rounded-lg mb-4">
+            <span className="text-white font-bold text-lg">C</span>
+          </div>
+          <p className="text-slate-600">Loading...</p>
         </div>
       </div>
     );
@@ -25,22 +26,29 @@ export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) 
     return <Navigate to="/login" replace />;
   }
 
-  const { isVerified } = useSupabaseAuth();
-
-  if (!isVerified) {
+  // Handle verification (only for non-admins)
+  if (profile?.role !== "admin" && !isVerified) {
+    // If not verified, they shouldn't even be here based on SupabaseAuthContext signIn logic,
+    // but this is a safety check.
     return <Navigate to="/login" replace />;
   }
 
-  if (requiredRole && role !== requiredRole && role !== 'admin') {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-red-600">Unauthorized</h1>
-          <p className="mt-2 text-gray-600">You don't have permission to access this page.</p>
-        </div>
-      </div>
-    );
+  // Check role if specified
+  if (requiredRole) {
+    const roleHierarchy: Record<string, number> = {
+      admin: 3,
+      manager: 2,
+      worker: 1,
+      employee: 1, // Handle both designations
+    };
+
+    const userRole = profile?.role || "worker";
+    const mappedUserRole = userRole === "employee" ? "worker" : userRole;
+
+    if (roleHierarchy[mappedUserRole] < roleHierarchy[requiredRole]) {
+      return <Navigate to="/" replace />;
+    }
   }
 
   return <>{children}</>;
-}
+};

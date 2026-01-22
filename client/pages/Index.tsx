@@ -1,111 +1,241 @@
 import { Link } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Users, FileText, Receipt, TrendingUp, DollarSign, Printer, Loader2 } from "lucide-react";
-import { useMemo } from "react";
+import { Users, FileText, Receipt, TrendingUp, AlertCircle, DollarSign, Printer, Plus, Trash2, Edit2, Eye, EyeOff } from "lucide-react";
+import { useMemo, useState, useEffect } from "react";
 import { useYear } from "@/contexts/YearContext";
 import { useSupabaseAuth } from "@/contexts/SupabaseAuthContext";
-import { employeesService, contractsService, billsService, paymentsService } from "@/lib/supabase-service";
-import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/lib/supabase";
+import { 
+  employeesService,
+  contractsService,
+  billsService,
+  paymentsService,
+  profilesService,
+  type Profile,
+  type Employee,
+  type Contract,
+  type Bill,
+  type Payment
+} from "@/lib/supabase-service";
+
+type UserRole = "admin" | "manager" | "worker" | "employee";
+
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import jsPDF from "jspdf";
-import { format } from "date-fns";
 
 export default function Index() {
   const { selectedYear } = useYear();
-  const { user, role, loading: authLoading } = useSupabaseAuth();
+  const { profile: currentUser, signOut } = useSupabaseAuth();
+  
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [contracts, setContracts] = useState<Contract[]>([]);
+  const [bills, setBills] = useState<Bill[]>([]);
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Fetch Data using React Query
-  const { data: employees = [], isLoading: isLoadingEmployees } = useQuery({
-    queryKey: ['employees'],
-    queryFn: employeesService.getAll,
-    enabled: !!user,
-  });
+  const [isAddUserOpen, setIsAddUserOpen] = useState(false);
+  const [isEditUserOpen, setIsEditUserOpen] = useState(false);
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
+  const [newUserName, setNewUserName] = useState("");
+  const [newUserEmail, setNewUserEmail] = useState("");
+  const [newUserPassword, setNewUserPassword] = useState("");
+  const [newUserRole, setNewUserRole] = useState<string>("worker");
+  const [editName, setEditName] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [editPassword, setEditPassword] = useState("");
+  const [editRole, setEditRole] = useState<string>("worker");
+  const [showNewUserPassword, setShowNewUserPassword] = useState(false);
+  const [showEditUserPassword, setShowEditUserPassword] = useState(false);
 
-  const { data: contracts = [], isLoading: isLoadingContracts } = useQuery({
-    queryKey: ['contracts'],
-    queryFn: contractsService.getAll,
-    enabled: !!user && role === 'admin',
-  });
+  // Fetch all data on mount or year change
+  useEffect(() => {
+    const fetchData = async () => {
+      setIsLoading(true);
+      try {
+        const [empData, conData, billData, payData, profData] = await Promise.all([
+          employeesService.getAll(),
+          contractsService.getAll(),
+          billsService.getAll(),
+          paymentsService.getAll(),
+          profilesService.getAll()
+        ]);
+        
+        setEmployees(empData || []);
+        setContracts(conData || []);
+        setBills(billData || []);
+        setPayments(payData || []);
+        setProfiles(profData || []);
+      } catch (error) {
+        console.error("Error fetching dashboard data:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
 
-  const { data: bills = [], isLoading: isLoadingBills } = useQuery({
-    queryKey: ['bills'],
-    queryFn: billsService.getAll,
-    enabled: !!user && role === 'admin',
-  });
+    fetchData();
+  }, [selectedYear]);
 
-  const { data: payments = [], isLoading: isLoadingPayments } = useQuery({
-    queryKey: ['payments'],
-    queryFn: paymentsService.getAll,
-    enabled: !!user,
-  });
+  const handleAddUser = async () => {
+    if (!newUserName.trim() || !newUserEmail.trim() || !newUserPassword.trim()) {
+      alert("Please fill in all fields");
+      return;
+    }
 
-  // Calculate Dashboard Stats
+    try {
+      // For demo migration, we handle auth via Supabase
+      const { data, error } = await supabase.auth.signUp({
+        email: newUserEmail,
+        password: newUserPassword,
+        options: {
+          data: {
+            full_name: newUserName,
+            role: newUserRole,
+          }
+        }
+      });
+
+      if (error) throw error;
+      
+      alert("User account created. Please note: Creating a user via SignUp may log out the current admin session in some Supabase configurations unless Auth Admin API is used.");
+      
+      // Refresh profiles
+      const updatedProfiles = await profilesService.getAll();
+      setProfiles(updatedProfiles);
+      
+      setNewUserName("");
+      setNewUserEmail("");
+      setNewUserPassword("");
+      setNewUserRole("worker");
+      setShowNewUserPassword(false);
+      setIsAddUserOpen(false);
+    } catch (error: any) {
+      alert(`Error creating user: ${error.message}`);
+    }
+  };
+
+  const handleDeleteUser = async (userId: string) => {
+    alert("User deletion requires Supabase Auth Admin API which is not directly accessible from the client for security. Use the Supabase Dashboard to remove users from Auth.");
+  };
+
+  const handleEditUser = (user: Profile) => {
+    setEditingUserId(user.id);
+    setEditName(user.full_name || "");
+    setEditEmail(user.email || "");
+    setEditRole(user.role || "worker");
+    setIsEditUserOpen(true);
+  };
+
+  const handleSaveEditUser = async () => {
+    if (!editName.trim() || !editEmail.trim()) {
+      alert("Please fill in all fields");
+      return;
+    }
+
+    if (!editingUserId) return;
+
+    try {
+      await profilesService.update(editingUserId, {
+        full_name: editName,
+        email: editEmail,
+        role: editRole as any,
+      });
+
+      const updatedProfiles = await profilesService.getAll();
+      setProfiles(updatedProfiles);
+
+      setEditingUserId(null);
+      setEditName("");
+      setEditEmail("");
+      setEditRole("worker");
+      setIsEditUserOpen(false);
+    } catch (error: any) {
+      alert(`Error updating user: ${error.message}`);
+    }
+  };
+
   const dashboardStats = useMemo(() => {
-    // Filter by selected year if applicable
-    // Note: In a real app, we might want to filter on the server side
-    // For now, we filter client side to match previous logic
-    const currentYear = selectedYear.toString();
+    // Filter by selected year if needed (backend returns all for now, but we can filter here for UI context)
+    // Note: payments already filtered by date in a real app, here we check against selectedYear
+    
+    // Calculate costs from contracts
+    let totalMaterialCosts = 0;
+    let totalMiscCosts = 0;
+    contracts.forEach((contract: any) => {
+      // cost_tracking is JSONB in Supabase
+      if (contract.cost_tracking) {
+        const materialCost = contract.cost_tracking.materials?.reduce((sum: number, m: any) => sum + (m.unitPrice * m.quantity), 0) || 0;
+        const miscCost = contract.cost_tracking.miscellaneous?.reduce((sum: number, m: any) => sum + m.amount, 0) || 0;
+        totalMaterialCosts += materialCost;
+        totalMiscCosts += miscCost;
+      }
+    });
 
-    // Stats
-    const totalEmployees = employees.filter(e => e.status === 'active').length;
-    
-    // Contracts logic
-    const activeContracts = contracts.filter(c => c.status === 'in_progress' || c.status === 'pending');
-    const totalContractValue = contracts.reduce((sum, c) => sum + (c.total_value || 0), 0);
-    
-    // Bills logic
-    const pendingBills = bills.filter(b => b.status === 'pending');
-    const totalBillsAmount = bills.reduce((sum, b) => sum + (b.amount || 0), 0);
-    const pendingBillsAmount = pendingBills.reduce((sum, b) => sum + (b.amount || 0), 0);
-
-    // Costs & Profit (Simplified for now based on available data)
-    // Real profit calculation would need thorough material cost linking
-    const totalLaborCost = contracts.reduce((sum, c) => sum + (c.labor_cost || 0), 0);
-    const totalMiscCost = contracts.reduce((sum, c) => sum + (c.misc_cost || 0), 0);
-    const totalCosts = totalBillsAmount + totalLaborCost + totalMiscCost; // Rough estimate
-    
+    const totalContractValue = contracts.reduce((sum: number, c: any) => sum + (c.total_value || 0), 0);
+    const totalCosts = totalMaterialCosts + totalMiscCosts;
     const totalProfit = totalContractValue - totalCosts;
     const profitMargin = totalContractValue > 0 ? (totalProfit / totalContractValue) * 100 : 0;
 
-    // Payroll Monthly Breakdown
+    const totalBillsAmount = bills.reduce((sum: number, b: any) => sum + (Number(b.amount) || 0), 0);
+    const pendingBills = bills.filter((b: any) => b.status !== "paid").reduce((sum: number, b: any) => sum + (Number(b.amount) || 0), 0);
+
+    // Calculate month-by-month payroll data
     const monthlyPayroll: { [key: string]: number } = {};
-    const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-    
+    const monthNames = ["January", "February", "March", "April", "May", "June",
+                        "July", "August", "September", "October", "November", "December"];
+
+    // Initialize all months to 0
     monthNames.forEach((_, index) => {
       monthlyPayroll[`${index + 1}`] = 0;
     });
 
-    const yearlyPayments = payments.filter(p => {
-      if (!p.paid_date) return false;
-      return p.paid_date.startsWith(currentYear);
-    });
-
-    yearlyPayments.forEach(p => {
-      if (p.status === 'paid' && p.paid_date) {
-        const month = new Date(p.paid_date).getMonth() + 1;
-        monthlyPayroll[`${month}`] += (p.amount || 0);
+    // Sum paid payments by month (filter by selected year)
+    payments.forEach((payment: any) => {
+      if (payment.status === "paid" && payment.paid_date) {
+        const paymentDate = new Date(payment.paid_date);
+        if (paymentDate.getFullYear() === selectedYear) {
+          const month = paymentDate.getMonth() + 1;
+          monthlyPayroll[`${month}`] = (monthlyPayroll[`${month}`] || 0) + (Number(payment.amount) || 0);
+        }
       }
     });
 
-    const totalPayroll = Object.values(monthlyPayroll).reduce((sum, val) => sum + val, 0);
-    const totalWeeklyPayments = employees
-      .filter(e => e.status === 'active')
-      .reduce((sum, e) => sum + (e.weekly_rate || 0), 0);
+    const totalPayroll = Object.values(monthlyPayroll).reduce((sum: number, val: any) => sum + val, 0);
 
     return {
-      totalEmployees,
-      totalWeeklyPayments,
-      totalContracts: activeContracts.length,
+      totalEmployees: employees.length,
+      totalWeeklyPayments: employees.reduce((sum: number, e: any) => sum + (Number(e.weekly_rate) || 0), 0),
+      totalContracts: contracts.length,
       totalContractValue,
-      totalBills: pendingBills.length,
-      pendingBills: pendingBillsAmount,
+      totalMaterialCosts,
+      totalMiscCosts,
       totalCosts,
       totalProfit,
       profitMargin,
+      totalBills: bills.length,
+      pendingBills,
+      revenue: totalContractValue,
       monthlyPayroll,
-      totalPayroll
+      totalPayroll,
     };
-  }, [employees, contracts, bills, payments, selectedYear]);
+  }, [selectedYear, employees, contracts, bills, payments]);
 
   const printDashboard = () => {
     try {
@@ -114,6 +244,7 @@ export default function Index() {
       const pageHeight = pdf.internal.pageSize.getHeight();
       let yPosition = 15;
       const margin = 15;
+      const lineHeight = 5;
 
       // Title
       pdf.setFontSize(16);
@@ -163,181 +294,156 @@ export default function Index() {
         pdf.setFontSize(10);
       });
 
+      yPosition += 5;
+
+      // Platform features section
+      pdf.setFont(undefined, "bold");
+      pdf.setFontSize(12);
+      pdf.text("PLATFORM FEATURES", margin, yPosition);
+      yPosition += 8;
+
+      pdf.setFont(undefined, "normal");
+      pdf.setFontSize(9);
+      const features = [
+        "✓ Persistent Database - All data synced to Supabase",
+        "✓ Smart Notifications - Overdue payment alerts",
+        "✓ Auto-generation - Numbers for employees, contracts, bills",
+        "✓ Export & Print - PDF export across all sections",
+        "✓ Tax Reporting - IRS tax reporting ready",
+        "✓ Responsive Design - Works on all devices",
+      ];
+
+      features.forEach((feature) => {
+        if (yPosition > pageHeight - 15) {
+          pdf.addPage();
+          yPosition = 15;
+        }
+        pdf.text(feature, margin, yPosition);
+        yPosition += 5;
+      });
+
       pdf.save("Dashboard-Report.pdf");
     } catch (error) {
       console.error("Error generating dashboard report:", error);
-      alert("Error generating report");
+      alert(`Error generating report: ${error instanceof Error ? error.message : "Unknown error"}`);
     }
   };
 
-  const isLoading = authLoading || isLoadingEmployees || isLoadingContracts || isLoadingBills || isLoadingPayments;
-
-  if (isLoading) {
-    return (
-      <div className="flex h-[50vh] items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-      </div>
-    );
-  }
-
-  // ==========================================
-  // EMPLOYEE VIEW (Restricted)
-  // ==========================================
-  if (role === 'employee') {
-    return (
-      <div className="space-y-8">
-        <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-lg p-8 text-white">
-          <h1 className="text-4xl font-bold mb-2">Welcome, {user?.email}</h1>
-          <p className="text-blue-100">
-            Employee Dashboard
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <Card className="border-slate-200">
-            <CardHeader>
-              <CardTitle>My Assignments</CardTitle>
-              <CardDescription>Current project assignments</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p className="text-slate-500 text-sm">No active assignments found.</p>
-            </CardContent>
-          </Card>
-
-          <Card className="border-slate-200">
-            <CardHeader>
-              <CardTitle>Announcements</CardTitle>
-              <CardDescription>Latest company news</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p className="text-slate-500 text-sm">No new announcements.</p>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-    );
-  }
-
-  // ==========================================
-  // ADMIN / MANAGER VIEW (Full Access)
-  // ==========================================
   return (
-    <div className="space-y-6">
-      {/* Welcome Section - White Mod */}
-      <div className="bg-white rounded-lg p-6 md:p-8 border border-slate-200 shadow-sm">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+    <div className="space-y-8">
+      {/* Welcome Section */}
+      <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-lg p-8 text-white">
+        <div className="flex items-center justify-between mb-4">
           <div>
-            <h1 className="text-2xl md:text-4xl font-bold text-slate-900 mb-2">Welcome to Cabinet Business Management</h1>
-            <p className="text-slate-500 text-md md:text-xl">
+            <h1 className="text-4xl font-bold mb-2">Welcome to Cabinet Business Management</h1>
+            <p className="text-blue-100">
               Manage your cabinet business with ease. Track employees, contracts, and expenses all in one place.
             </p>
           </div>
           <Button
             onClick={printDashboard}
-            variant="outline"
-            className="gap-2 border-slate-200 text-slate-700 hover:bg-slate-50 h-fit"
+            className="gap-2 bg-white text-blue-600 hover:bg-blue-50 h-fit"
           >
             <Printer className="w-4 h-4" />
-            Print Report
+            Print
           </Button>
         </div>
-        
-        {/* Quick Links */}
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-wrap gap-4 mt-6">
           <Link to="/employees">
-            <Button variant="secondary" className="bg-slate-100 text-slate-700 hover:bg-slate-200">View Employees</Button>
+            <Button className="bg-white text-blue-600 hover:bg-blue-50">
+              View Employees
+            </Button>
           </Link>
           <Link to="/contracts">
-            <Button variant="secondary" className="bg-slate-100 text-slate-700 hover:bg-slate-200">View Contracts</Button>
+            <Button className="bg-white text-blue-600 hover:bg-blue-50">
+              View Contracts
+            </Button>
           </Link>
           <Link to="/bills">
-            <Button variant="secondary" className="bg-slate-100 text-slate-700 hover:bg-slate-200">View Bills</Button>
+            <Button className="bg-white text-blue-600 hover:bg-blue-50">
+              View Bills
+            </Button>
           </Link>
-          {role === 'admin' && (
-            <Link to="/costs">
-              <Button variant="secondary" className="bg-slate-100 text-slate-700 hover:bg-slate-200">View Costs</Button>
-            </Link>
-          )}
+          <Link to="/costs">
+            <Button className="bg-white text-blue-600 hover:bg-blue-50">
+              View Costs
+            </Button>
+          </Link>
         </div>
       </div>
 
-      {/* Quick Stats Rows - Improved Responsiveness */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
-        {/* Employees */}
-        <Card className="border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+      {/* Quick Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+        <Card className="border-slate-200">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-slate-500 flex items-center gap-2">
+            <CardTitle className="text-sm font-medium text-slate-600 flex items-center gap-2">
               <Users className="w-4 h-4 text-blue-600 flex-shrink-0" />
               <span>Total Employees</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-1">
-              <p className="text-2xl font-bold text-slate-900 whitespace-nowrap">{dashboardStats.totalEmployees}</p>
+              <p className="text-3xl font-bold text-slate-900 whitespace-nowrap">{dashboardStats.totalEmployees}</p>
               <p className="text-xs text-slate-500">Active employees</p>
             </div>
           </CardContent>
         </Card>
 
-        {/* Contracts */}
-        <Card className="border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+        <Card className="border-slate-200">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-slate-500 flex items-center gap-2">
+            <CardTitle className="text-sm font-medium text-slate-600 flex items-center gap-2">
               <FileText className="w-4 h-4 text-green-600 flex-shrink-0" />
               <span>Active Contracts</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-1">
-              <p className="text-2xl font-bold text-slate-900 whitespace-nowrap">{dashboardStats.totalContracts}</p>
+              <p className="text-3xl font-bold text-slate-900 whitespace-nowrap">{dashboardStats.totalContracts}</p>
               <p className="text-xs text-slate-500 whitespace-nowrap">Value: ${dashboardStats.totalContractValue.toLocaleString()}</p>
             </div>
           </CardContent>
         </Card>
 
-        {/* Bills */}
-        <Card className="border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+        <Card className="border-slate-200">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-slate-500 flex items-center gap-2">
+            <CardTitle className="text-sm font-medium text-slate-600 flex items-center gap-2">
               <Receipt className="w-4 h-4 text-orange-600 flex-shrink-0" />
               <span>Outstanding Bills</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-1">
-              <p className="text-2xl font-bold text-slate-900 whitespace-nowrap">{dashboardStats.totalBills}</p>
+              <p className="text-3xl font-bold text-slate-900 whitespace-nowrap">{dashboardStats.totalBills}</p>
               <p className="text-xs text-slate-500 whitespace-nowrap">Amount: ${dashboardStats.pendingBills.toLocaleString()}</p>
             </div>
           </CardContent>
         </Card>
 
-        {/* Costs */}
-        <Card className="border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+        <Card className="border-slate-200">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-slate-500 flex items-center gap-2">
+            <CardTitle className="text-sm font-medium text-slate-600 flex items-center gap-2">
               <DollarSign className="w-4 h-4 text-red-600 flex-shrink-0" />
               <span>Total Costs</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-1">
-              <p className="text-2xl font-bold text-slate-900 whitespace-nowrap">${dashboardStats.totalCosts.toLocaleString()}</p>
-              <p className="text-xs text-slate-500">Estimated costs</p>
+              <p className="text-3xl font-bold text-slate-900 whitespace-nowrap">${dashboardStats.totalCosts.toLocaleString()}</p>
+              <p className="text-xs text-slate-500">Materials & misc</p>
             </div>
           </CardContent>
         </Card>
 
-        {/* Profit */}
-        <Card className={`border-slate-200 shadow-sm hover:shadow-md transition-shadow ${dashboardStats.totalProfit >= 0 ? "bg-green-50/50" : "bg-red-50/50"}`}>
+        <Card className={`border-slate-200 ${dashboardStats.totalProfit >= 0 ? "bg-green-50" : "bg-red-50"}`}>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-slate-500 flex items-center gap-2">
+            <CardTitle className="text-sm font-medium text-slate-600 flex items-center gap-2">
               <TrendingUp className={`w-4 h-4 ${dashboardStats.totalProfit >= 0 ? "text-green-600" : "text-red-600"} flex-shrink-0`} />
               <span>Profit</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-1">
-              <p className={`text-2xl font-bold whitespace-nowrap ${dashboardStats.totalProfit >= 0 ? "text-green-700" : "text-red-700"}`}>
+              <p className={`text-3xl font-bold whitespace-nowrap ${dashboardStats.totalProfit >= 0 ? "text-green-700" : "text-red-700"}`}>
                 ${dashboardStats.totalProfit.toLocaleString()}
               </p>
               <p className={`text-xs whitespace-nowrap ${dashboardStats.totalProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
@@ -349,140 +455,509 @@ export default function Index() {
       </div>
 
       {/* Payroll History Section */}
-      <Card className="border-slate-200 shadow-sm">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-slate-900">
-            <TrendingUp className="w-5 h-5 text-blue-600" />
-            {selectedYear} Payroll History
-          </CardTitle>
-          <CardDescription>Monthly payment summary and annual total</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="bg-slate-50 rounded-lg p-4 border border-slate-100">
-              <p className="text-sm font-medium text-slate-500">Total Paid YTD</p>
-              <p className="text-3xl font-bold text-slate-900 mt-2">${dashboardStats.totalPayroll.toLocaleString()}</p>
-              <p className="text-xs text-slate-400 mt-1">Completed payments</p>
-            </div>
-            <div className="bg-slate-50 rounded-lg p-4 border border-slate-100">
-              <p className="text-sm font-medium text-slate-500">Weekly Obligation</p>
-              <p className="text-3xl font-bold text-slate-900 mt-2">${dashboardStats.totalWeeklyPayments.toLocaleString()}</p>
-              <p className="text-xs text-slate-400 mt-1">Active employees</p>
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            <h4 className="text-sm font-semibold text-slate-900">Monthly Breakdown</h4>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {Object.entries(dashboardStats.monthlyPayroll).map(([monthIdx, amount]) => {
-                const monthName = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"][parseInt(monthIdx) - 1];
-                const maxAmount = Math.max(...Object.values(dashboardStats.monthlyPayroll), 1);
-                const percentage = (amount / maxAmount) * 100;
-
-                return (
-                  <div key={monthIdx} className="space-y-1 p-2 hover:bg-slate-50 rounded transition-colors">
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="font-medium text-slate-700">{monthName}</span>
-                      <span className={`font-semibold ${amount > 0 ? "text-slate-900" : "text-slate-400"}`}>
-                        ${amount.toLocaleString()}
-                      </span>
-                    </div>
-                    <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                      <div
-                        className={`h-full transition-all duration-300 ${amount > 0 ? "bg-blue-500" : "bg-slate-200"}`}
-                        style={{ width: `${Math.max(percentage, 0)}%` }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Main Feature Cards Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {/* Employees */}
-        <Card className="border-slate-200 shadow-sm hover:shadow-md transition-all bg-white flex flex-col group cursor-pointer" onClick={() => window.location.href='/employees'}>
+      {selectedYear === 2026 && (
+        <Card className="border-slate-200">
           <CardHeader>
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center group-hover:bg-blue-100 transition-colors">
+            <CardTitle className="flex items-center gap-2">
+              <TrendingUp className="w-5 h-5 text-green-600" />
+              2026 Payroll History
+            </CardTitle>
+            <CardDescription>Monthly payment summary and annual total</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-green-50 rounded-lg p-4 border border-green-200">
+                <p className="text-sm font-medium text-green-700">Total Paid YTD</p>
+                <p className="text-3xl font-bold text-green-900 mt-2">${dashboardStats.totalPayroll.toLocaleString()}</p>
+                <p className="text-xs text-green-600 mt-1">Completed payments</p>
+              </div>
+              <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                <p className="text-sm font-medium text-blue-700">Weekly Obligation</p>
+                <p className="text-3xl font-bold text-blue-900 mt-2">${dashboardStats.totalWeeklyPayments.toLocaleString()}</p>
+                <p className="text-xs text-blue-600 mt-1">All employees</p>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <h4 className="text-sm font-semibold text-slate-900">Monthly Breakdown</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-64 overflow-y-auto pr-2">
+                {["January", "February", "March", "April", "May", "June",
+                  "July", "August", "September", "October", "November", "December"].map((month, index) => {
+                  const monthNumber = index + 1;
+                  const amount = dashboardStats.monthlyPayroll[`${monthNumber}`] || 0;
+                  const monthlyValues = Object.values(dashboardStats.monthlyPayroll);
+                  const maxAmount = Math.max(...monthlyValues, 74000); // Estimate ~$18.5k x 4 weeks
+                  const percentage = maxAmount > 0 ? (amount / maxAmount) * 100 : 0;
+
+                  return (
+                    <div key={month} className="space-y-1">
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="font-medium text-slate-700">{month}</span>
+                        <span className={`font-semibold ${amount > 0 ? "text-green-700" : "text-slate-500"}`}>
+                          ${amount.toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                        <div
+                          className="bg-gradient-to-r from-green-400 to-green-600 h-full transition-all duration-300"
+                          style={{ width: `${Math.max(percentage, 2)}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <Link to="/payments" className="block pt-2">
+              <Button className="w-full bg-green-600 hover:bg-green-700">
+                View Payment Details
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Main Sections */}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 auto-rows-fr">
+        {/* Employees Section */}
+        <Card className="border-slate-200 hover:shadow-lg transition-shadow flex flex-col">
+          <CardHeader>
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
                 <Users className="w-6 h-6 text-blue-600" />
               </div>
               <div>
-                <CardTitle className="text-slate-900">Employees</CardTitle>
+                <CardTitle>Employees</CardTitle>
                 <CardDescription>Manage your team</CardDescription>
               </div>
             </div>
           </CardHeader>
-          <CardContent className="flex-1 flex flex-col justify-end">
-             <Button variant="ghost" className="w-full justify-start pl-0 text-blue-600 hover:text-blue-700 hover:bg-transparent group-hover:pl-2 transition-all">
-               Manage Employees →
-             </Button>
+          <CardContent className="flex-1 flex flex-col">
+            <div className="space-y-4">
+              <p className="text-sm text-slate-600">
+                Track employee information, manage weekly payments, and handle payroll with automatic employee number generation.
+              </p>
+              <ul className="space-y-2 text-sm text-slate-600">
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 bg-blue-600 rounded-full" />
+                  Automatic employee numbering
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 bg-blue-600 rounded-full" />
+                  Weekly payment generation
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 bg-blue-600 rounded-full" />
+                  PDF export & print
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 bg-blue-600 rounded-full" />
+                  IRS tax reporting
+                </li>
+              </ul>
+            </div>
+            <Link to="/employees" className="block mt-auto pt-4">
+              <Button className="w-full bg-blue-600 hover:bg-blue-700">
+                Manage Employees
+              </Button>
+            </Link>
           </CardContent>
         </Card>
 
-        {/* Contracts */}
-        <Card className="border-slate-200 shadow-sm hover:shadow-md transition-all bg-white flex flex-col group cursor-pointer" onClick={() => window.location.href='/contracts'}>
+        {/* Contracts Section */}
+        <Card className="border-slate-200 hover:shadow-lg transition-shadow flex flex-col">
           <CardHeader>
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-green-50 rounded-xl flex items-center justify-center group-hover:bg-green-100 transition-colors">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
                 <FileText className="w-6 h-6 text-green-600" />
               </div>
               <div>
-                <CardTitle className="text-slate-900">Contracts</CardTitle>
+                <CardTitle>Contracts</CardTitle>
                 <CardDescription>Track agreements</CardDescription>
               </div>
             </div>
           </CardHeader>
-          <CardContent className="flex-1 flex flex-col justify-end">
-            <Button variant="ghost" className="w-full justify-start pl-0 text-green-600 hover:text-green-700 hover:bg-transparent group-hover:pl-2 transition-all">
-               View Contracts →
-            </Button>
+          <CardContent className="flex-1 flex flex-col">
+            <div className="space-y-4">
+              <p className="text-sm text-slate-600">
+                Handle client contracts with deposit tracking, payment schedules, and comprehensive project details.
+              </p>
+              <ul className="space-y-2 text-sm text-slate-600">
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 bg-green-600 rounded-full" />
+                  Deposit management
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 bg-green-600 rounded-full" />
+                  Payment schedules
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 bg-green-600 rounded-full" />
+                  Project tracking
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 bg-green-600 rounded-full" />
+                  Overdue notifications
+                </li>
+              </ul>
+            </div>
+            <Link to="/contracts" className="block mt-auto pt-4">
+              <Button className="w-full bg-green-600 hover:bg-green-700">
+                View Contracts
+              </Button>
+            </Link>
           </CardContent>
         </Card>
 
-        {/* Bills */}
-        <Card className="border-slate-200 shadow-sm hover:shadow-md transition-all bg-white flex flex-col group cursor-pointer" onClick={() => window.location.href='/bills'}>
+        {/* Bills Section */}
+        <Card className="border-slate-200 hover:shadow-lg transition-shadow flex flex-col">
           <CardHeader>
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-orange-50 rounded-xl flex items-center justify-center group-hover:bg-orange-100 transition-colors">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center">
                 <Receipt className="w-6 h-6 text-orange-600" />
               </div>
               <div>
-                <CardTitle className="text-slate-900">Bills</CardTitle>
+                <CardTitle>Bills</CardTitle>
                 <CardDescription>Manage expenses</CardDescription>
               </div>
             </div>
           </CardHeader>
-          <CardContent className="flex-1 flex flex-col justify-end">
-            <Button variant="ghost" className="w-full justify-start pl-0 text-orange-600 hover:text-orange-700 hover:bg-transparent group-hover:pl-2 transition-all">
-               Manage Bills →
-            </Button>
+          <CardContent className="flex-1 flex flex-col">
+            <div className="space-y-4">
+              <p className="text-sm text-slate-600">
+                Track company expenses and bills with automatic number generation organized by category.
+              </p>
+              <ul className="space-y-2 text-sm text-slate-600">
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 bg-orange-600 rounded-full" />
+                  Category-based numbering
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 bg-orange-600 rounded-full" />
+                  Expense tracking
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 bg-orange-600 rounded-full" />
+                  Print & PDF export
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 bg-orange-600 rounded-full" />
+                  Overdue alerts
+                </li>
+              </ul>
+            </div>
+            <Link to="/bills" className="block mt-auto pt-4">
+              <Button className="w-full bg-orange-600 hover:bg-orange-700">
+                Manage Bills
+              </Button>
+            </Link>
           </CardContent>
         </Card>
 
-        {/* Costs */}
-        <Card className="border-slate-200 shadow-sm hover:shadow-md transition-all bg-white flex flex-col group cursor-pointer" onClick={() => window.location.href='/costs'}>
+        {/* Costs Section */}
+        <Card className="border-slate-200 hover:shadow-lg transition-shadow flex flex-col">
           <CardHeader>
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-red-50 rounded-xl flex items-center justify-center group-hover:bg-red-100 transition-colors">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
                 <DollarSign className="w-6 h-6 text-red-600" />
               </div>
               <div>
-                <CardTitle className="text-slate-900">Project Costs</CardTitle>
+                <CardTitle>Project Costs</CardTitle>
                 <CardDescription>Track costs</CardDescription>
               </div>
             </div>
           </CardHeader>
-          <CardContent className="flex-1 flex flex-col justify-end">
-            <Button variant="ghost" className="w-full justify-start pl-0 text-red-600 hover:text-red-700 hover:bg-transparent group-hover:pl-2 transition-all">
-               View Costs →
-            </Button>
+          <CardContent className="flex-1 flex flex-col">
+            <div className="space-y-4">
+              <p className="text-sm text-slate-600">
+                Track material and miscellaneous costs across all projects with profit margin analysis.
+              </p>
+              <ul className="space-y-2 text-sm text-slate-600">
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 bg-red-600 rounded-full" />
+                  Material cost tracking
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 bg-red-600 rounded-full" />
+                  Miscellaneous expenses
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 bg-red-600 rounded-full" />
+                  Profit calculation
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 bg-red-600 rounded-full" />
+                  Margin analysis
+                </li>
+              </ul>
+            </div>
+            <Link to="/costs" className="block mt-auto pt-4">
+              <Button className="w-full bg-red-600 hover:bg-red-700">
+                View Costs
+              </Button>
+            </Link>
           </CardContent>
         </Card>
       </div>
+
+      {/* User Management Section */}
+      <Card className="border-slate-200">
+        <CardHeader className="flex flex-row items-center justify-between">
+          <div>
+            <CardTitle>User Management</CardTitle>
+            <CardDescription>Manage team members and access control</CardDescription>
+          </div>
+          <Dialog open={isAddUserOpen} onOpenChange={setIsAddUserOpen}>
+            <DialogTrigger asChild>
+              <Button className="gap-2 bg-blue-600 hover:bg-blue-700">
+                <Plus className="w-4 h-4" />
+                Add New User
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Add New User</DialogTitle>
+                <DialogDescription>
+                  Add a new team member to your cabinet business
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="newUserName">Name</Label>
+                  <Input
+                    id="newUserName"
+                    placeholder="Full name"
+                    value={newUserName}
+                    onChange={(e) => setNewUserName(e.target.value)}
+                    className="border-slate-300"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="newUserEmail">Email/Username</Label>
+                  <Input
+                    id="newUserEmail"
+                    placeholder="email@example.com"
+                    value={newUserEmail}
+                    onChange={(e) => setNewUserEmail(e.target.value)}
+                    className="border-slate-300"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="newUserPassword">Password</Label>
+                  <div className="relative">
+                    <Input
+                      id="newUserPassword"
+                      type={showNewUserPassword ? "text" : "password"}
+                      placeholder="Password"
+                      value={newUserPassword}
+                      onChange={(e) => setNewUserPassword(e.target.value)}
+                      className="border-slate-300 pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowNewUserPassword(!showNewUserPassword)}
+                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+                      title={showNewUserPassword ? "Hide password" : "Show password"}
+                    >
+                      {showNewUserPassword ? (
+                        <EyeOff className="w-4 h-4" />
+                      ) : (
+                        <Eye className="w-4 h-4" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="newUserRole">Role</Label>
+                  <Select value={newUserRole} onValueChange={(value) => setNewUserRole(value)}>
+                    <SelectTrigger className="border-slate-300">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="worker">Worker</SelectItem>
+                      <SelectItem value="manager">Manager</SelectItem>
+                      <SelectItem value="admin">Admin</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button onClick={handleAddUser} className="w-full bg-blue-600 hover:bg-blue-700">
+                  Add User
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        </CardHeader>
+        <CardContent>
+          <Dialog open={isEditUserOpen} onOpenChange={setIsEditUserOpen}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Edit User</DialogTitle>
+                <DialogDescription>
+                  Update team member information
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="editUserName">Name</Label>
+                  <Input
+                    id="editUserName"
+                    placeholder="Full name"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    className="border-slate-300"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="editUserEmail">Email/Username</Label>
+                  <Input
+                    id="editUserEmail"
+                    placeholder="email@example.com"
+                    value={editEmail}
+                    onChange={(e) => setEditEmail(e.target.value)}
+                    className="border-slate-300"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="editUserRole">Role</Label>
+                  <Select value={editRole} onValueChange={(value) => setEditRole(value)}>
+                    <SelectTrigger className="border-slate-300">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="worker">Worker</SelectItem>
+                      <SelectItem value="manager">Manager</SelectItem>
+                      <SelectItem value="admin">Admin</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button onClick={handleSaveEditUser} className="w-full bg-blue-600 hover:bg-blue-700">
+                  Save Changes
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="border-b border-slate-200 bg-slate-50">
+                <tr>
+                  <th className="text-left p-3 font-semibold text-slate-900">Name</th>
+                  <th className="text-left p-3 font-semibold text-slate-900">Email/Username</th>
+                  <th className="text-left p-3 font-semibold text-slate-900">Password</th>
+                  <th className="text-left p-3 font-semibold text-slate-900">Role</th>
+                  <th className="text-left p-3 font-semibold text-slate-900">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {profiles.map((profile, idx) => (
+                  <tr key={profile.id} className={idx % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+                    <td className="p-3 text-slate-700 font-medium">{profile.full_name || "N/A"}</td>
+                    <td className="p-3 text-slate-700">{profile.email}</td>
+                    <td className="p-3 text-slate-700 font-mono text-sm">••••••••</td>
+                    <td className="p-3">
+                      <span className={`inline-block px-2 py-1 rounded text-xs font-medium whitespace-nowrap ${
+                        profile.role === "admin"
+                          ? "bg-red-100 text-red-700"
+                          : profile.role === "manager"
+                          ? "bg-purple-100 text-purple-700"
+                          : "bg-blue-100 text-blue-700"
+                      }`}>
+                        {profile.role === "admin" ? "Admin" : profile.role === "manager" ? "Manager" : "Worker"}
+                      </span>
+                    </td>
+                    <td className="p-3 flex gap-2">
+                      <button
+                        onClick={() => handleEditUser(profile)}
+                        className="text-blue-600 hover:text-blue-800 hover:bg-blue-50 p-2 rounded transition-colors"
+                        title="Edit user"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteUser(profile.id)}
+                        className="text-red-600 hover:text-red-800 hover:bg-red-50 p-2 rounded transition-colors"
+                        title="Delete user"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Features Section */}
+      <Card className="border-slate-200 bg-slate-50">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <span className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white text-sm font-bold">
+              ✓
+            </span>
+            Platform Features
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="flex gap-3">
+              <div className="w-5 h-5 rounded-full bg-blue-600 flex-shrink-0 flex items-center justify-center text-white text-xs">
+                ✓
+              </div>
+              <div>
+                <p className="font-medium text-slate-900">Persistent Database</p>
+                <p className="text-sm text-slate-600">All data synced to Supabase</p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <div className="w-5 h-5 rounded-full bg-blue-600 flex-shrink-0 flex items-center justify-center text-white text-xs">
+                ✓
+              </div>
+              <div>
+                <p className="font-medium text-slate-900">Smart Notifications</p>
+                <p className="text-sm text-slate-600">Overdue payment alerts</p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <div className="w-5 h-5 rounded-full bg-blue-600 flex-shrink-0 flex items-center justify-center text-white text-xs">
+                ✓
+              </div>
+              <div>
+                <p className="font-medium text-slate-900">Auto-generation</p>
+                <p className="text-sm text-slate-600">Numbers for employees, contracts, bills</p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <div className="w-5 h-5 rounded-full bg-blue-600 flex-shrink-0 flex items-center justify-center text-white text-xs">
+                ✓
+              </div>
+              <div>
+                <p className="font-medium text-slate-900">Export & Print</p>
+                <p className="text-sm text-slate-600">PDF export across all sections</p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <div className="w-5 h-5 rounded-full bg-blue-600 flex-shrink-0 flex items-center justify-center text-white text-xs">
+                ✓
+              </div>
+              <div>
+                <p className="font-medium text-slate-900">Tax Reporting</p>
+                <p className="text-sm text-slate-600">IRS tax reporting ready</p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <div className="w-5 h-5 rounded-full bg-blue-600 flex-shrink-0 flex items-center justify-center text-white text-xs">
+                ✓
+              </div>
+              <div>
+                <p className="font-medium text-slate-900">Responsive Design</p>
+                <p className="text-sm text-slate-600">Works on all devices</p>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

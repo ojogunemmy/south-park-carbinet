@@ -1,106 +1,141 @@
-import { supabase, type Employee, type Payment, type Contract, type Bill, type Material, type Settings, type Profile } from './supabase';
+import {
+  supabase,
+  type Employee,
+  type Payment,
+  type Contract,
+  type Bill,
+  type Material,
+  type Settings,
+  type Profile,
+  type EmployeeAbsence
+} from "./supabase";
+export type { Employee, Payment, Contract, Bill, Material, Settings, Profile, EmployeeAbsence };
+
+const API_BASE = "/api";
+
+export async function remoteLog(
+  message: string,
+  level: "info" | "error" = "info",
+) {
+  try {
+    fetch(`${API_BASE}/debug/log`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message, level }),
+    });
+  } catch (e) {}
+}
+
+let currentToken: string | null = null;
+
+// Initialize token listener
+supabase.auth.onAuthStateChange((event, session) => {
+  currentToken = session?.access_token ?? null;
+});
+
+// Helper for API calls
+async function apiFetch<T>(
+  endpoint: string,
+  options: RequestInit = {},
+  timeoutMs: number = 10000,
+): Promise<T> {
+  let token = currentToken;
+
+  // Only get session if we don't have a token cached
+  if (!token) {
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      token = session?.access_token ?? null;
+      if (token) {
+        currentToken = token;
+      }
+    } catch (e) {
+      console.error("[apiFetch] Failed to get session:", e);
+    }
+  }
+
+  const url = `${API_BASE}${endpoint}`;
+
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: token ? `Bearer ${token}` : "",
+        ...options.headers,
+      },
+    });
+
+    clearTimeout(id);
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        console.warn(
+          "[apiFetch] 401 Unauthorized - token might be invalid or expired",
+        );
+      }
+      const errorContent = await response.json().catch(() => ({
+        error: `HTTP ${response.status}: ${response.statusText}`,
+      }));
+      throw new Error(
+        errorContent.error || `API Request failed: ${response.statusText}`,
+      );
+    }
+
+    return response.json();
+  } catch (err: any) {
+    clearTimeout(id);
+    if (err.name === "AbortError") {
+      throw new Error(`API Request timed out after ${timeoutMs}ms`);
+    }
+    throw err;
+  }
+}
 
 // ============================================
 // EMPLOYEES SERVICE
 // ============================================
 export const employeesService = {
   async getAll() {
-    const { data, error } = await supabase
-      .from('employees')
-      .select('*')
-      .order('created_at', { ascending: false });
-    if (error) throw error;
-    return data as Employee[];
+    return apiFetch<Employee[]>("/employees");
   },
 
   async getById(id: string) {
-    const { data, error } = await supabase
-      .from('employees')
-      .select('*')
-      .eq('id', id)
-      .single();
-    if (error) throw error;
-    return data as Employee;
+    return apiFetch<Employee>(`/employees/${id}`);
   },
 
   async create(employee: Partial<Employee>) {
-    const { data, error } = await supabase
-      .from('employees')
-      .insert(employee)
-      .select()
-      .single();
-    if (error) throw error;
-    return data as Employee;
+    return apiFetch<Employee>("/employees", {
+      method: "POST",
+      body: JSON.stringify(employee),
+    });
   },
 
-  // Public submission with deduplication logic
   async upsertPublic(employee: Partial<Employee>) {
-    // 1. Try to find existing employee by email
-    if (employee.email) {
-      const { data: existing } = await supabase
-        .from('employees')
-        .select('id')
-        .eq('email', employee.email)
-        .maybeSingle();
-      
-      if (existing) {
-        const { error } = await supabase
-          .from('employees')
-          .update({ ...employee, updated_at: new Date().toISOString() })
-          .eq('id', existing.id);
-        if (error) throw error;
-        return;
-      }
-    }
-
-    // 2. Fallback to name-based match if email not found but name provided
-    if (employee.name) {
-      const { data: existingByName } = await supabase
-        .from('employees')
-        .select('id')
-        .eq('name', employee.name)
-        .is('user_id', null) // Only link to unlinked records
-        .maybeSingle();
-
-      if (existingByName) {
-        const { error } = await supabase
-          .from('employees')
-          .update({ ...employee, updated_at: new Date().toISOString() })
-          .eq('id', existingByName.id);
-        if (error) throw error;
-        return;
-      }
-    }
-
-    // 3. Create new if no match found
-    const { error } = await supabase.from('employees').insert(employee);
-    if (error) throw error;
-  },
-
-  // Public submission (legacy fallback)
-  async createPublic(employee: Partial<Employee>) {
-    const { error } = await supabase.from('employees').insert(employee);
-    if (error) throw error;
+    return apiFetch<{ message: string }>("/employees/upsert-public", {
+      method: "POST",
+      body: JSON.stringify(employee),
+    });
   },
 
   async update(id: string, employee: Partial<Employee>) {
-    const { data, error } = await supabase
-      .from('employees')
-      .update({ ...employee, updated_at: new Date().toISOString() })
-      .eq('id', id)
-      .select()
-      .maybeSingle();
-    if (error) throw error;
-    return data as Employee;
+    return apiFetch<Employee>(`/employees/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(employee),
+    });
   },
 
   async delete(id: string) {
-    const { error } = await supabase
-      .from('employees')
-      .delete()
-      .eq('id', id);
-    if (error) throw error;
-  }
+    return apiFetch<void>(`/employees/${id}`, {
+      method: "DELETE",
+    });
+  },
 };
 
 // ============================================
@@ -108,23 +143,19 @@ export const employeesService = {
 // ============================================
 export const profilesService = {
   async update(id: string, profile: Partial<Profile>) {
-    const { data, error } = await supabase
-      .from('profiles')
-      .update({ ...profile, updated_at: new Date().toISOString() })
-      .eq('id', id)
-      .select()
-      .maybeSingle();
-    if (error) throw error;
-    return data as Profile;
+    return apiFetch<Profile>(`/profiles/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(profile),
+    });
   },
 
   async getAll() {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*');
-    if (error) throw error;
-    return data as Profile[];
-  }
+    return apiFetch<Profile[]>("/profiles");
+  },
+
+  async getById(id: string) {
+    return apiFetch<Profile>(`/profiles/${id}`);
+  },
 };
 
 // ============================================
@@ -132,61 +163,71 @@ export const profilesService = {
 // ============================================
 export const paymentsService = {
   async getAll() {
-    const { data, error } = await supabase
-      .from('payments')
-      .select('*, employees(*)')
-      .order('week_start_date', { ascending: false });
-    if (error) throw error;
-    return data;
+    return apiFetch<any[]>("/payments");
   },
-
   async getByEmployee(employeeId: string) {
-    const { data, error } = await supabase
-      .from('payments')
-      .select('*')
-      .eq('employee_id', employeeId)
-      .order('week_start_date', { ascending: false });
-    if (error) throw error;
-    return data as Payment[];
+    return apiFetch<Payment[]>(`/payments?employeeId=${employeeId}`);
   },
 
   async create(payment: Partial<Payment>) {
-    const { data, error } = await supabase
-      .from('payments')
-      .insert(payment)
-      .select()
-      .single();
-    if (error) throw error;
-    return data as Payment;
+    return apiFetch<Payment>("/payments", {
+      method: "POST",
+      body: JSON.stringify(payment),
+    });
   },
 
   async createBulk(payments: Partial<Payment>[]) {
-    const { data, error } = await supabase
-      .from('payments')
-      .insert(payments)
-      .select();
-    if (error) throw error;
-    return data as Payment[];
+    return apiFetch<Payment[]>("/payments/bulk", {
+      method: "POST",
+      body: JSON.stringify(payments),
+    });
   },
 
   async update(id: string, payment: Partial<Payment>) {
-    const { data, error } = await supabase
-      .from('payments')
-      .update({ ...payment, updated_at: new Date().toISOString() })
-      .eq('id', id)
-      .select()
-      .single();
-    if (error) throw error;
-    return data as Payment;
+    return apiFetch<Payment>(`/payments/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payment),
+    });
   },
 
   async delete(id: string) {
-    const { error } = await supabase
-      .from('payments')
-      .delete()
-      .eq('id', id);
-    if (error) throw error;
-  }
+    return apiFetch<void>(`/payments/${id}`, {
+      method: "DELETE",
+    });
+  },
+};
+
+// ============================================
+// ABSENCES SERVICE
+// ============================================
+export const absencesService = {
+  async getAll() {
+    return apiFetch<EmployeeAbsence[]>("/absences");
+  },
+
+  async getByEmployee(employeeId: string) {
+    return apiFetch<EmployeeAbsence[]>(`/absences?employeeId=${employeeId}`);
+  },
+
+  async create(absence: Partial<EmployeeAbsence>) {
+    return apiFetch<EmployeeAbsence>("/absences", {
+      method: "POST",
+      body: JSON.stringify(absence),
+    });
+  },
+
+  async update(id: string, absence: Partial<EmployeeAbsence>) {
+    return apiFetch<EmployeeAbsence>(`/absences/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(absence),
+    });
+  },
+
+  async delete(id: string) {
+    return apiFetch<void>(`/absences/${id}`, {
+      method: "DELETE",
+    });
+  },
 };
 
 // ============================================
@@ -194,52 +235,32 @@ export const paymentsService = {
 // ============================================
 export const contractsService = {
   async getAll() {
-    const { data, error } = await supabase
-      .from('contracts')
-      .select('*')
-      .order('created_at', { ascending: false });
-    if (error) throw error;
-    return data as Contract[];
+    return apiFetch<Contract[]>("/contracts");
   },
 
   async getById(id: string) {
-    const { data, error } = await supabase
-      .from('contracts')
-      .select('*')
-      .eq('id', id)
-      .single();
-    if (error) throw error;
-    return data as Contract;
+    return apiFetch<Contract>(`/contracts/${id}`);
   },
 
   async create(contract: Partial<Contract>) {
-    const { data, error } = await supabase
-      .from('contracts')
-      .insert(contract)
-      .select()
-      .single();
-    if (error) throw error;
-    return data as Contract;
+    return apiFetch<Contract>("/contracts", {
+      method: "POST",
+      body: JSON.stringify(contract),
+    });
   },
 
   async update(id: string, contract: Partial<Contract>) {
-    const { data, error } = await supabase
-      .from('contracts')
-      .update({ ...contract, updated_at: new Date().toISOString() })
-      .eq('id', id)
-      .select()
-      .single();
-    if (error) throw error;
-    return data as Contract;
+    return apiFetch<Contract>(`/contracts/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(contract),
+    });
   },
 
   async delete(id: string) {
-    const { error } = await supabase
-      .from('contracts')
-      .delete()
-      .eq('id', id);
-    if (error) throw error;
-  }
+    return apiFetch<void>(`/contracts/${id}`, {
+      method: "DELETE",
+    });
+  },
 };
 
 // ============================================
@@ -247,85 +268,57 @@ export const contractsService = {
 // ============================================
 export const billsService = {
   async getAll() {
-    const { data, error } = await supabase
-      .from('bills')
-      .select('*')
-      .order('purchase_date', { ascending: false });
-    if (error) throw error;
-    return data as Bill[];
+    return apiFetch<Bill[]>("/bills");
   },
 
   async create(bill: Partial<Bill>) {
-    const { data, error } = await supabase
-      .from('bills')
-      .insert(bill)
-      .select()
-      .single();
-    if (error) throw error;
-    return data as Bill;
+    return apiFetch<Bill>("/bills", {
+      method: "POST",
+      body: JSON.stringify(bill),
+    });
   },
 
   async update(id: string, bill: Partial<Bill>) {
-    const { data, error } = await supabase
-      .from('bills')
-      .update({ ...bill, updated_at: new Date().toISOString() })
-      .eq('id', id)
-      .select()
-      .single();
-    if (error) throw error;
-    return data as Bill;
+    return apiFetch<Bill>(`/bills/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(bill),
+    });
   },
 
   async delete(id: string) {
-    const { error } = await supabase
-      .from('bills')
-      .delete()
-      .eq('id', id);
-    if (error) throw error;
-  }
+    return apiFetch<void>(`/bills/${id}`, {
+      method: "DELETE",
+    });
+  },
 };
 
 // ============================================
-// MATERIALS SERVICE
+// MATERIALS SERVICE (Proxy to server if needed, or keep for now)
 // ============================================
 export const materialsService = {
   async getAll() {
-    const { data, error } = await supabase
-      .from('materials')
-      .select('*')
-      .order('name', { ascending: true });
-    if (error) throw error;
-    return data as Material[];
+    return apiFetch<Material[]>("/materials");
   },
 
   async create(material: Partial<Material>) {
-    const { data, error } = await supabase
-      .from('materials')
-      .insert(material)
-      .select()
-      .single();
-    if (error) throw error;
-    return data as Material;
+    return apiFetch<Material>("/materials", {
+      method: "POST",
+      body: JSON.stringify(material),
+    });
   },
 
   async update(id: string, material: Partial<Material>) {
-    const { data, error } = await supabase
-      .from('materials')
-      .update({ ...material, updated_at: new Date().toISOString() })
-      .eq('id', id)
-      .select()
-      .single();
-    if (error) throw error;
-    return data as Material;
+    return apiFetch<Material>(`/materials/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(material),
+    });
   },
 
   async delete(id: string) {
-    const { error } = await supabase
-      .from('materials')
-      .delete()
-      .eq('id', id);
-    if (error) throw error;
-  }
+    return apiFetch<void>(`/materials/${id}`, {
+      method: "DELETE",
+    });
+  },
 };
 
 // ============================================
@@ -333,41 +326,12 @@ export const materialsService = {
 // ============================================
 export const settingsService = {
   async get() {
-    const { data, error } = await supabase
-      .from('settings')
-      .select('*')
-      .limit(1)
-      .single();
-    if (error) throw error;
-    return data as Settings;
+    return apiFetch<Settings>("/settings");
   },
-
   async update(settings: Partial<Settings>) {
-    // Get the first settings record
-    const { data: existing } = await supabase
-      .from('settings')
-      .select('id')
-      .limit(1)
-      .single();
-
-    if (existing) {
-      const { data, error } = await supabase
-        .from('settings')
-        .update({ ...settings, updated_at: new Date().toISOString() })
-        .eq('id', existing.id)
-        .select()
-        .single();
-      if (error) throw error;
-      return data as Settings;
-    } else {
-      // Create if doesn't exist
-      const { data, error } = await supabase
-        .from('settings')
-        .insert(settings)
-        .select()
-        .single();
-      if (error) throw error;
-      return data as Settings;
-    }
-  }
+    return apiFetch<Settings>("/settings", {
+      method: "POST",
+      body: JSON.stringify(settings),
+    });
+  },
 };

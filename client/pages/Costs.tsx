@@ -1,64 +1,97 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { AlertCircle, Printer, Trash2, Loader2, FileIcon } from "lucide-react";
-import { useState } from "react";
-import { contractsService, billsService, type Contract, type Bill } from "@/lib/supabase-service";
-import { useQuery } from "@tanstack/react-query";
-import { useSupabaseAuth } from "@/contexts/SupabaseAuthContext";
+import { AlertCircle, Printer } from "lucide-react";
+import { useState, useEffect } from "react";
+import { useYear } from "@/contexts/YearContext";
 import jsPDF from "jspdf";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { contractsService, type Contract } from "@/lib/supabase-service";
+
+type ContractStatus = 'pending' | 'in-progress' | 'completed';
+
+// Local interfaces for cost tracking structure
+interface MaterialItem {
+  id: string;
+  name: string;
+  unitPrice: number;
+  quantity: number;
+  unit: string;
+}
+
+interface MiscellaneousItem {
+  id: string;
+  description: string;
+  amount: number;
+}
+
+interface CostTracking {
+  materials: MaterialItem[];
+  laborCost: {
+    calculationMethod: "manual" | "daily" | "monthly" | "hours";
+    amount: number;
+    dailyRate?: number;
+    days?: number;
+    monthlyRate?: number;
+    months?: number;
+    hourlyRate?: number;
+    hours?: number;
+    description: string;
+  };
+  miscellaneous: MiscellaneousItem[];
+  profitMarginPercent: number;
+}
+
+// exampleContracts removed, data is now in Supabase
 
 export default function Costs() {
-  const { user } = useSupabaseAuth();
-  const [filterStatus, setFilterStatus] = useState<string>("all");
+  const { selectedYear } = useYear();
+  const [contracts, setContracts] = useState<Contract[]>([]);
+  const [filterStatus, setFilterStatus] = useState<"all" | "pending" | "in-progress" | "completed">("all");
   const [filterFromDate, setFilterFromDate] = useState<string>("");
   const [filterToDate, setFilterToDate] = useState<string>("");
 
-  // Fetch Contracts
-  const { data: contracts = [], isLoading: loadingContracts } = useQuery<Contract[]>({
-    queryKey: ['contracts'],
-    queryFn: contractsService.getAll,
-    enabled: !!user,
-  });
+  const [loading, setLoading] = useState(true);
 
-  // Fetch Bills
-  const { data: bills = [], isLoading: loadingBills } = useQuery<Bill[]>({
-    queryKey: ['bills'],
-    queryFn: billsService.getAll,
-    enabled: !!user,
-  });
-
-  const calculateMaterialCost = (contractId: string) => {
-    return bills
-      .filter(b => b.contract_id === contractId && b.category === 'materials')
-      .reduce((sum, b) => sum + (b.amount || 0), 0);
+  const fetchContracts = async () => {
+    try {
+      setLoading(true);
+      const data = await contractsService.getAll();
+      setContracts(data);
+    } catch (error: any) {
+      console.error("Error loading contracts:", error);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const calculateLaborCost = (contract: Contract) => {
-    return (contract.labor_cost || 0);
+  useEffect(() => {
+    fetchContracts();
+  }, [selectedYear]);
+
+  const calculateMaterialCost = (materials: MaterialItem[]) => {
+    return materials.reduce((sum, m) => sum + m.quantity * m.unitPrice, 0);
   };
 
-  const calculateMiscCost = (contract: Contract) => {
-    // Sum of bills with category 'other' OR 'permits'
-    const extraBills = bills
-      .filter(b => b.contract_id === contract.id && (b.category === 'other' || b.category === 'permits'))
-      .reduce((sum, b) => sum + (b.amount || 0), 0);
-    
-    return (contract.misc_cost || 0) + extraBills;
+  const calculateMiscCost = (misc: MiscellaneousItem[]) => {
+    return misc.reduce((sum, m) => sum + m.amount, 0);
+  };
+
+  const calculateLaborCost = (laborCost: any) => {
+    return laborCost?.amount || 0;
   };
 
   const calculateProfit = (contract: Contract) => {
-    const materialCost = calculateMaterialCost(contract.id);
-    const laborCost = calculateLaborCost(contract);
-    const miscCost = calculateMiscCost(contract);
+    const costTracking = contract.cost_tracking as CostTracking;
+    const materialCost = calculateMaterialCost(costTracking?.materials || []);
+    const laborCost = calculateLaborCost(costTracking?.laborCost);
+    const miscCost = calculateMiscCost(costTracking?.miscellaneous || []);
     const totalCosts = materialCost + laborCost + miscCost;
     return (contract.total_value || 0) - totalCosts;
   };
 
   const calculateProfitMargin = (contract: Contract) => {
     const profit = calculateProfit(contract);
-    return contract.total_value > 0 ? (profit / contract.total_value) * 100 : 0;
+    return (contract.total_value || 0) > 0 ? (profit / contract.total_value) * 100 : 0;
   };
 
   const filteredContracts = contracts
@@ -67,24 +100,38 @@ export default function Costs() {
 
       let dateMatch = true;
       if (filterFromDate || filterToDate) {
-        if (!contract.due_date) return false;
-        const dueDate = new Date(contract.due_date);
+        const dueDateStr = contract.due_date || "";
+        const dueDateParts = dueDateStr.split('-');
+        if (dueDateParts.length < 3) return statusMatch;
+        const dueDate = new Date(parseInt(dueDateParts[0]), parseInt(dueDateParts[1]) - 1, parseInt(dueDateParts[2]));
 
         if (filterFromDate) {
-           if (dueDate < new Date(filterFromDate)) dateMatch = false;
+          const fromDateParts = filterFromDate.split('-');
+          const fromDate = new Date(parseInt(fromDateParts[0]), parseInt(fromDateParts[1]) - 1, parseInt(fromDateParts[2]));
+          if (dueDate < fromDate) dateMatch = false;
         }
         if (filterToDate) {
-           if (dueDate > new Date(filterToDate)) dateMatch = false;
+          const toDateParts = filterToDate.split('-');
+          const toDate = new Date(parseInt(toDateParts[0]), parseInt(toDateParts[1]) - 1, parseInt(toDateParts[2]));
+          // Include the end date (don't add 1 day)
+          if (dueDate > toDate) dateMatch = false;
         }
       }
 
       return statusMatch && dateMatch;
+    })
+    .sort((a, b) => {
+      // Sort by ID in reverse order (most recent contracts first)
+      // Extract numeric part of ID (e.g., "CON-001" -> 1)
+      const aNum = parseInt(a.id.replace("CON-", ""), 10);
+      const bNum = parseInt(b.id.replace("CON-", ""), 10);
+      return bNum - aNum;
     });
 
   const totalContractValue = filteredContracts.reduce((sum, c) => sum + (c.total_value || 0), 0);
-  const totalMaterialCosts = filteredContracts.reduce((sum, c) => sum + calculateMaterialCost(c.id), 0);
-  const totalLaborCosts = filteredContracts.reduce((sum, c) => sum + calculateLaborCost(c), 0);
-  const totalMiscCosts = filteredContracts.reduce((sum, c) => sum + calculateMiscCost(c), 0);
+  const totalMaterialCosts = filteredContracts.reduce((sum, c) => sum + calculateMaterialCost((c.cost_tracking as CostTracking)?.materials || []), 0);
+  const totalLaborCosts = filteredContracts.reduce((sum, c) => sum + calculateLaborCost((c.cost_tracking as CostTracking)?.laborCost), 0);
+  const totalMiscCosts = filteredContracts.reduce((sum, c) => sum + calculateMiscCost((c.cost_tracking as CostTracking)?.miscellaneous || []), 0);
   const totalCosts = totalMaterialCosts + totalLaborCosts + totalMiscCosts;
   const totalProfit = totalContractValue - totalCosts;
   const overallProfitMargin = totalContractValue > 0 ? (totalProfit / totalContractValue) * 100 : 0;
@@ -93,7 +140,7 @@ export default function Costs() {
     switch (status) {
       case "completed":
         return "bg-green-100 text-green-800";
-      case "in_progress":
+      case "in-progress":
         return "bg-blue-100 text-blue-800";
       case "pending":
         return "bg-yellow-100 text-yellow-800";
@@ -121,23 +168,23 @@ export default function Costs() {
 
       // Title
       pdf.setFontSize(16);
-      pdf.setFont("helvetica", "bold");
+      pdf.setFont(undefined, "bold");
       pdf.text("PROJECT COSTS REPORT", margin, yPosition);
       yPosition += 10;
 
       // Generated date
       pdf.setFontSize(9);
-      pdf.setFont("helvetica", "normal");
+      pdf.setFont(undefined, "normal");
       pdf.text(`Generated: ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`, margin, yPosition);
       yPosition += 8;
 
       // Summary section
-      pdf.setFont("helvetica", "bold");
+      pdf.setFont(undefined, "bold");
       pdf.setFontSize(11);
       pdf.text("SUMMARY", margin, yPosition);
       yPosition += lineHeight;
 
-      pdf.setFont("helvetica", "normal");
+      pdf.setFont(undefined, "normal");
       pdf.setFontSize(10);
 
       const summaryLines = [
@@ -158,7 +205,7 @@ export default function Costs() {
       yPosition += 5;
 
       // Contracts breakdown
-      pdf.setFont("helvetica", "bold");
+      pdf.setFont(undefined, "bold");
       pdf.setFontSize(11);
       pdf.text("CONTRACT BREAKDOWN", margin, yPosition);
       yPosition += lineHeight;
@@ -170,26 +217,27 @@ export default function Costs() {
           yPosition = 15;
         }
 
-        const materialCost = calculateMaterialCost(contract.id);
-        const laborCost = calculateLaborCost(contract);
-        const miscCost = calculateMiscCost(contract);
+        const costTracking = contract.cost_tracking as CostTracking;
+        const materialCost = calculateMaterialCost(costTracking?.materials || []);
+        const laborCost = calculateLaborCost(costTracking?.laborCost);
+        const miscCost = calculateMiscCost(costTracking?.miscellaneous || []);
         const totalCost = materialCost + laborCost + miscCost;
         const profit = calculateProfit(contract);
         const margin = calculateProfitMargin(contract);
 
         // Contract header
-        pdf.setFont("helvetica", "bold");
+        pdf.setFont(undefined, "bold");
         pdf.setFontSize(10);
         pdf.text(`${idx + 1}. ${contract.id} - ${contract.project_name}`, margin, yPosition);
         yPosition += lineHeight;
 
         // Contract details with two-column layout
-        pdf.setFont("helvetica", "normal");
+        pdf.setFont(undefined, "normal");
         pdf.setFontSize(9);
 
         const detailLines = [
-          { label: "Client:", amount: contract.client_name || "N/A" },
-          { label: "Status:", amount: contract.status.replace("_", " ") },
+          { label: "Client:", amount: contract.client_name || "" },
+          { label: "Status:", amount: contract.status ? contract.status.replace("-", " ") : "Pending" },
           { label: "Contract Value:", amount: `$${(contract.total_value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}` },
           { label: "Material Costs:", amount: `$${materialCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}` },
           { label: "Labor Costs:", amount: `$${laborCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}` },
@@ -215,34 +263,24 @@ export default function Costs() {
     }
   };
 
-  if (loadingContracts || loadingBills) {
-    return (
-      <div className="flex h-64 items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">Project Costs</h1>
-          <p className="text-sm sm:text-base text-slate-600 mt-1">Track material, labor, and miscellaneous costs across all projects</p>
+          <h1 className="text-3xl font-bold text-slate-900">Project Costs</h1>
+          <p className="text-slate-600 mt-1">Track material, labor, and miscellaneous costs across all projects</p>
         </div>
-        <div className="flex gap-2">
-          <Button
-            onClick={printCostReport}
-            className="gap-2 bg-slate-600 hover:bg-slate-700 w-full sm:w-auto justify-center"
-            disabled={filteredContracts.length === 0}
-          >
-            <Printer className="w-4 h-4" />
-            Print
-          </Button>
-        </div>
+        <Button
+          onClick={printCostReport}
+          className="gap-2 bg-slate-600 hover:bg-slate-700"
+          disabled={filteredContracts.length === 0}
+        >
+          <Printer className="w-4 h-4" />
+          Print
+        </Button>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
         <Card className="border-slate-200">
           <CardHeader>
             <CardTitle className="text-lg">Total Contract Value</CardTitle>
@@ -292,14 +330,13 @@ export default function Costs() {
         </Card>
       </div>
 
-      <Card className="border-slate-200">
-         <div className="border-b border-slate-200 px-4 py-4">
-          <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center">
-            <div className="flex flex-wrap gap-2 w-full lg:w-auto">
+      {contracts.length > 0 && (
+        <Card className="border-slate-200">
+          <div className="border-b border-slate-200 px-6 py-4">
+            <div className="flex gap-2 flex-wrap items-center">
               <Button
                 onClick={() => setFilterStatus("all")}
                 variant={filterStatus === "all" ? "default" : "outline"}
-                size="sm"
                 className={filterStatus === "all" ? "bg-blue-600 hover:bg-blue-700" : "border-slate-300"}
               >
                 All ({contracts.length})
@@ -307,65 +344,55 @@ export default function Costs() {
               <Button
                 onClick={() => setFilterStatus("pending")}
                 variant={filterStatus === "pending" ? "default" : "outline"}
-                size="sm"
                 className={filterStatus === "pending" ? "bg-yellow-600 hover:bg-yellow-700" : "border-slate-300"}
               >
                 Pending ({contracts.filter(c => c.status === "pending").length})
               </Button>
               <Button
-                onClick={() => setFilterStatus("in_progress")}
-                variant={filterStatus === "in_progress" ? "default" : "outline"}
-                size="sm"
-                className={filterStatus === "in_progress" ? "bg-blue-600 hover:bg-blue-700" : "border-slate-300"}
+                onClick={() => setFilterStatus("in-progress")}
+                variant={filterStatus === "in-progress" ? "default" : "outline"}
+                className={filterStatus === "in-progress" ? "bg-blue-600 hover:bg-blue-700" : "border-slate-300"}
               >
-                In Progress ({contracts.filter(c => c.status === "in_progress").length})
+                In Progress ({contracts.filter(c => c.status === "in-progress").length})
               </Button>
               <Button
                 onClick={() => setFilterStatus("completed")}
                 variant={filterStatus === "completed" ? "default" : "outline"}
-                size="sm"
                 className={filterStatus === "completed" ? "bg-green-600 hover:bg-green-700" : "border-slate-300"}
               >
                 Completed ({contracts.filter(c => c.status === "completed").length})
               </Button>
+              <div className="border-l border-slate-200 mx-2 h-6"></div>
+              <Input
+                type="date"
+                placeholder="From"
+                value={filterFromDate}
+                onChange={(e) => setFilterFromDate(e.target.value)}
+                className="border-slate-300 w-36"
+              />
+              <Input
+                type="date"
+                placeholder="To"
+                value={filterToDate}
+                onChange={(e) => setFilterToDate(e.target.value)}
+                className="border-slate-300 w-36"
+              />
+              {(filterFromDate || filterToDate) && (
+                <Button
+                  onClick={() => {
+                    setFilterFromDate("");
+                    setFilterToDate("");
+                  }}
+                  variant="outline"
+                  className="border-slate-300"
+                >
+                  Clear Dates
+                </Button>
+              )}
             </div>
-
-             <div className="flex flex-col sm:flex-row gap-2 w-full lg:w-auto">
-               <div className="flex items-center gap-2">
-                 <Label className="text-xs text-slate-500 mr-1">From:</Label>
-                 <Input
-                   type="date"
-                   value={filterFromDate}
-                   onChange={(e) => setFilterFromDate(e.target.value)}
-                   className="border-slate-300 w-full sm:w-36"
-                 />
-               </div>
-               <div className="flex items-center gap-2">
-                 <Label className="text-xs text-slate-500 mr-1">To:</Label>
-                 <Input
-                   type="date"
-                   value={filterToDate}
-                   onChange={(e) => setFilterToDate(e.target.value)}
-                   className="border-slate-300 w-full sm:w-36"
-                 />
-                 {(filterFromDate || filterToDate) && (
-                   <Button
-                     onClick={() => {
-                       setFilterFromDate("");
-                       setFilterToDate("");
-                     }}
-                     variant="outline"
-                     size="icon"
-                     className="border-slate-300 shrink-0"
-                   >
-                     <Trash2 className="w-4 h-4" />
-                   </Button>
-                 )}
-               </div>
-             </div>
           </div>
-        </div>
-      </Card>
+        </Card>
+      )}
 
       {filteredContracts.length > 0 ? (
         <Card className="border-slate-200">
@@ -374,66 +401,7 @@ export default function Costs() {
             <CardDescription>Material, labor, and miscellaneous costs for each project</CardDescription>
           </CardHeader>
           <CardContent>
-           <div className="space-y-4 md:hidden">
-             {filteredContracts.map(contract => {
-                const materialCost = calculateMaterialCost(contract.id);
-                const laborCost = calculateLaborCost(contract);
-                const miscCost = calculateMiscCost(contract);
-                const totalCost = materialCost + laborCost + miscCost;
-                const profit = calculateProfit(contract);
-                const margin = calculateProfitMargin(contract);
-
-                return (
-                  <Card key={contract.id} className="border-slate-200 shadow-sm">
-                    <CardHeader className="p-4 pb-2">
-                       <div className="flex justify-between items-start">
-                         <div>
-                           <CardTitle className="text-sm font-bold text-slate-900">{contract.project_name}</CardTitle>
-                           <CardDescription className="text-xs">{contract.client_name} (#{contract.id})</CardDescription>
-                         </div>
-                         <span className={`px-2 py-1 rounded text-xs font-medium shrink-0 ${getStatusColor(contract.status)}`}>
-                            {contract.status.replace("_", " ")}
-                         </span>
-                       </div>
-                    </CardHeader>
-                    <CardContent className="p-4 pt-2 space-y-3">
-                       <div className="grid grid-cols-2 gap-2 text-sm border-b border-slate-100 pb-2">
-                          <div className="text-slate-500">Contract Value:</div>
-                          <div className="font-semibold text-slate-900 text-right">${(contract.total_value || 0).toLocaleString()}</div>
-                          
-                          <div className="text-slate-500">Total Costs:</div>
-                          <div className="font-semibold text-slate-700 text-right">${totalCost.toLocaleString()}</div>
-                       </div>
-                       
-                       <div className="grid grid-cols-2 gap-2 text-sm">
-                          <div className="text-slate-500">Materials:</div>
-                          <div className="text-blue-600 text-right">${materialCost.toLocaleString()}</div>
-                          
-                          <div className="text-slate-500">Labor:</div>
-                          <div className="text-purple-600 text-right">${laborCost.toLocaleString()}</div>
-                          
-                          <div className="text-slate-500">Misc:</div>
-                          <div className="text-orange-600 text-right">${miscCost.toLocaleString()}</div>
-                       </div>
-
-                       <div className="pt-2 border-t border-slate-100 flex justify-between items-center">
-                          <span className="text-sm font-semibold">Profit</span>
-                          <div className="text-right">
-                             <div className={`font-bold ${profit >= 0 ? "text-green-600" : "text-red-600"}`}>
-                               ${profit.toLocaleString()}
-                             </div>
-                             <div className={`text-xs ${margin >= 0 ? "text-green-600" : "text-red-600"}`}>
-                               Margin: {margin.toFixed(1)}%
-                             </div>
-                          </div>
-                       </div>
-                    </CardContent>
-                  </Card>
-                );
-             })}
-           </div>
-
-           <div className="hidden md:block overflow-x-auto">
+            <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="border-b border-slate-200 bg-slate-50">
                   <tr>
@@ -441,20 +409,21 @@ export default function Costs() {
                     <th className="text-left p-3 font-semibold text-slate-900">Project</th>
                     <th className="text-left p-3 font-semibold text-slate-900">Client</th>
                     <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Status</th>
-                    <th className="text-right p-3 font-semibold text-slate-900">Value</th>
+                    <th className="text-right p-3 font-semibold text-slate-900">Contract Value</th>
                     <th className="text-right p-3 font-semibold text-slate-900">Materials</th>
                     <th className="text-right p-3 font-semibold text-slate-900">Labor</th>
-                    <th className="text-right p-3 font-semibold text-slate-900">Misc</th>
+                    <th className="text-right p-3 font-semibold text-slate-900">Miscellaneous</th>
                     <th className="text-right p-3 font-semibold text-slate-900">Total Costs</th>
-                    <th className="text-right p-3 font-semibold text-slate-900">Profit</th>
+                    <th className="text-right p-3 font-semibold text-slate-900 whitespace-nowrap">Profit</th>
                     <th className="text-right p-3 font-semibold text-slate-900">Margin %</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredContracts.map((contract, idx) => {
-                    const materialCost = calculateMaterialCost(contract.id);
-                    const laborCost = calculateLaborCost(contract);
-                    const miscCost = calculateMiscCost(contract);
+                   {filteredContracts.map((contract, idx) => {
+                    const costTracking = contract.cost_tracking as CostTracking;
+                    const materialCost = calculateMaterialCost(costTracking?.materials || []);
+                    const laborCost = calculateLaborCost(costTracking?.laborCost);
+                    const miscCost = calculateMiscCost(costTracking?.miscellaneous || []);
                     const totalCost = materialCost + laborCost + miscCost;
                     const profit = calculateProfit(contract);
                     const margin = calculateProfitMargin(contract);
@@ -466,7 +435,7 @@ export default function Costs() {
                         <td className="p-3 text-slate-700 text-xs">{contract.client_name}</td>
                         <td className="p-3 whitespace-nowrap">
                           <span className={`inline-block px-2 py-1 rounded text-xs font-medium ${getStatusColor(contract.status)}`}>
-                            {contract.status.replace("_", " ")}
+                            {contract.status ? contract.status.replace("-", " ") : "Pending"}
                           </span>
                         </td>
                         <td className="p-3 text-right text-slate-700 font-semibold whitespace-nowrap">

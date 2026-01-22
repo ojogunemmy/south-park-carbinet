@@ -24,8 +24,9 @@
 
     "baseUrl": ".",
     "paths": {
-      "@": ["./client"],
-      "@shared": ["./shared"]
+      "@/*": ["./client/*"],
+      "@shared": ["./shared/supabase"],
+      "@shared/*": ["./shared/*"]
     }
   },
   "include": ["client", "server", "shared"],

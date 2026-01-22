@@ -47,13 +47,23 @@ const App = () => (
                           <Route path="/" element={<Index />} />
                           <Route path="/employees" element={<Employees />} />
                           <Route path="/payments" element={<Payments />} />
-                          <Route path="/work-letters" element={<WorkLetters />} />
+                          <Route
+                            path="/work-letters"
+                            element={<WorkLetters />}
+                          />
                           <Route path="/contracts" element={<Contracts />} />
                           <Route path="/bills" element={<Bills />} />
                           <Route path="/costs" element={<Costs />} />
                           <Route path="/materials" element={<Materials />} />
                           <Route path="/workers" element={<Workers />} />
-                          <Route path="/settings" element={<ProtectedRoute requiredRole="admin"><Settings /></ProtectedRoute>} />
+                          <Route
+                            path="/settings"
+                            element={
+                              <ProtectedRoute requiredRole="admin">
+                                <Settings />
+                              </ProtectedRoute>
+                            }
+                          />
                           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
                           <Route path="*" element={<NotFound />} />
                         </Routes>

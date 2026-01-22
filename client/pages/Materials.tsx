@@ -1,12 +1,9 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Plus, Edit2, Trash2, Download, Printer, Loader2 } from "lucide-react";
-import { useState } from "react";
+import { Plus, Edit2, Trash2, Download, Printer } from "lucide-react";
+import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useYear } from "@/contexts/YearContext";
-import { useSupabaseAuth } from "@/contexts/SupabaseAuthContext";
-import { materialsService, type Material } from "@/lib/supabase-service";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import jsPDF from "jspdf";
 import {
   Dialog,
@@ -25,99 +22,83 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Toaster } from "sonner";
+import { materialsService, type Material } from "@/lib/supabase-service";
 
 export default function Materials() {
   const { toast } = useToast();
   const { selectedYear } = useYear();
-  const { user } = useSupabaseAuth();
-  const queryClient = useQueryClient();
-  
+  const [materials, setMaterials] = useState<Material[]>([]);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedMaterial, setSelectedMaterial] = useState<Material | null>(null);
   const [filterCategory, setFilterCategory] = useState<string>("all");
+  const [loading, setLoading] = useState(true);
   const [formData, setFormData] = useState<Partial<Material>>({});
-
-  // Fetch Materials
-  const { data: materials = [], isLoading } = useQuery({
-    queryKey: ['materials'],
-    queryFn: materialsService.getAll,
-    enabled: !!user,
-  });
-
-  // Mutations
-  const createMaterialMutation = useMutation({
-    mutationFn: materialsService.create,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['materials'] });
-      setIsAddModalOpen(false);
-      setFormData({});
-      toast({ title: "Material Added", description: "Material added successfully" });
-    },
-    onError: (error: any) => {
-      toast({ variant: "destructive", description: error.message || "Failed to add material" });
+  const fetchMaterials = async () => {
+    try {
+      setLoading(true);
+      const data = await materialsService.getAll();
+      setMaterials(data);
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to load materials",
+      });
+    } finally {
+      setLoading(false);
     }
-  });
+  };
 
-  const updateMaterialMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Partial<Material> }) => materialsService.update(id, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['materials'] });
-      setIsEditModalOpen(false);
-      setSelectedMaterial(null);
-      setFormData({});
-      toast({ title: "Material Updated", description: "Material updated successfully" });
-    },
-    onError: (error: any) => {
-      toast({ variant: "destructive", description: error.message || "Failed to update material" });
-    }
-  });
+  useEffect(() => {
+    fetchMaterials();
+  }, [selectedYear]);
 
-  const deleteMaterialMutation = useMutation({
-    mutationFn: materialsService.delete,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['materials'] });
-      toast({ title: "Material Removed", description: "Material removed successfully" });
-    },
-    onError: (error: any) => {
-      toast({ variant: "destructive", description: error.message || "Failed to delete material" });
-    }
-  });
-
-  const categories = [...new Set(materials.map((m) => m.category || 'Uncategorized'))].sort();
+  const categories = [...new Set(materials.map((m) => m.category || "Uncategorized"))].sort();
 
   const filteredMaterials =
     filterCategory === "all"
       ? materials
-      : materials.filter((m) => (m.category || 'Uncategorized') === filterCategory);
+      : materials.filter((m) => m.category === filterCategory);
 
-  const handleAddMaterial = () => {
+  const handleAddMaterial = async () => {
     if (!formData.code || !formData.name || !formData.category || !formData.unit_price) {
       toast({ description: "Please fill in all required fields" });
       return;
     }
 
-    createMaterialMutation.mutate({
-      code: formData.code,
-      name: formData.name,
-      category: formData.category,
-      unit: formData.unit || "EA",
-      unit_price: Number(formData.unit_price),
-      description: formData.description,
-      supplier: formData.supplier,
-    });
+    try {
+      const newMaterial = await materialsService.create({
+        code: formData.code,
+        name: formData.name,
+        category: formData.category,
+        unit: formData.unit || "EA",
+        unit_price: Number(formData.unit_price),
+        description: formData.description,
+        supplier: formData.supplier,
+      });
+
+      setMaterials([...materials, newMaterial]);
+      setFormData({});
+      setIsAddModalOpen(false);
+      toast({ title: "Material Added", description: `${newMaterial.name} added successfully` });
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to add material",
+      });
+    }
   };
 
-  const handleEditMaterial = () => {
-    if (!selectedMaterial || !selectedMaterial.id) return;
-    if (!formData.code || !formData.name || !formData.category || !formData.unit_price) {
+  const handleEditMaterial = async () => {
+    if (!selectedMaterial || !formData.code || !formData.name || !formData.category || !formData.unit_price) {
       toast({ description: "Please fill in all required fields" });
       return;
     }
 
-    updateMaterialMutation.mutate({
-      id: selectedMaterial.id,
-      data: {
+    try {
+      const updatedMaterial = await materialsService.update(selectedMaterial.id, {
         code: formData.code,
         name: formData.name,
         category: formData.category,
@@ -125,13 +106,38 @@ export default function Materials() {
         unit_price: Number(formData.unit_price),
         description: formData.description,
         supplier: formData.supplier,
-      }
-    });
+      });
+
+      setMaterials(materials.map((m) => (m.id === updatedMaterial.id ? updatedMaterial : m)));
+      setSelectedMaterial(null);
+      setFormData({});
+      setIsEditModalOpen(false);
+      toast({ title: "Material Updated", description: "Material updated successfully" });
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to update material",
+      });
+    }
   };
 
-  const handleDeleteMaterial = (id: string, name: string) => {
-    if (confirm(`Are you sure you want to delete ${name}?`)) {
-      deleteMaterialMutation.mutate(id);
+  const handleDeleteMaterial = async (id: string) => {
+    if (!confirm("Are you sure you want to remove this material?")) return;
+
+    try {
+      await materialsService.delete(id);
+      setMaterials(materials.filter((m) => m.id !== id));
+      toast({
+        title: "Material Removed",
+        description: "Material removed successfully",
+      });
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to delete material",
+      });
     }
   };
 
@@ -144,10 +150,10 @@ export default function Materials() {
   const exportToCSV = () => {
     const headers = ["Code", "Name", "Category", "Unit", "Price", "Supplier"];
     const rows = filteredMaterials.map((m) => [
-      m.code || "",
+      m.code,
       m.name,
-      m.category || "",
-      m.unit || "",
+      m.category,
+      m.unit,
       (m.unit_price || 0).toFixed(2),
       m.supplier || "",
     ]);
@@ -208,13 +214,14 @@ export default function Materials() {
       const summaryData = [
         { label: "Total Materials", value: filteredMaterials.length, color: [59, 130, 246] },
         { label: "Categories", value: new Set(filteredMaterials.map(m => m.category)).size, color: [34, 197, 94] },
-        { label: "Avg Price", value: `$${(totalValue / (filteredMaterials.length || 1)).toFixed(2)}`, color: [168, 85, 247] },
+        { label: "Avg Price", value: `$${(totalValue / filteredMaterials.length || 0).toFixed(2)}`, color: [168, 85, 247] },
         { label: "Total Value", value: `$${totalValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, color: [249, 115, 22] }
       ];
 
       summaryData.forEach((item, idx) => {
         const xPos = margin + (idx * (boxWidth + 3));
-        pdf.setFillColor(...item.color);
+        const [r, g, b] = item.color;
+        pdf.setFillColor(r, g, b);
         pdf.rect(xPos, yPosition, boxWidth, 12, "F");
 
         pdf.setTextColor(255, 255, 255);
@@ -336,7 +343,7 @@ export default function Materials() {
         // Code (bold)
         pdf.setFont(undefined, "bold");
         pdf.setFontSize(10);
-        pdf.text(material.code || "", prodStartX, prodStartY);
+        pdf.text(material.code, prodStartX, prodStartY);
 
         // Product Name (bold, larger)
         pdf.setFont(undefined, "bold");
@@ -360,7 +367,7 @@ export default function Materials() {
         // Unit (right-aligned, larger)
         pdf.setFont(undefined, "normal");
         pdf.setFontSize(10);
-        pdf.text(material.unit || "EA", xPosition + colWidths[2] - 3, currentY + 1, { align: "right" });
+        pdf.text(material.unit, xPosition + colWidths[2] - 3, currentY + 1, { align: "right" });
         xPosition += colWidths[2];
 
         // Price (bold, right-aligned, larger)
@@ -401,14 +408,6 @@ export default function Materials() {
       toast({ description: "Error generating report. Please try again." });
     }
   };
-
-  if (isLoading) {
-    return (
-      <div className="flex justify-center p-8">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6">
@@ -465,7 +464,7 @@ export default function Materials() {
           </CardHeader>
           <CardContent>
             <p className="text-3xl font-bold text-slate-900">
-              ${(totalValue / (filteredMaterials.length || 1)).toFixed(2)}
+              ${filteredMaterials.length > 0 ? (totalValue / filteredMaterials.length).toFixed(2) : "0.00"}
             </p>
           </CardContent>
         </Card>
@@ -475,8 +474,8 @@ export default function Materials() {
           </CardHeader>
           <CardContent>
             <p className="text-sm font-medium text-slate-700">
-              ${Math.min(...filteredMaterials.map((m) => m.unit_price || 0), 0).toFixed(2)} - $
-              {Math.max(...filteredMaterials.map((m) => m.unit_price || 0), 0).toFixed(2)}
+              ${filteredMaterials.length > 0 ? Math.min(...filteredMaterials.map((m) => m.unit_price || 0)).toFixed(2) : "0.00"} - $
+              {filteredMaterials.length > 0 ? Math.max(...filteredMaterials.map((m) => m.unit_price || 0)).toFixed(2) : "0.00"}
             </p>
           </CardContent>
         </Card>
@@ -562,7 +561,7 @@ export default function Materials() {
                             variant="ghost"
                             size="sm"
                             className="text-red-600 hover:bg-red-50 gap-1"
-                            onClick={() => handleDeleteMaterial(material.id, material.name)}
+                            onClick={() => handleDeleteMaterial(material.id)}
                           >
                             <Trash2 className="w-3 h-3" />
                             Delete
@@ -627,9 +626,9 @@ export default function Materials() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="price">Price ($) *</Label>
+                <Label htmlFor="unit_price">Price ($) *</Label>
                 <Input
-                  id="price"
+                  id="unit_price"
                   type="number"
                   step="0.01"
                   min="0"
@@ -722,9 +721,9 @@ export default function Materials() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-price">Price ($) *</Label>
+                <Label htmlFor="edit-unit_price">Price ($) *</Label>
                 <Input
-                  id="edit-price"
+                  id="edit-unit_price"
                   type="number"
                   step="0.01"
                   min="0"

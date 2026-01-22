@@ -24,7 +24,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
   const location = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const { role, profile, signOut } = useSupabaseAuth();
-  const isAdmin = role === 'admin';
+  const isAdmin = role === "admin";
 
   const isActive = (path: string) => location.pathname === path;
 
@@ -106,7 +106,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
       ],
       adminOnly: true,
     },
-  ].filter(section => !section.adminOnly || isAdmin);
+  ].filter((section) => !section.adminOnly || isAdmin);
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full bg-white text-slate-900 border-r border-slate-200">
@@ -141,7 +141,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
                       "flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors",
                       active
                         ? "bg-blue-600 text-white shadow-sm"
-                        : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                        : "text-slate-600 hover:bg-slate-100 hover:text-slate-900",
                     )}
                   >
                     <Icon className="w-4 h-4" />
@@ -157,24 +157,28 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
       <div className="border-t border-slate-200 p-4 space-y-4">
         <div className="flex items-center gap-3 px-3 py-2">
           <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-xs">
-            {profile?.full_name?.charAt(0) || profile?.email?.charAt(0) || 'U'}
+            {profile?.full_name?.charAt(0) || profile?.email?.charAt(0) || "U"}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-semibold text-slate-900 truncate">{profile?.full_name || 'User'}</p>
+            <p className="text-xs font-semibold text-slate-900 truncate">
+              {profile?.full_name || "User"}
+            </p>
             <p className="text-[10px] text-slate-500 capitalize">{role}</p>
           </div>
         </div>
-        
-        <Button 
-          variant="ghost" 
+
+        <Button
+          variant="ghost"
           className="w-full justify-start text-slate-600 hover:text-red-600 hover:bg-red-50 gap-3"
           onClick={() => signOut()}
         >
           <LogOut className="w-4 h-4" />
           <span>Logout</span>
         </Button>
-        
-        <p className="text-[10px] text-slate-400 text-center">v1.2.0 • South Park Cabinets</p>
+
+        <p className="text-[10px] text-slate-400 text-center">
+          v1.2.0 • South Park Cabinets
+        </p>
       </div>
     </div>
   );
@@ -188,7 +192,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
 
       {/* Mobile Sidebar Overlay */}
       {isMobileMenuOpen && (
-        <div 
+        <div
           className="lg:hidden fixed inset-0 z-50 bg-black/50 backdrop-blur-sm transition-opacity"
           onClick={() => setIsMobileMenuOpen(false)}
         />
@@ -198,7 +202,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
       <aside
         className={cn(
           "lg:hidden fixed inset-y-0 left-0 z-50 w-64 transform transition-transform duration-300 ease-in-out shadow-xl",
-          isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"
+          isMobileMenuOpen ? "translate-x-0" : "-translate-x-full",
         )}
       >
         <SidebarContent />
@@ -220,9 +224,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
           </div>
         </header>
 
-        <main className="flex-1 p-4 md:p-6 overflow-x-hidden">
-          {children}
-        </main>
+        <main className="flex-1 p-4 md:p-6 overflow-x-hidden">{children}</main>
       </div>
     </div>
   );
