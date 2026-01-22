@@ -6,9 +6,17 @@ import html2canvas from "html2canvas";
 import JSZip from "jszip";
 import { useState, useEffect } from "react";
 import { useYear } from "@/contexts/YearContext";
-import { getYearData, saveYearData, shouldUseExampleData, getTodayDate, formatDateString, generateShortId } from "@/utils/yearStorage";
-import { useAutoSave } from "@/hooks/useAutoSave";
+import { getTodayDate, formatDateString, generateShortId } from "@/utils/yearStorage";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
+import {
+  contractsService,
+  materialsService,
+  billsService,
+  type Contract,
+  type Material,
+  type Bill,
+} from "@/lib/supabase-service";
 import { Toaster } from "sonner";
 import {
   Dialog,
@@ -39,38 +47,38 @@ interface Payment {
   id: string;
   description: string;
   amount: number;
-  dueDate: string;
+  due_date: string;
   status: "pending" | "paid";
-  paidDate?: string;
-  paymentMethod?: "check" | "direct_deposit" | "bank_transfer" | "wire_transfer" | "credit_card" | "debit_card" | "cash";
-  bankName?: string;
-  routingNumber?: string;
-  accountNumber?: string;
-  accountType?: string;
-  checkNumber?: string;
-  checkAttachment?: string;
-  transactionReference?: string;
-  creditCardLast4?: string;
-  receiptAttachment?: string;
+  paid_date?: string;
+  payment_method?: string;
+  bank_name?: string;
+  routing_number?: string;
+  account_number?: string;
+  account_type?: string;
+  check_number?: string;
+  check_attachment?: string;
+  transaction_reference?: string;
+  credit_card_last4?: string;
+  receipt_attachment?: string;
 }
 
 interface MaterialItem {
   id: string;
   name: string;
-  unitPrice: number;
+  unit_price: number;
   quantity: number;
   unit: string;
   supplier?: string;
 }
 
 interface LaborCost {
-  calculationMethod: "manual" | "daily" | "monthly" | "hours";
+  calculation_method: "manual" | "daily" | "monthly" | "hours";
   amount: number;
-  dailyRate?: number;
+  daily_rate?: number;
   days?: number;
-  monthlyRate?: number;
+  monthly_rate?: number;
   months?: number;
-  hourlyRate?: number;
+  hourly_rate?: number;
   hours?: number;
   description: string;
 }
@@ -83,21 +91,21 @@ interface MiscellaneousItem {
 
 interface Expense {
   id: string;
-  invoiceNumber: string;
+  invoice_number: string;
   vendor: string;
   amount: number;
-  purchaseDate: string;
+  purchase_date: string;
   category: "Materials" | "Labor" | "Permits" | "Other";
   description: string;
   notes: string;
-  fileName?: string;
+  file_name?: string;
 }
 
 interface ContractAttachment {
   id: string;
-  fileName: string;
-  fileData: string; // Base64 encoded file data
-  uploadDate: string;
+  file_name: string;
+  file_data: string; // Base64 encoded file data
+  upload_date: string;
   description?: string;
 }
 
@@ -105,535 +113,85 @@ interface DownPayment {
   id: string;
   amount: number;
   date: string;
-  method: "cash" | "check" | "wire_transfer" | "bank_transfer" | "credit_card" | "direct_deposit";
+  method: string;
   description?: string;
-  receiptAttachment?: string;
+  receipt_attachment?: string;
 }
 
 interface CostTracking {
   materials: MaterialItem[];
-  laborCost: LaborCost;
+  labor_cost: LaborCost;
   miscellaneous: MiscellaneousItem[];
-  profitMarginPercent: number;
-}
-
-interface Contract {
-  id: string;
-  clientName: string;
-  clientAddress: string;
-  clientCity: string;
-  clientState: string;
-  clientZip: string;
-  projectLocation: string;
-  clientPhone: string;
-  clientEmail: string;
-  projectDescription: string;
-  projectName: string;
-  depositAmount: number;
-  totalValue: number;
-  startDate: string;
-  dueDate: string;
-  status: "pending" | "in-progress" | "completed";
-  paymentSchedule: Payment[];
-  cabinetType: string;
-  material: string;
-  customFinish?: string;
-  installationIncluded: boolean;
-  additionalNotes: string;
-  costTracking: CostTracking;
-  expenses: Expense[];
-  attachments: ContractAttachment[];
-  downPayments?: DownPayment[];
+  profit_margin_percent: number;
 }
 
 interface FormData {
-  clientName: string;
-  clientAddress: string;
-  clientCity: string;
-  clientState: string;
-  clientZip: string;
-  projectLocation: string;
-  clientPhone: string;
-  clientEmail: string;
-  projectDescription: string;
-  projectName: string;
-  depositAmount: string;
-  totalValue: string;
-  startDate: string;
-  dueDate: string;
+  client_name: string;
+  client_address: string;
+  client_city: string;
+  client_state: string;
+  client_zip: string;
+  project_location: string;
+  client_phone: string;
+  client_email: string;
+  project_description: string;
+  project_name: string;
+  deposit_amount: string;
+  total_value: string;
+  start_date: string;
+  due_date: string;
   status: "pending" | "in-progress" | "completed";
-  cabinetType: string;
+  cabinet_type: string;
   material: string;
-  customFinish: string;
-  installationIncluded: boolean;
-  additionalNotes: string;
+  custom_finish: string;
+  installation_included: boolean;
+  additional_notes: string;
 }
 
 const CABINET_TYPES = ["Kitchen", "Bathroom", "Office", "Bedroom", "Living Room", "Custom"];
 const FINISHES = ["Paint", "Stain", "Both (Stain & Paint)", "Natural/Unfinished", "Other"];
 
-const DEFAULT_MATERIALS: MaterialItem[] = [
-  { id: "MAT-001", name: "Plywood Birch Prefinished 3/4\" 4x8 C2", unitPrice: 38.51, quantity: 0, unit: "EA", supplier: "Imeca Charlotte" },
-  { id: "MAT-002", name: "Plywood Birch Prefinished 1/4\" 4x8", unitPrice: 22.83, quantity: 0, unit: "EA", supplier: "Imeca Charlotte" },
-  { id: "MAT-003", name: "Plywood White Oak Natural 1/4\" 4x8 Rifcut", unitPrice: 52.00, quantity: 0, unit: "EA", supplier: "Imeca Charlotte" },
-  { id: "MAT-004", name: "Plywood White Oak Natural 3/4\" 4x8 Rifcut B2", unitPrice: 110.01, quantity: 0, unit: "EA", supplier: "Imeca Charlotte" },
-  { id: "MAT-005", name: "Plywood White Oak 3/4\" 4x10 A1 Rift Cut Garnica", unitPrice: 219.95, quantity: 0, unit: "EA", supplier: "Imeca Charlotte" },
-  { id: "MAT-006", name: "Lumber Poplar S3S 16' 13/16\" 12\"+", unitPrice: 2.86, quantity: 0, unit: "EA", supplier: "Imeca Charlotte" },
-  { id: "MAT-007", name: "Lumber Soft Maple UNS 13/16\" Stain Grade S3S 14'", unitPrice: 3.65, quantity: 0, unit: "EA", supplier: "Imeca Charlotte" },
-  { id: "MAT-008", name: "Lumber White Oak R1E 13/16\" S3S", unitPrice: 6.99, quantity: 0, unit: "EA", supplier: "Imeca Charlotte" },
-  { id: "MAT-009", name: "Lumber White Oak Rift Cut 13/16\" S3S", unitPrice: 13.98, quantity: 0, unit: "EA", supplier: "Imeca Charlotte" },
-  { id: "MAT-010", name: "Drawer Side 4\"x96\" 5/8\" Rubberwood Flat Edge UV", unitPrice: 11.37, quantity: 0, unit: "EA", supplier: "Imeca Charlotte" },
-  { id: "MAT-011", name: "Drawer Side 6\"x96\" 5/8\" Rubberwood Flat Edge UV", unitPrice: 19.12, quantity: 0, unit: "EA", supplier: "Imeca Charlotte" },
-  { id: "MAT-012", name: "Drawer Side 8\"x96\" 5/8\" Rubberwood Flat Edge UV", unitPrice: 21.65, quantity: 0, unit: "EA", supplier: "Imeca Charlotte" },
-  { id: "MAT-013", name: "Drawer Side 10\"x96\" 5/8\" Rubberwood Flat Edge UV", unitPrice: 25.34, quantity: 0, unit: "EA", supplier: "Imeca Charlotte" },
-  { id: "MAT-014", name: "Tandem Plus Blumotion 563 Full Extension 21\" Zinc-Plated", unitPrice: 18.90, quantity: 0, unit: "EA", supplier: "Imeca Charlotte" },
-  { id: "MAT-015", name: "Tandem Plus Blumotion 563 Full Extension 18\" Zinc-Plated", unitPrice: 17.70, quantity: 0, unit: "EA", supplier: "Imeca Charlotte" },
-  { id: "MAT-016", name: "Tandem Plus Blumotion 563 Full Extension 15\" Zinc-Plated", unitPrice: 19.94, quantity: 0, unit: "EA", supplier: "Imeca Charlotte" },
-  { id: "MAT-017", name: "Blum Clip Top Blumotion 110° Hinges Full Overlay Nickel", unitPrice: 3.95, quantity: 0, unit: "EA", supplier: "Imeca Charlotte" },
-  { id: "MAT-018", name: "Clip Mounting Plates Cam Height Adjustable Nickel", unitPrice: 0.87, quantity: 0, unit: "EA", supplier: "Imeca Charlotte" },
-  { id: "MAT-019", name: "MDF Raw 3/4\" 4x8 A1 Door Core", unitPrice: 45.33, quantity: 0, unit: "EA", supplier: "Imeca Charlotte" },
-  { id: "MAT-020", name: "MDF Ultra Light 3/8\" 4x8", unitPrice: 24.25, quantity: 0, unit: "EA", supplier: "Imeca Charlotte" },
-  { id: "MAT-021", name: "Plywood Birch 18mm 4x8 C2 WPF UV1S Prefinished VC", unitPrice: 39.39, quantity: 0, unit: "EA", supplier: "Atlantic Plywood" },
-  { id: "MAT-022", name: "Plywood Birch 18mm 4x8 C2 WPF UV2S Prefinished VC", unitPrice: 41.78, quantity: 0, unit: "EA", supplier: "Atlantic Plywood" },
-  { id: "MAT-023", name: "Plywood White Oak 3/4\" 4x8 A1 Rift Cut Prefinished VC", unitPrice: 134.13, quantity: 0, unit: "EA", supplier: "Atlantic Plywood" },
-  { id: "MAT-024", name: "Plywood White Oak 3/4\" 4x10 A1 Rift Cut Prefinished VC", unitPrice: 239.98, quantity: 0, unit: "EA", supplier: "Atlantic Plywood" },
-  { id: "MAT-025", name: "Blum Clip Top Hinge 110 Blumotion F-OL Inserta", unitPrice: 3.70, quantity: 0, unit: "EA", supplier: "Atlantic Plywood" },
-  { id: "MAT-026", name: "Tandem Plus Blumotion 563H 21\" Full Ext Drawer Zinc", unitPrice: 17.82, quantity: 0, unit: "EA", supplier: "Atlantic Plywood" },
-  { id: "MAT-027", name: "Tandem Plus Blumotion 563H 18\" Full Ext Drawer Zinc", unitPrice: 16.97, quantity: 0, unit: "EA", supplier: "Atlantic Plywood" },
-  { id: "MAT-028", name: "Tandem Plus Blumotion 563/9 Locking Device Left", unitPrice: 1.33, quantity: 0, unit: "EA", supplier: "Atlantic Plywood" },
-  { id: "MAT-029", name: "Tandem Plus Blumotion 563/9 Locking Device Right", unitPrice: 1.33, quantity: 0, unit: "EA", supplier: "Atlantic Plywood" },
-  { id: "MAT-030", name: "Blum Plates", unitPrice: 0.80, quantity: 0, unit: "EA", supplier: "Atlantic Plywood" },
-  { id: "MAT-031", name: "Paint", unitPrice: 130.00, quantity: 0, unit: "unit", supplier: "Local" },
-  { id: "MAT-032", name: "Primer", unitPrice: 130.00, quantity: 0, unit: "unit", supplier: "Local" },
-];
-
-const exampleContracts: Contract[] = [
-  {
-    id: "CON-001",
-    clientName: "Marconi",
-    clientAddress: "2231 Hessell pl",
-    clientCity: "Charlotte",
-    clientState: "NC",
-    clientZip: "28202",
-    projectLocation: "2231 Hessell pl Charlotte",
-    clientPhone: "",
-    clientEmail: "",
-    projectDescription: "Cabinet project",
-    projectName: "2231 Hessell pl Charlotte",
-    depositAmount: 0,
-    totalValue: 7600,
-    startDate: "2026-01-01",
-    dueDate: "2026-01-31",
-    status: "pending",
-    cabinetType: "Kitchen",
-    material: "Wood",
-    installationIncluded: true,
-    additionalNotes: "",
-    costTracking: {
-      materials: [
-        {
-          id: "MAT-001",
-          name: "Materials",
-          unitPrice: 1042.96,
-          quantity: 1,
-          unit: "lot",
-          supplier: "Marconi"
-        }
-      ],
-      laborCost: {
-        calculationMethod: "manual",
-        amount: 1000,
-        description: "Labor costs"
-      },
-      miscellaneous: [],
-      profitMarginPercent: 73.1
-    },
-    expenses: [],
-    paymentSchedule: [
-      {
-        id: "PAY-001-1",
-        description: "Full Payment",
-        amount: 7600,
-        dueDate: "2026-01-31",
-        status: "pending"
-      }
-    ],
-    attachments: [
-      {
-        id: "ATT-CON-001-1",
-        fileName: "Kitchen Cabinet Design.png",
-        fileData: "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgZmlsbD0iI2VlZSIvPjxyZWN0IHg9IjUwIiB5PSI1MCIgd2lkdGg9IjMwMCIgaGVpZ2h0PSIyMDAiIGZpbGw9IiNkY2EiIHN0cm9rZT0iIzMzMyIgc3Ryb2tlLXdpZHRoPSIyIi8+PHJlY3QgeD0iNjAiIHk9IjYwIiB3aWR0aD0iNzAiIGhlaWdodD0iOTAiIGZpbGw9IiNmZmYiIHN0cm9rZT0iIzMzMyIgc3Ryb2tlLXdpZHRoPSIyIi8+PHJlY3QgeD0iMTQ1IiB5PSI2MCIgd2lkdGg9IjcwIiBoZWlnaHQ9IjkwIiBmaWxsPSIjZmZmIiBzdHJva2U9IiMzMzMiIHN0cm9rZS13aWR0aD0iMiIvPjxyZWN0IHg9IjIzMCIgeT0iNjAiIHdpZHRoPSI3MCIgaGVpZ2h0PSI5MCIgZmlsbD0iI2ZmZiIgc3Ryb2tlPSIjMzMzIiBzdHJva2Utd2lkdGg9IjIiLz48Y2lyY2xlIGN4PSI5NSIgY3k9IjEwNSIgcj0iNiIgZmlsbD0iIzMzMyIvPjxjaXJjbGUgY3g9IjE4MCIgY3k9IjEwNSIgcj0iNiIgZmlsbD0iIzMzMyIvPjxjaXJjbGUgY3g9IjI2NSIgY3k9IjEwNSIgcj0iNiIgZmlsbD0iIzMzMyIvPjwvc3ZnPg==",
-        uploadDate: "2026-01-01",
-        description: "Kitchen cabinet design with three doors"
-      },
-      {
-        id: "ATT-CON-001-2",
-        fileName: "Project Sketch.png",
-        fileData: "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgZmlsbD0iI2VlZSIvPjxwb2x5Z29uIHBvaW50cz0iNTAsMjUwIDEwMCw1MCAxNTAsMjUwIiBmaWxsPSIjZTAwIiBzdHJva2U9IiMzMzMiIHN0cm9rZS13aWR0aD0iMiIvPjxyZWN0IHg9IjcwIiB5PSIyNTAiIHdpZHRoPSI2MCIgaGVpZ2h0PSI1MCIgZmlsbD0iI2U0NzEyYiIgc3Ryb2tlPSIjMzMzIiBzdHJva2Utd2lkdGg9IjIiLz48cmVjdCB4PSIyMTAiIHk9IjEwMCIgd2lkdGg9IjEwMCIgaGVpZ2h0PSIxNTAiIGZpbGw9IiNkMzAiIHN0cm9rZT0iIzMzMyIgc3Ryb2tlLXdpZHRoPSIyIi8+PHBvbHlnb24gcG9pbnRzPSIyNTAsMTAwIDIzMCw1MCAyNzAsNTAiIGZpbGw9IiNmZGQiIHN0cm9rZT0iIzMzMyIgc3Ryb2tlLXdpZHRoPSIyIi8+PC9zdmc+",
-        uploadDate: "2026-01-01",
-        description: "Initial project sketch"
-      }
-    ]
-  },
-  {
-    id: "CON-002",
-    clientName: "PSR Construction",
-    clientAddress: "709 Woodcliff",
-    clientCity: "Charlotte",
-    clientState: "NC",
-    clientZip: "28202",
-    projectLocation: "709 woodcliff709",
-    clientPhone: "",
-    clientEmail: "",
-    projectDescription: "Cabinet project",
-    projectName: "709 Woodcliff",
-    depositAmount: 7300,
-    totalValue: 14600,
-    startDate: "2026-01-05",
-    dueDate: "2026-01-28",
-    status: "pending",
-    cabinetType: "Kitchen",
-    material: "Wood",
-    installationIncluded: true,
-    additionalNotes: "",
-    costTracking: {
-      materials: [
-        {
-          id: "MAT-001",
-          name: "Plywood Birch Prefinished 3/4\" 4x8 C2",
-          unitPrice: 38.51,
-          quantity: 25,
-          unit: "EA",
-          supplier: "Imeca Charlotte"
-        },
-        {
-          id: "MAT-012",
-          name: "Drawer Side 8\"x96\" 5/8\" Rubberwood Flat Edge UV",
-          unitPrice: 21.65,
-          quantity: 15,
-          unit: "EA",
-          supplier: "Atlantic Plywood"
-        },
-        {
-          id: "MAT-025",
-          name: "Blum Clip Top Hinge 110 Blumotion F-OL Inserta",
-          unitPrice: 3.70,
-          quantity: 55,
-          unit: "EA",
-          supplier: "Atlantic Plywood"
-        },
-        {
-          id: "MAT-027",
-          name: "Tandem Plus Blumotion 563H 18\" Full Ext Drawer Zinc",
-          unitPrice: 16.97,
-          quantity: 15,
-          unit: "EA",
-          supplier: "Atlantic Plywood"
-        },
-        {
-          id: "MAT-028",
-          name: "Tandem Plus Blumotion 563/9 Locking Device Left",
-          unitPrice: 1.33,
-          quantity: 15,
-          unit: "EA",
-          supplier: "Atlantic Plywood"
-        },
-        {
-          id: "MAT-029",
-          name: "Tandem Plus Blumotion 563/9 Locking Device Right",
-          unitPrice: 1.33,
-          quantity: 15,
-          unit: "EA",
-          supplier: "Atlantic Plywood"
-        },
-        {
-          id: "MAT-030",
-          name: "Blum Plates",
-          unitPrice: 0.80,
-          quantity: 55,
-          unit: "EA",
-          supplier: "Atlantic Plywood"
-        },
-        {
-          id: "MAT-031",
-          name: "Paint",
-          unitPrice: 130.00,
-          quantity: 5,
-          unit: "unit",
-          supplier: "Local"
-        },
-        {
-          id: "MAT-032",
-          name: "Primer",
-          unitPrice: 130.00,
-          quantity: 5,
-          unit: "unit",
-          supplier: "Local"
-        }
-      ],
-      laborCost: {
-        calculationMethod: "manual",
-        amount: 3000,
-        description: "Labor costs"
-      },
-      miscellaneous: [],
-      profitMarginPercent: 35.0
-    },
-    expenses: [],
-    paymentSchedule: [
-      {
-        id: "PAY-002-1",
-        description: "50% Down Payment",
-        amount: 7300,
-        dueDate: "2026-01-05",
-        status: "pending"
-      },
-      {
-        id: "PAY-002-2",
-        description: "25% First Installment",
-        amount: 3650,
-        dueDate: "2026-01-18",
-        status: "pending"
-      },
-      {
-        id: "PAY-002-3",
-        description: "25% Final Payment",
-        amount: 3650,
-        dueDate: "2026-01-28",
-        status: "pending"
-      }
-    ],
-    attachments: [
-      {
-        id: "ATT-CON-002-1",
-        fileName: "709 Woodcliff Design.png",
-        fileData: "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgZmlsbD0iI2Y1ZjUmMzMzMzMzMzMiIHN0cm9rZT0iIzMzMyIgc3Ryb2tlLXdpZHRoPSIyIi8+PHJlY3QgeD0iNjAiIHk9IjcwIiB3aWR0aD0iODAiIGhlaWdodD0iMTYwIiBmaWxsPSIjZGNhIiBzdHJva2U9IiMzMzMiIHN0cm9rZS13aWR0aD0iMyIvPjxyZWN0IHg9IjE2MCIgeT0iNzAiIHdpZHRoPSI4MCIgaGVpZ2h0PSIxNjAiIGZpbGw9IiNkY2EiIHN0cm9rZT0iIzMzMyIgc3Ryb2tlLXdpZHRoPSIzIi8+PHJlY3QgeD0iMjYwIiB5PSI3MCIgd2lkdGg9IjgwIiBoZWlnaHQ9IjE2MCIgZmlsbD0iI2RjYSIgc3Ryb2tlPSIjMzMzIiBzdHJva2Utd2lkdGg9IjMiLz48Y2lyY2xlIGN4PSIxMDAiIGN5PSIxNTAiIHI9IjgiIGZpbGw9IiMzMzMiLz48Y2lyY2xlIGN4PSIyMDAiIGN5PSIxNTAiIHI9IjgiIGZpbGw9IiMzMzMiLz48Y2lyY2xlIGN4PSIzMDAiIGN5PSIxNTAiIHI9IjgiIGZpbGw9IiMzMzMiLz48L3N2Zz4=",
-        uploadDate: "2026-01-05",
-        description: "Woodcliff cabinet design"
-      },
-      {
-        id: "ATT-CON-002-2",
-        fileName: "Material Specs.pdf",
-        fileData: "data:application/pdf;base64,JVBERi0xLjQKJeLjz9MNCjEgMCBvYmo8PC9UeXBlL0NhdGFsb2cvUGFnZXMgMiAwIFI+PmVuZG9iagoyIDAgb2JqPDwvVHlwZS9QYWdlcy9LaWRzWzMgMCBSXS9Db3VudCAxPj5lbmRvYmoKMyAwIG9iajw8L1R5cGUvUGFnZS9QYXJlbnQgMiAwIFIvUmVzb3VyY2VzPDwvRm9udDwxIDAgUj4+Pj4vTWVkaWFCb3hbMCAwIDYxMiA3OTJdL0NvbnRlbnRzIDQgMCBSPj5lbmRvYmoKNCAwIG9iajw8L0xlbmd0aCAxNDQ+PnN0cmVhbQpCVAovRjEgMTIgVGYKNTAgNzUwIFRkCihNYXRlcmlhbCBTcGVjaWZpY2F0aW9ucykgVGoKRVQKZW5kc3RyZWFtCmVuZG9iagovRjEgMSAwIG9iajw8L1R5cGUvRm9udC9TdWJ0eXBlL1R5cGUxL0Jhc2VGb250L0hlbHZldGljYT4+ZW5kb2JqCnhyZWYKMCA1CjAwMDAwMDAwMDAgNjU1MzUgZiAKMDAwMDAwMDA5NyAwMDAwMCBuIAowMDAwMDAwMTczIDAwMDAwIG4gCjAwMDAwMDAyNjAgMDAwMDAgbiAKMDAwMDAwMDQ1MyAwMDAwMCBuIAp0cmFpbGVyPDwvU2l6ZSA1L1Jvb3QgMSAwIFI+PgpzdGFydHhyZWYKNjU4CiUlRU9G",
-        uploadDate: "2026-01-05",
-        description: "Material specifications document"
-      }
-    ]
-  },
-  {
-    id: "CON-003",
-    clientName: "PRS Construction",
-    clientAddress: "207 bellmeade Ct",
-    clientCity: "Charlotte",
-    clientState: "NC",
-    clientZip: "28202",
-    projectLocation: "207 bellmeade Ct Charlotte",
-    clientPhone: "",
-    clientEmail: "",
-    projectDescription: "Cabinet project",
-    projectName: "207 bellmeade Ct",
-    depositAmount: 39000,
-    totalValue: 78000,
-    startDate: "2026-01-01",
-    dueDate: "2026-01-09",
-    status: "pending",
-    cabinetType: "Kitchen",
-    material: "Wood",
-    installationIncluded: true,
-    additionalNotes: "",
-    costTracking: {
-      materials: [
-        {
-          id: "MAT-001",
-          name: "Materials",
-          unitPrice: 25000,
-          quantity: 1,
-          unit: "lot",
-          supplier: "Various"
-        }
-      ],
-      laborCost: {
-        calculationMethod: "manual",
-        amount: 15000,
-        description: "Labor costs"
-      },
-      miscellaneous: [],
-      profitMarginPercent: 38.0
-    },
-    expenses: [],
-    paymentSchedule: [
-      {
-        id: "PAY-003-1",
-        description: "50% Down Payment",
-        amount: 39000,
-        dueDate: "2026-01-01",
-        status: "pending"
-      },
-      {
-        id: "PAY-003-2",
-        description: "25% First Installment",
-        amount: 19500,
-        dueDate: "2026-01-04",
-        status: "pending"
-      },
-      {
-        id: "PAY-003-3",
-        description: "25% Final Payment",
-        amount: 19500,
-        dueDate: "2026-01-09",
-        status: "pending"
-      }
-    ],
-    attachments: [],
-    downPayments: [
-      {
-        id: "DP-003-1",
-        amount: 21000,
-        date: "2026-01-12",
-        method: "wire_transfer",
-        description: "First down payment - wire transfer"
-      },
-      {
-        id: "DP-003-2",
-        amount: 15000,
-        date: "2025-11-26",
-        method: "wire_transfer",
-        description: "Second down payment - wire transfer"
-      },
-      {
-        id: "DP-003-3",
-        amount: 18000,
-        date: "2026-01-11",
-        method: "wire_transfer",
-        description: "This week payment"
-      }
-    ]
-  },
-  {
-    id: "CON-004",
-    clientName: "Onnit Construction",
-    clientAddress: "2125 mirow PL",
-    clientCity: "Charlotte",
-    clientState: "NC",
-    clientZip: "",
-    projectLocation: "",
-    clientPhone: "",
-    clientEmail: "",
-    projectDescription: "Cabinet project",
-    projectName: "",
-    depositAmount: 23750,
-    totalValue: 47500,
-    startDate: "2026-01-01",
-    dueDate: "2026-01-31",
-    status: "pending",
-    cabinetType: "Kitchen",
-    material: "Wood",
-    installationIncluded: true,
-    additionalNotes: "",
-    costTracking: {
-      materials: [],
-      laborCost: {
-        calculationMethod: "hours",
-        amount: 15000,
-        hourlyRate: 50,
-        hours: 300,
-        description: "300 hrs fabrication, assembly, and preparation"
-      },
-      miscellaneous: [],
-      profitMarginPercent: 0
-    },
-    expenses: [],
-    paymentSchedule: [],
-    attachments: [],
-    downPayments: [
-      {
-        id: "DP-004-1",
-        amount: 23750,
-        date: "2026-01-14",
-        method: "check",
-        description: "Check #1243 - BOA (Bank of America)"
-      }
-    ]
-  }
-];
 
 // Function to get materials from storage or defaults
-const getMaterialsForContracts = (year: number): MaterialItem[] => {
-  // Try to load materials from the Materials page storage
-  const savedMaterials = getYearData<any[]>("materials", year, null);
-
-  if (savedMaterials && savedMaterials.length > 0) {
-    // Convert from Material format to MaterialItem format
-    return savedMaterials.map(m => ({
-      id: m.id,
-      name: m.name,
-      unitPrice: m.price,
-      quantity: 0,
-      unit: m.unit || "EA",
-      supplier: m.supplier || ""
-    }));
-  }
-
-  // Fallback to default materials
-  return DEFAULT_MATERIALS.map(m => ({ ...m }));
+const getMaterialsForContracts = (materials: Material[]): MaterialItem[] => {
+  return materials.map(m => ({
+    id: m.id,
+    name: m.name,
+    unit_price: m.unit_price,
+    quantity: 0,
+    unit: m.unit || "EA",
+    supplier: m.supplier || ""
+  }));
 };
 
 export default function Contracts() {
   const { selectedYear } = useYear();
   const { toast } = useToast();
+  const { user } = useAuth();
 
   // Helper function to ensure costTracking is always fully initialized
-  const initializeCostTracking = (partial?: Partial<CostTracking>): CostTracking => {
+  const initializeCostTracking = (partial?: any): CostTracking => {
     return {
       materials: partial?.materials || [],
-      laborCost: {
-        calculationMethod: partial?.laborCost?.calculationMethod ?? "manual",
-        amount: partial?.laborCost?.amount ?? 0,
-        description: partial?.laborCost?.description ?? "",
-        dailyRate: partial?.laborCost?.dailyRate ?? 900,
-        days: partial?.laborCost?.days ?? 0,
-        monthlyRate: partial?.laborCost?.monthlyRate ?? 18000,
-        months: partial?.laborCost?.months ?? 0,
-        hourlyRate: partial?.laborCost?.hourlyRate ?? 50,
-        hours: partial?.laborCost?.hours ?? 0,
+      labor_cost: {
+        calculation_method: partial?.labor_cost?.calculation_method ?? "manual",
+        amount: partial?.labor_cost?.amount ?? 0,
+        description: partial?.labor_cost?.description ?? "",
+        daily_rate: partial?.labor_cost?.daily_rate ?? 900,
+        days: partial?.labor_cost?.days ?? 0,
+        monthly_rate: partial?.labor_cost?.monthly_rate ?? 18000,
+        months: partial?.labor_cost?.months ?? 0,
+        hourly_rate: partial?.labor_cost?.hourly_rate ?? 50,
+        hours: partial?.labor_cost?.hours ?? 0,
       },
       miscellaneous: partial?.miscellaneous || [],
-      profitMarginPercent: partial?.profitMarginPercent ?? 35,
+      profit_margin_percent: partial?.profit_margin_percent ?? 35,
     };
   };
 
-  const getInitialContracts = () => {
-    const saved = getYearData<Contract[]>("contracts", selectedYear, null);
-    if (saved && saved.length > 0) {
-      // Ensure all contracts have attachments and downPayments fields for backwards compatibility
-      // Also merge downPayments and updated values from example data if available
-      return saved.map(contract => {
-        const exampleContract = exampleContracts.find(ex => ex.id === contract.id);
-        return {
-          ...contract,
-          // Update totalValue and depositAmount from example data if example exists
-          totalValue: exampleContract?.totalValue ?? contract.totalValue,
-          depositAmount: exampleContract?.depositAmount ?? contract.depositAmount,
-          attachments: contract.attachments || [],
-          // Always use downPayments from example data if available, otherwise keep stored ones
-          downPayments: exampleContract?.downPayments && exampleContract.downPayments.length > 0
-            ? exampleContract.downPayments
-            : (contract.downPayments || [])
-        };
-      });
-    }
-
-    // For 2026, load example contracts and save them
-    if (selectedYear === 2026 && exampleContracts.length > 0) {
-      saveYearData("contracts", selectedYear, exampleContracts);
-      return exampleContracts;
-    }
-
-    return shouldUseExampleData(selectedYear) ? exampleContracts : [];
-  };
-
-  const [contracts, setContracts] = useState<Contract[]>(getInitialContracts());
-  const [availableMaterials, setAvailableMaterials] = useState<MaterialItem[]>(getMaterialsForContracts(selectedYear));
+  const [contracts, setContracts] = useState<Contract[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [availableMaterials, setAvailableMaterials] = useState<MaterialItem[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [editingContractId, setEditingContractId] = useState<string | null>(null);
@@ -654,79 +212,65 @@ export default function Contracts() {
     amount: 0,
     date: "",
     method: "wire_transfer",
-    description: ""
+    description: "",
+    receipt_attachment: ""
   });
   const [editingDownPaymentId, setEditingDownPaymentId] = useState<string | null>(null);
   const [paymentForm, setPaymentForm] = useState<Payment>({
     id: "",
     description: "",
     amount: 0,
-    dueDate: "",
+    due_date: "",
     status: "pending",
-    paidDate: "",
-    paymentMethod: "cash",
-    bankName: "",
-    routingNumber: "",
-    accountNumber: "",
-    accountType: "checking",
-    checkAttachment: "",
-    checkNumber: "",
-    creditCardLast4: "",
-    transactionReference: "",
-    receiptAttachment: "",
+    paid_date: "",
+    payment_method: "cash",
+    bank_name: "",
+    routing_number: "",
+    account_number: "",
+    account_type: "checking",
+    check_attachment: "",
+    check_number: "",
+    credit_card_last4: "",
+    transaction_reference: "",
+    receipt_attachment: "",
   });
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
   const [expenseForm, setExpenseForm] = useState<Expense>({
     id: "",
-    invoiceNumber: "",
+    invoice_number: "",
     vendor: "",
     amount: 0,
-    purchaseDate: getTodayDate(),
+    purchase_date: getTodayDate(),
     category: "Materials",
     description: "",
     notes: "",
-    fileName: undefined,
+    file_name: undefined,
   });
   const [formData, setFormData] = useState<FormData>({
-    clientName: "",
-    clientAddress: "",
-    clientCity: "",
-    clientState: "",
-    clientZip: "",
-    projectLocation: "",
-    clientPhone: "",
-    clientEmail: "",
-    projectDescription: "",
-    projectName: "",
-    depositAmount: "",
-    totalValue: "",
-    startDate: "",
-    dueDate: "",
+    client_name: "",
+    client_address: "",
+    client_city: "",
+    client_state: "",
+    client_zip: "",
+    project_location: "",
+    client_phone: "",
+    client_email: "",
+    project_description: "",
+    project_name: "",
+    deposit_amount: "",
+    total_value: "",
+    start_date: "",
+    due_date: "",
     status: "pending",
-    cabinetType: CABINET_TYPES[0],
+    cabinet_type: CABINET_TYPES[0],
     material: FINISHES[0],
-    customFinish: "",
-    installationIncluded: false,
-    additionalNotes: "",
+    custom_finish: "",
+    installation_included: false,
+    additional_notes: "",
   });
 
-  const [costTracking, setCostTracking] = useState<CostTracking>({
-    materials: getMaterialsForContracts(selectedYear),
-    laborCost: {
-      calculationMethod: "manual",
-      amount: 0,
-      description: "",
-      dailyRate: 900,
-      days: 0,
-      monthlyRate: 18000,
-      months: 0,
-      hourlyRate: 50,
-      hours: 0,
-    },
-    miscellaneous: [],
-    profitMarginPercent: 35,
-  });
+  const [costTracking, setCostTracking] = useState<CostTracking>(initializeCostTracking());
 
   const [contractAttachments, setContractAttachments] = useState<ContractAttachment[]>([]);
   const [lightboxImage, setLightboxImage] = useState<ContractAttachment | null>(null);
@@ -746,94 +290,31 @@ export default function Contracts() {
     return '📎';
   };
 
-  // Reload contracts and materials when year changes
-  useEffect(() => {
-    setContracts(getInitialContracts());
-    const freshMaterials = getMaterialsForContracts(selectedYear);
-    setAvailableMaterials(freshMaterials);
-    // Also update costTracking with fresh materials
-    setCostTracking((prev) => ({
-      ...prev,
-      materials: freshMaterials
-    }));
-  }, [selectedYear]);
-
-  // Ensure materials are loaded when modal opens
-  useEffect(() => {
-    if (isModalOpen && !isEditMode && (!costTracking.materials || costTracking.materials.length === 0)) {
-      const freshMaterials = getMaterialsForContracts(selectedYear);
-      setCostTracking((prev) => ({
-        ...prev,
-        materials: freshMaterials
-      }));
+  const fetchData = async () => {
+    try {
+      setLoading(true);
+      const [contractsData, materialsData] = await Promise.all([
+        contractsService.getAll(),
+        materialsService.getAll()
+      ]);
+      setContracts(contractsData);
+      const materialItems = getMaterialsForContracts(materialsData);
+      setAvailableMaterials(materialItems);
+    } catch (error) {
+      console.error("Error fetching data:", error);
+      toast({ title: "Error", description: "Failed to load data", variant: "destructive" });
+    } finally {
+      setLoading(false);
     }
-  }, [isModalOpen, isEditMode, selectedYear]);
+  };
 
   useEffect(() => {
-    saveYearData("contracts", selectedYear, contracts);
-  }, [contracts, selectedYear]);
+    fetchData();
+  }, []);
 
-  // Auto-save draft when form data or cost tracking changes
-  useEffect(() => {
-    // Auto-save whenever modal is open (all changes are saved)
-    if (isModalOpen) {
-      const timer = setTimeout(() => {
-        const draft = { formData, costTracking };
-        localStorage.setItem(`contract_draft_${selectedYear}`, JSON.stringify(draft));
-      }, 500); // Debounce by 500ms to avoid excessive saving
 
-      return () => clearTimeout(timer);
-    }
-  }, [formData, costTracking, isModalOpen, selectedYear]);
-
-  // Load draft when modal opens
-  useEffect(() => {
-    if (isModalOpen && !isEditMode) {
-      const savedDraft = localStorage.getItem(`contract_draft_${selectedYear}`);
-      if (savedDraft) {
-        try {
-          const { formData: draftFormData, costTracking: draftCostTracking } = JSON.parse(savedDraft);
-          // Merge draft with defaults to ensure no undefined fields
-          const defaultFormData: FormData = {
-            clientName: "",
-            clientAddress: "",
-            clientCity: "",
-            clientState: "",
-            clientZip: "",
-            projectLocation: "",
-            clientPhone: "",
-            clientEmail: "",
-            projectDescription: "",
-            projectName: "",
-            depositAmount: "",
-            totalValue: "",
-            startDate: "",
-            dueDate: "",
-            status: "pending",
-            cabinetType: CABINET_TYPES[0],
-            material: FINISHES[0],
-            installationIncluded: false,
-            additionalNotes: "",
-          };
-          setFormData({ ...defaultFormData, ...draftFormData });
-
-          const defaultCostTracking = initializeCostTracking({
-            materials: getMaterialsForContracts(selectedYear),
-          });
-          // Merge draft with defaults, handling nested objects properly
-          setCostTracking(initializeCostTracking({
-            ...draftCostTracking,
-            materials: draftCostTracking?.materials || defaultCostTracking.materials,
-          }));
-        } catch (e) {
-          // Draft is corrupted, ignore
-        }
-      }
-    }
-  }, [isModalOpen, isEditMode, selectedYear]);
-
-  const totalValue = contracts.reduce((sum, c) => sum + c.totalValue, 0);
-  const totalDeposits = contracts.reduce((sum, c) => sum + c.depositAmount, 0);
+  const totalValue = contracts.reduce((sum, c) => sum + (c.total_value || 0), 0);
+  const totalDeposits = contracts.reduce((sum, c) => sum + (c.deposit_amount || 0), 0);
   const pendingPayments = totalValue - totalDeposits;
 
   const filteredContracts = contracts
@@ -842,81 +323,74 @@ export default function Contracts() {
 
       let dateMatch = true;
       if (filterFromDate || filterToDate) {
-        const dueDateParts = contract.dueDate.split('-');
-        const dueDate = new Date(parseInt(dueDateParts[0]), parseInt(dueDateParts[1]) - 1, parseInt(dueDateParts[2]));
+        if (!contract.due_date) {
+          dateMatch = false;
+        } else {
+          const dueDateParts = contract.due_date.split('-');
+          const dueDate = new Date(parseInt(dueDateParts[0]), parseInt(dueDateParts[1]) - 1, parseInt(dueDateParts[2]));
 
-        if (filterFromDate) {
-          const fromDateParts = filterFromDate.split('-');
-          const fromDate = new Date(parseInt(fromDateParts[0]), parseInt(fromDateParts[1]) - 1, parseInt(fromDateParts[2]));
-          if (dueDate < fromDate) dateMatch = false;
-        }
-        if (filterToDate) {
-          const toDateParts = filterToDate.split('-');
-          const toDate = new Date(parseInt(toDateParts[0]), parseInt(toDateParts[1]) - 1, parseInt(toDateParts[2]));
-          // Include the end date (don't add 1 day)
-          if (dueDate > toDate) dateMatch = false;
+          if (filterFromDate) {
+            const fromDateParts = filterFromDate.split('-');
+            const fromDate = new Date(parseInt(fromDateParts[0]), parseInt(fromDateParts[1]) - 1, parseInt(fromDateParts[2]));
+            if (dueDate < fromDate) dateMatch = false;
+          }
+          if (filterToDate) {
+            const toDateParts = filterToDate.split('-');
+            const toDate = new Date(parseInt(toDateParts[0]), parseInt(toDateParts[1]) - 1, parseInt(toDateParts[2]));
+            // Include the end date (don't add 1 day)
+            if (dueDate > toDate) dateMatch = false;
+          }
         }
       }
 
       return statusMatch && dateMatch;
     })
     .sort((a, b) => {
-      // Sort by dueDate in descending order (most recent first)
-      const aParts = a.dueDate.split('-');
-      const bParts = b.dueDate.split('-');
+      // Sort by due_date in descending order (most recent first)
+      if (!a.due_date) return 1;
+      if (!b.due_date) return -1;
+      const aParts = a.due_date.split('-');
+      const bParts = b.due_date.split('-');
       const aDate = new Date(parseInt(aParts[0]), parseInt(aParts[1]) - 1, parseInt(aParts[2]));
       const bDate = new Date(parseInt(bParts[0]), parseInt(bParts[1]) - 1, parseInt(bParts[2]));
       return bDate.getTime() - aDate.getTime();
     });
 
-  const handleFormChange = (field: keyof FormData, value: any) => {
-    setFormData((prev) => {
-      const updated = { ...prev, [field]: value };
 
-      // Auto-calculate 50% down payment when total value changes
-      if (field === "totalValue" && value) {
-        const downPayment = (parseFloat(value) * 0.5).toFixed(2);
-        updated.depositAmount = downPayment;
-      }
-
-      return updated;
-    });
-  };
-
-  const generateDefaultPaymentSchedule = (totalValue: number, startDate: string, dueDate: string, contractId?: string): Payment[] => {
-    const downPayment = totalValue * 0.5;
-    const installment = totalValue * 0.25;
+  const generateDefaultPaymentSchedule = (total_value: number, start_date: string, due_date: string, contract_id?: string): Payment[] => {
+    const downPayment = total_value * 0.5;
+    const installment = total_value * 0.25;
 
     // Special case for CON-003 with specific due dates
-    if (contractId === "CON-003") {
+    if (contract_id === "CON-003") {
       return [
         {
           id: `PAY-${Date.now()}-1`,
           description: "50% Down Payment",
           amount: Math.round(downPayment * 100) / 100,
-          dueDate: startDate,
+          due_date: start_date,
           status: "pending",
         },
         {
           id: `PAY-${Date.now()}-2`,
           description: "25% First Installment",
           amount: Math.round(installment * 100) / 100,
-          dueDate: "2026-01-17",
+          due_date: "2026-01-17",
           status: "pending",
         },
         {
           id: `PAY-${Date.now()}-3`,
           description: "25% Final Payment",
           amount: Math.round(installment * 100) / 100,
-          dueDate: "2026-01-27",
+          due_date: "2026-01-27",
           status: "pending",
         },
       ];
     }
 
     // Calculate dates for installments (split across the contract duration)
-    const start = new Date(startDate);
-    const due = new Date(dueDate);
+    const start = new Date(start_date);
+    const due = new Date(due_date);
     const totalDays = (due.getTime() - start.getTime()) / (1000 * 60 * 60 * 24);
 
     return [
@@ -924,223 +398,248 @@ export default function Contracts() {
         id: `PAY-${Date.now()}-1`,
         description: "50% Down Payment",
         amount: Math.round(downPayment * 100) / 100,
-        dueDate: startDate,
+        due_date: start_date,
         status: "pending",
       },
       {
         id: `PAY-${Date.now()}-2`,
         description: "25% First Installment",
         amount: Math.round(installment * 100) / 100,
-        dueDate: new Date(start.getTime() + (totalDays / 2) * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        due_date: new Date(start.getTime() + (totalDays / 2) * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         status: "pending",
       },
       {
         id: `PAY-${Date.now()}-3`,
         description: "25% Final Payment",
         amount: Math.round(installment * 100) / 100,
-        dueDate: dueDate,
+        due_date: due_date,
         status: "pending",
       },
     ];
   };
 
   // Quick add contract with default values
-  const handleQuickAddContract = () => {
+  const handleQuickAddContract = async () => {
     const today = new Date().toISOString().split('T')[0];
     const futureDate = new Date();
     futureDate.setDate(futureDate.getDate() + 30);
     const dueDate = futureDate.toISOString().split('T')[0];
 
-    const contractId = `CON-${String(contracts.length + 1).padStart(3, "0")}`;
     const defaultValue = 10000;
     const defaultDeposit = 5000;
 
-    const newContract: Contract = {
-      id: contractId,
-      clientName: "New Client",
-      clientAddress: "",
-      clientCity: "",
-      clientState: "NC",
-      clientZip: "",
-      projectLocation: "",
-      clientPhone: "",
-      clientEmail: "",
-      projectDescription: "Cabinet project",
-      projectName: "New Project",
-      depositAmount: defaultDeposit,
-      totalValue: defaultValue,
-      startDate: today,
-      dueDate: dueDate,
+    const newContract: Partial<Contract> = {
+      client_name: "New Client",
+      client_address: "",
+      client_city: "",
+      client_state: "NC",
+      client_zip: "",
+      project_location: "",
+      client_phone: "",
+      client_email: "",
+      project_description: "Cabinet project",
+      project_name: "New Project",
+      deposit_amount: defaultDeposit,
+      total_value: defaultValue,
+      start_date: today,
+      due_date: dueDate,
       status: "pending",
-      cabinetType: CABINET_TYPES[0],
+      cabinet_type: CABINET_TYPES[0],
       material: FINISHES[0],
-      installationIncluded: true,
-      additionalNotes: "",
-      costTracking: initializeCostTracking(),
-      paymentSchedule: generateDefaultPaymentSchedule(defaultValue, today, dueDate, contractId),
+      installation_included: true,
+      additional_notes: "",
+      cost_tracking: initializeCostTracking(),
+      payment_schedule: [],
       attachments: [],
-      downPayments: [],
+      down_payments: [],
+      expenses: [],
     };
 
-    setContracts([...contracts, newContract]);
+    try {
+      await contractsService.create(newContract);
+      toast({ title: "Success", description: "Quick contract created" });
+      fetchData();
+    } catch (error) {
+      console.error("Error quick adding contract:", error);
+    }
   };
 
-  const handleAddContract = () => {
+  const handleFormChange = (field: keyof FormData, value: any) => {
+    setFormData((prev) => {
+      const updated = { ...prev, [field]: value };
+
+      // Auto-calculate 50% down payment when total value changes
+      if (field === "total_value" && value) {
+        const downPayment = (parseFloat(value) * 0.5).toFixed(2);
+        updated.deposit_amount = downPayment;
+      }
+
+      return updated;
+    });
+  };
+
+  const resetFormData = () => {
+    setFormData({
+      client_name: "",
+      client_address: "",
+      client_city: "",
+      client_state: "",
+      client_zip: "",
+      project_location: "",
+      client_phone: "",
+      client_email: "",
+      project_description: "",
+      project_name: "",
+      deposit_amount: "",
+      total_value: "",
+      start_date: "",
+      due_date: "",
+      status: "pending",
+      cabinet_type: CABINET_TYPES[0],
+      material: FINISHES[0],
+      custom_finish: "",
+      installation_included: false,
+      additional_notes: "",
+    });
+    setContractAttachments([]);
+    setCostTracking(initializeCostTracking());
+  };
+
+  const handleAddContract = async () => {
     // Validate only essential required fields
     if (
-      !formData.clientName.trim() ||
-      !formData.projectName.trim() ||
-      !formData.depositAmount ||
-      !formData.totalValue ||
-      !formData.startDate ||
-      !formData.dueDate
+      !formData.client_name.trim() ||
+      !formData.project_name.trim() ||
+      !formData.deposit_amount ||
+      !formData.total_value ||
+      !formData.start_date ||
+      !formData.due_date
     ) {
       alert("Please fill in required fields: Client Name, Project Name, Total Value, Deposit Amount, Start Date, and Due Date");
       return;
     }
 
-    if (isEditMode) {
-      const updatedContracts = contracts.map((contract) =>
-        contract.id === editingContractId
-          ? {
-              ...contract,
-              clientName: formData.clientName,
-              clientAddress: formData.clientAddress,
-              clientCity: formData.clientCity,
-              clientState: formData.clientState,
-              clientZip: formData.clientZip,
-              projectLocation: formData.projectLocation,
-              clientPhone: formData.clientPhone,
-              clientEmail: formData.clientEmail,
-              projectDescription: formData.projectDescription,
-              projectName: formData.projectName,
-              depositAmount: parseFloat(formData.depositAmount),
-              totalValue: parseFloat(formData.totalValue),
-              startDate: formData.startDate,
-              dueDate: formData.dueDate,
-              status: formData.status,
-              cabinetType: formData.cabinetType,
-              material: formData.material,
-              customFinish: formData.customFinish,
-              installationIncluded: formData.installationIncluded,
-              additionalNotes: formData.additionalNotes,
-              costTracking: costTracking,
-              paymentSchedule: contract.paymentSchedule,
-              attachments: contractAttachments,
-              downPayments: contract.downPayments,
-            }
-          : contract
-      );
-      setContracts(updatedContracts);
+    try {
+      if (isEditMode && editingContractId) {
+        const updatedContract: Partial<Contract> = {
+          client_name: formData.client_name,
+          client_address: formData.client_address,
+          client_city: formData.client_city,
+          client_state: formData.client_state,
+          client_zip: formData.client_zip,
+          project_location: formData.project_location,
+          client_phone: formData.client_phone,
+          client_email: formData.client_email,
+          project_description: formData.project_description,
+          project_name: formData.project_name,
+          deposit_amount: parseFloat(formData.deposit_amount),
+          total_value: parseFloat(formData.total_value),
+          start_date: formData.start_date,
+          due_date: formData.due_date,
+          status: formData.status,
+          cabinet_type: formData.cabinet_type,
+          material: formData.material,
+          custom_finish: formData.custom_finish,
+          installation_included: formData.installation_included,
+          additional_notes: formData.additional_notes,
+          cost_tracking: costTracking,
+          attachments: contractAttachments,
+        };
 
-      // Show success notification
-      toast({
-        title: "✅ Contract Updated",
-        description: `${formData.projectName || editingContractId} has been updated successfully.`,
-      });
+        await contractsService.update(editingContractId, updatedContract);
+        toast({
+          title: "✅ Contract Updated",
+          description: `${formData.project_name || editingContractId} has been updated successfully.`,
+        });
 
-      setIsEditMode(false);
-      setEditingContractId(null);
-    } else {
-      const totalValue = parseFloat(formData.totalValue);
-      const contractId = `CON-${String(contracts.length + 1).padStart(3, "0")}`;
-      const newContract: Contract = {
-        id: contractId,
-        clientName: formData.clientName,
-        clientAddress: formData.clientAddress,
-        clientCity: formData.clientCity,
-        clientState: formData.clientState,
-        clientZip: formData.clientZip,
-        projectLocation: formData.projectLocation,
-        clientPhone: formData.clientPhone,
-        clientEmail: formData.clientEmail,
-        projectDescription: formData.projectDescription,
-        projectName: formData.projectName,
-        depositAmount: parseFloat(formData.depositAmount),
-        totalValue: totalValue,
-        startDate: formData.startDate,
-        dueDate: formData.dueDate,
-        status: formData.status,
-        cabinetType: formData.cabinetType,
-        material: formData.material,
-        customFinish: formData.customFinish,
-        installationIncluded: formData.installationIncluded,
-        additionalNotes: formData.additionalNotes,
-        costTracking: costTracking,
-        paymentSchedule: generateDefaultPaymentSchedule(totalValue, formData.startDate, formData.dueDate, contractId),
-        attachments: contractAttachments,
-        downPayments: [],
-      };
-      setContracts([...contracts, newContract]);
+        setIsEditMode(false);
+        setEditingContractId(null);
+      } else {
+        const total_value = parseFloat(formData.total_value);
+        const newContract: Partial<Contract> = {
+          client_name: formData.client_name,
+          client_address: formData.client_address,
+          client_city: formData.client_city,
+          client_state: formData.client_state,
+          client_zip: formData.client_zip,
+          project_location: formData.project_location,
+          client_phone: formData.client_phone,
+          client_email: formData.client_email,
+          project_description: formData.project_description,
+          project_name: formData.project_name,
+          deposit_amount: parseFloat(formData.deposit_amount),
+          total_value: total_value,
+          start_date: formData.start_date,
+          due_date: formData.due_date,
+          status: formData.status,
+          cabinet_type: formData.cabinet_type,
+          material: formData.material,
+          custom_finish: formData.custom_finish,
+          installation_included: formData.installation_included,
+          additional_notes: formData.additional_notes,
+          cost_tracking: costTracking,
+          // Generate a default payment schedule
+          payment_schedule: generateDefaultPaymentSchedule(total_value, formData.start_date, formData.due_date), 
+          attachments: contractAttachments,
+          down_payments: [],
+          expenses: [],
+        };
 
-      // Show success notification
-      toast({
-        title: "✅ Contract Created",
-        description: `${formData.projectName} contract has been created successfully.`,
-      });
+        await contractsService.create(newContract);
+        toast({
+          title: "✅ Contract Created",
+          description: `${formData.project_name} contract has been created successfully.`,
+        });
+      }
+
+      resetFormData();
+      setIsModalOpen(false);
+      fetchData(); // Refresh list from Supabase
+    } catch (error) {
+      console.error("Error saving contract:", error);
+      toast({ title: "Error", description: "Failed to save contract", variant: "destructive" });
     }
-
-    setFormData({
-      clientName: "",
-      clientAddress: "",
-      clientCity: "",
-      clientState: "",
-      clientZip: "",
-      projectLocation: "",
-      clientPhone: "",
-      clientEmail: "",
-      projectDescription: "",
-      projectName: "",
-      depositAmount: "",
-      totalValue: "",
-      startDate: "",
-      dueDate: "",
-      status: "pending",
-      cabinetType: CABINET_TYPES[0],
-      material: FINISHES[0],
-      customFinish: "",
-      installationIncluded: false,
-      additionalNotes: "",
-    });
-    // Clear draft after saving
-    localStorage.removeItem(`contract_draft_${selectedYear}`);
-    setIsModalOpen(false);
   };
 
   const handleEditContract = (contract: Contract) => {
-    setFormData({
-      clientName: contract.clientName,
-      clientAddress: contract.clientAddress,
-      clientCity: contract.clientCity,
-      clientState: contract.clientState,
-      clientZip: contract.clientZip,
-      projectLocation: contract.projectLocation,
-      clientPhone: contract.clientPhone,
-      clientEmail: contract.clientEmail,
-      projectDescription: contract.projectDescription,
-      projectName: contract.projectName,
-      depositAmount: contract.depositAmount.toString(),
-      totalValue: contract.totalValue.toString(),
-      startDate: contract.startDate,
-      dueDate: contract.dueDate,
-      status: contract.status,
-      cabinetType: contract.cabinetType,
-      material: contract.material,
-      customFinish: contract.customFinish || "",
-      installationIncluded: contract.installationIncluded,
-      additionalNotes: contract.additionalNotes,
-    });
-    // Ensure all costTracking fields are properly initialized with defaults
-    setCostTracking(initializeCostTracking(contract.costTracking));
-    setContractAttachments(contract.attachments || []);
-    setEditingContractId(contract.id);
     setIsEditMode(true);
+    setEditingContractId(contract.id);
+    setFormData({
+      client_name: contract.client_name,
+      client_address: contract.client_address || "",
+      client_city: contract.client_city || "",
+      client_state: contract.client_state || "",
+      client_zip: contract.client_zip || "",
+      project_location: contract.project_location || "",
+      client_phone: contract.client_phone || "",
+      client_email: contract.client_email || "",
+      project_description: contract.project_description || "",
+      project_name: contract.project_name,
+      deposit_amount: (contract.deposit_amount || 0).toString(),
+      total_value: contract.total_value.toString(),
+      start_date: contract.start_date || "",
+      due_date: contract.due_date || "",
+      status: contract.status,
+      cabinet_type: contract.cabinet_type || CABINET_TYPES[0],
+      material: contract.material || FINISHES[0],
+      custom_finish: contract.custom_finish || "",
+      installation_included: contract.installation_included || false,
+      additional_notes: contract.additional_notes || "",
+    });
+    setCostTracking(initializeCostTracking(contract.cost_tracking));
+    setContractAttachments(contract.attachments || []);
     setIsModalOpen(true);
   };
-
-  const handleDeleteContract = (contractId: string) => {
+  const handleDeleteContract = async (contractId: string) => {
     if (window.confirm("Are you sure you want to delete this contract?")) {
-      setContracts(contracts.filter((contract) => contract.id !== contractId));
+      try {
+        await contractsService.delete(contractId);
+        toast({ title: "Contract Deleted", description: "The contract has been permanently removed." });
+        fetchData();
+      } catch (error) {
+        console.error("Error deleting contract:", error);
+        toast({ title: "Error", description: "Failed to delete contract", variant: "destructive" });
+      }
     }
   };
 
@@ -1151,19 +650,19 @@ export default function Contracts() {
         id: payment.id,
         description: payment.description || "",
         amount: payment.amount || 0,
-        dueDate: payment.dueDate || "",
+        due_date: payment.due_date || "",
         status: payment.status || "pending",
-        paidDate: payment.paidDate || "",
-        paymentMethod: payment.paymentMethod || "cash",
-        bankName: payment.bankName || "",
-        routingNumber: payment.routingNumber || "",
-        accountNumber: payment.accountNumber || "",
-        accountType: payment.accountType || "checking",
-        checkAttachment: payment.checkAttachment || "",
-        checkNumber: payment.checkNumber || "",
-        creditCardLast4: payment.creditCardLast4 || "",
-        transactionReference: payment.transactionReference || "",
-        receiptAttachment: payment.receiptAttachment || "",
+        paid_date: payment.paid_date || "",
+        payment_method: payment.payment_method || "cash",
+        bank_name: payment.bank_name || "",
+        routing_number: payment.routing_number || "",
+        account_number: payment.account_number || "",
+        account_type: payment.account_type || "checking",
+        check_attachment: payment.check_attachment || "",
+        check_number: payment.check_number || "",
+        credit_card_last4: payment.credit_card_last4 || "",
+        transaction_reference: payment.transaction_reference || "",
+        receipt_attachment: payment.receipt_attachment || "",
       });
       setEditingPaymentId(payment.id);
     } else {
@@ -1173,231 +672,299 @@ export default function Contracts() {
         id: newPaymentId,
         description: "",
         amount: 0,
-        dueDate: contract?.dueDate || "",
+        due_date: contract?.due_date || "",
         status: "pending",
-        paidDate: "",
-        paymentMethod: "cash",
-        bankName: "",
-        routingNumber: "",
-        accountNumber: "",
-        accountType: "checking",
-        checkAttachment: "",
-        checkNumber: "",
-        creditCardLast4: "",
-        transactionReference: "",
-        receiptAttachment: "",
+        paid_date: "",
+        payment_method: "cash",
+        bank_name: "",
+        routing_number: "",
+        account_number: "",
+        account_type: "checking",
+        check_attachment: "",
+        check_number: "",
+        credit_card_last4: "",
+        transaction_reference: "",
+        receipt_attachment: "",
       });
       setEditingPaymentId(null);
     }
     setIsPaymentModalOpen(true);
   };
 
-  const handleSavePayment = () => {
-    console.log("💳 handleSavePayment called");
-    console.log("📋 Payment form:", paymentForm);
-
-    if (!paymentForm.description.trim() || !paymentForm.amount || !paymentForm.dueDate || !selectedContractId || !paymentForm.paymentMethod) {
-      console.error("❌ Missing required payment details");
+  const handleSavePayment = async () => {
+    if (!paymentForm.description.trim() || !paymentForm.amount || !paymentForm.due_date || !selectedContractId || !paymentForm.payment_method) {
       alert("Please fill in all payment details (description, amount, due date, payment method)");
       return;
     }
 
-    console.log("✅ Basic validation passed");
-
     // Payment method specific validation
-    if (paymentForm.paymentMethod === "cash") {
-      // Cash doesn't need additional info
-      console.log("✅ Cash payment - no additional details needed");
-    } else if (paymentForm.paymentMethod === "check") {
-      // Check only needs check number (optional), no bank details needed
-      console.log("✅ Check payment - no bank details needed");
-    } else if (paymentForm.paymentMethod === "direct_deposit" || paymentForm.paymentMethod === "ach" || paymentForm.paymentMethod === "wire") {
-      // Bank transfers require bank details
-      if (!paymentForm.bankName?.trim() || !paymentForm.routingNumber?.trim() || !paymentForm.accountNumber?.trim() || !paymentForm.accountType) {
-        console.error("❌ Missing bank transfer details");
+    if (paymentForm.payment_method === "direct_deposit" || paymentForm.payment_method === "ach" || paymentForm.payment_method === "wire") {
+      if (!paymentForm.bank_name?.trim() || !paymentForm.routing_number?.trim() || !paymentForm.account_number?.trim() || !paymentForm.account_type) {
         alert("Please fill in all bank details (bank name, routing number, account number, account type)");
         return;
       }
-      console.log("✅ Bank transfer validation passed");
-    } else if (paymentForm.paymentMethod === "credit_card" || paymentForm.paymentMethod === "debit_card") {
-      // Card payments require card details
-      if (!paymentForm.creditCardLast4?.trim() || !paymentForm.transactionReference?.trim()) {
-        console.error("❌ Missing card details");
+    } else if (paymentForm.payment_method === "credit_card" || paymentForm.payment_method === "debit_card") {
+      if (!paymentForm.credit_card_last4?.trim() || !paymentForm.transaction_reference?.trim()) {
         alert("Please fill in all card details (last 4 digits, transaction/authorization code)");
         return;
       }
-      console.log("✅ Card payment validation passed");
     }
 
-    const updatedContracts = contracts.map((contract) =>
-      contract.id === selectedContractId
-        ? {
-            ...contract,
-            paymentSchedule: editingPaymentId
-              ? contract.paymentSchedule.map((p) =>
-                  p.id === editingPaymentId ? paymentForm : p
-                )
-              : [...contract.paymentSchedule, paymentForm],
-          }
-        : contract
-    );
-
-    setContracts(updatedContracts);
-
-    // Save to localStorage
     try {
-      saveYearData("contracts", selectedYear, updatedContracts);
-      console.log("✅ Payment saved to localStorage");
+      const contract = contracts.find(c => c.id === selectedContractId);
+      if (!contract) return;
+
+      const updatedSchedule = editingPaymentId
+        ? contract.payment_schedule.map((p: any) => p.id === editingPaymentId ? paymentForm : p)
+        : [...(contract.payment_schedule || []), paymentForm];
+
+      await contractsService.update(selectedContractId, { payment_schedule: updatedSchedule });
+      
+      toast({
+        title: "✅ Success",
+        description: `${editingPaymentId ? "Updated" : "Added"} payment: ${paymentForm.description}`,
+      });
+
+      setIsPaymentModalOpen(false);
+      setPaymentForm({
+        id: "",
+        description: "",
+        amount: 0,
+        due_date: "",
+        status: "pending",
+        paid_date: "",
+        payment_method: "cash",
+        bank_name: "",
+        routing_number: "",
+        account_number: "",
+        account_type: "checking",
+        check_attachment: "",
+        check_number: "",
+        credit_card_last4: "",
+        transaction_reference: "",
+        receipt_attachment: ""
+      });
+      setEditingPaymentId(null);
+      setSelectedContractId(null);
+      fetchData();
     } catch (error) {
-      console.error("❌ Error saving to localStorage:", error);
+      console.error("Error saving payment:", error);
+      toast({ title: "Error", description: "Failed to save payment", variant: "destructive" });
     }
-
-    // Show success notification
-    const action = editingPaymentId ? "Updated" : "Added";
-    toast({
-      title: "✅ Success",
-      description: `${action} payment: ${paymentForm.description}`,
-    });
-
-    // Reset form and close modal
-    setIsPaymentModalOpen(false);
-    setPaymentForm({
-      id: "",
-      description: "",
-      amount: 0,
-      dueDate: "",
-      status: "pending",
-      paidDate: "",
-      paymentMethod: "cash",
-      bankName: "",
-      routingNumber: "",
-      accountNumber: "",
-      accountType: "checking",
-      checkAttachment: "",
-      checkNumber: "",
-      creditCardLast4: "",
-      transactionReference: "",
-      receiptAttachment: ""
-    });
-    setEditingPaymentId(null);
-    setSelectedContractId(null);
-
-    console.log("✅ handleSavePayment COMPLETED SUCCESSFULLY");
   };
 
-  const handleDeletePayment = (contractId: string, paymentId: string) => {
+  const handleDeletePayment = async (contractId: string, paymentId: string) => {
     if (window.confirm("Are you sure you want to delete this payment?")) {
-      setContracts(
-        contracts.map((contract) =>
-          contract.id === contractId
-            ? {
-                ...contract,
-                paymentSchedule: contract.paymentSchedule.filter((p) => p.id !== paymentId),
-              }
-            : contract
-        )
-      );
+      try {
+        const contract = contracts.find(c => c.id === contractId);
+        if (!contract) return;
+        const updatedSchedule = contract.payment_schedule.filter((p: any) => p.id !== paymentId);
+        await contractsService.update(contractId, { payment_schedule: updatedSchedule });
+        fetchData();
+      } catch (error) {
+        console.error("Error deleting payment:", error);
+      }
     }
   };
 
-  const handleSaveExpense = (contractId: string) => {
-    if (!expenseForm.invoiceNumber.trim() || !expenseForm.vendor.trim() || !expenseForm.amount || !expenseForm.purchaseDate) {
+  const handleSaveExpense = async (contractId: string) => {
+    if (!expenseForm.invoice_number.trim() || !expenseForm.vendor.trim() || !expenseForm.amount || !expenseForm.purchase_date) {
       alert("Please fill in all required fields");
       return;
     }
 
-    setContracts(
-      contracts.map((contract) =>
-        contract.id === contractId
-          ? {
-              ...contract,
-              expenses: editingExpenseId
-                ? contract.expenses.map((e) =>
-                    e.id === editingExpenseId ? expenseForm : e
-                  )
-                : [...contract.expenses, { ...expenseForm, id: generateShortId('EXP') }],
-            }
-          : contract
-      )
-    );
+    try {
+      const contract = contracts.find(c => c.id === contractId);
+      if (!contract) return;
 
-    setExpenseForm({
-      id: "",
-      invoiceNumber: "",
-      vendor: "",
-      amount: 0,
-      purchaseDate: getTodayDate(),
-      category: "Materials",
-      description: "",
-      notes: "",
-      fileName: undefined,
-    });
-    setEditingExpenseId(null);
-  };
+      const updatedExpenses = editingExpenseId
+        ? contract.expenses.map((e: any) => e.id === editingExpenseId ? expenseForm : e)
+        : [...(contract.expenses || []), { ...expenseForm, id: `EXP-${Date.now()}` }];
 
-  const handleAddExpenseToBills = (contractId: string, expense: Expense) => {
-    // Create a bill ID that shows it's an expense from the contract (e.g., EXP-CON-001)
-    const billId = `EXP-${contractId}`;
-    const bill = {
-      id: billId,
-      category: "Materials",
-      vendor: expense.vendor,
-      amount: expense.amount,
-      dueDate: expense.purchaseDate,
-      description: expense.description,
-      status: "pending" as const,
-      contractId: contractId,
-      invoiceNumber: expense.invoiceNumber,
-    };
-
-    // Save to year-based storage so Bills page can access it
-    const existingBills = getYearData<any[]>("contractExpenseBills", selectedYear, []);
-    const updatedBills = existingBills.some((b: any) => b.id === billId)
-      ? existingBills.map((b: any) => b.id === billId ? bill : b)
-      : [...existingBills, bill];
-    saveYearData("contractExpenseBills", selectedYear, updatedBills);
-
-    alert(`Expense added to Bills! You can now set the payment method in the Bills page.`);
-  };
-
-  const handleDeleteExpense = (contractId: string, expenseId: string) => {
-    if (window.confirm("Are you sure you want to delete this expense?")) {
-      setContracts(
-        contracts.map((contract) =>
-          contract.id === contractId
-            ? {
-                ...contract,
-                expenses: contract.expenses.filter((e) => e.id !== expenseId),
-              }
-            : contract
-        )
-      );
+      await contractsService.update(contractId, { expenses: updatedExpenses });
+      
+      setExpenseForm({
+        id: "",
+        invoice_number: "",
+        vendor: "",
+        amount: 0,
+        purchase_date: getTodayDate(),
+        category: "Materials",
+        description: "",
+        notes: "",
+        file_name: undefined,
+      });
+      setEditingExpenseId(null);
+      fetchData();
+    } catch (error) {
+      console.error("Error saving expense:", error);
     }
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAddExpenseToBills = async (contractId: string, expense: Expense) => {
+    try {
+      const bill: Partial<Bill> = {
+        vendor: expense.vendor,
+        amount: expense.amount,
+        due_date: expense.purchase_date,
+        description: expense.description,
+        status: "pending",
+        contract_id: contractId,
+        invoice_number: expense.invoice_number,
+        category: expense.category,
+      };
+
+      await billsService.create(bill);
+      alert(`Expense added to Bills! You can now manage it in the Bills page.`);
+    } catch (error) {
+      console.error("Error adding expense to bills:", error);
+    }
+  };
+
+  const handleDeleteExpense = async (contractId: string, expenseId: string) => {
+    if (window.confirm("Are you sure you want to delete this expense?")) {
+      try {
+        const contract = contracts.find(c => c.id === contractId);
+        if (!contract) return;
+        const updatedExpenses = (contract.expenses || []).filter((e: any) => e.id !== expenseId);
+        await contractsService.update(contractId, { expenses: updatedExpenses });
+        fetchData();
+      } catch (error) {
+        console.error("Error deleting expense:", error);
+      }
+    }
+  };
+
+  const handleSaveDownPayment = async () => {
+    if (!downPaymentForm.amount || !downPaymentForm.date || !detailsContractId) {
+      alert("Please fill in Amount and Date");
+      return;
+    }
+
+    try {
+      const contract = contracts.find(c => c.id === detailsContractId);
+      if (!contract) return;
+
+      const updatedDownPayments = editingDownPaymentId
+        ? (contract.down_payments || []).map((dp: any) => dp.id === editingDownPaymentId ? downPaymentForm : dp)
+        : [...(contract.down_payments || []), { ...downPaymentForm, id: `DP-${Date.now()}` }];
+
+      await contractsService.update(detailsContractId, { down_payments: updatedDownPayments });
+      
+      const updatedContract = { ...contract, down_payments: updatedDownPayments };
+      
+      // Auto-generate invoice
+      if (!editingDownPaymentId) {
+        generateInvoicePDF(updatedContract);
+        toast({
+          title: "✅ Down Payment Recorded",
+          description: `Down payment of $${downPaymentForm.amount.toFixed(2)} recorded. Invoice generated.`,
+        });
+      } else {
+        generateInvoicePDF(updatedContract);
+        toast({
+          title: "✅ Down Payment Updated",
+          description: `Down payment updated. Invoice regenerated.`,
+        });
+      }
+
+      setIsDownPaymentModalOpen(false);
+      setDownPaymentForm({
+        id: "",
+        amount: 0,
+        date: "",
+        method: "wire_transfer",
+        description: "",
+        receipt_attachment: ""
+      });
+      setEditingDownPaymentId(null);
+      fetchData();
+    } catch (error) {
+      console.error("Error saving down payment:", error);
+      toast({ title: "Error", description: "Failed to save down payment", variant: "destructive" });
+    }
+  };
+
+  const handleDeleteDownPayment = async () => {
+    if (window.confirm("Are you sure you want to delete this down payment?") && detailsContractId && editingDownPaymentId) {
+      try {
+        const contract = contracts.find(c => c.id === detailsContractId);
+        if (!contract) return;
+        
+        const updatedDownPayments = (contract.down_payments || []).filter((dp: any) => dp.id !== editingDownPaymentId);
+        await contractsService.update(detailsContractId, { down_payments: updatedDownPayments });
+        
+        setIsDownPaymentModalOpen(false);
+        setDownPaymentForm({
+          id: "",
+          amount: 0,
+          date: "",
+          method: "wire_transfer",
+          description: "",
+          receipt_attachment: ""
+        });
+        setEditingDownPaymentId(null);
+        fetchData();
+        toast({ title: "Down Payment Deleted", description: "The record has been removed." });
+      } catch (error) {
+        console.error("Error deleting down payment:", error);
+        toast({ title: "Error", description: "Failed to delete down payment", variant: "destructive" });
+      }
+    }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, contractId?: string) => {
     const files = e.target.files;
     if (!files) return;
 
-    Array.from(files).forEach((file) => {
+    const newAttachments: ContractAttachment[] = [];
+    
+    for (const file of Array.from(files)) {
       const reader = new FileReader();
-      reader.onload = (event) => {
-        const fileData = event.target?.result as string;
-        const newAttachment: ContractAttachment = {
-          id: `ATT-${Date.now()}`,
-          fileName: file.name,
-          fileData: fileData,
-          uploadDate: getTodayDate(),
-          description: "",
-        };
-        setContractAttachments([...contractAttachments, newAttachment]);
-      };
-      reader.readAsDataURL(file);
-    });
+      const fileDataPromise = new Promise<string>((resolve) => {
+        reader.onload = (event) => resolve(event.target?.result as string);
+        reader.readAsDataURL(file);
+      });
+      
+      const fileData = await fileDataPromise;
+      newAttachments.push({
+        id: `ATT-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        file_name: file.name,
+        file_data: fileData,
+        upload_date: getTodayDate(),
+        description: "",
+      });
+    }
+
+    if (contractId) {
+      try {
+        const contract = contracts.find(c => c.id === contractId);
+        if (!contract) return;
+        const updatedAttachments = [...(contract.attachments || []), ...newAttachments];
+        await contractsService.update(contractId, { attachments: updatedAttachments });
+        fetchData();
+      } catch (error) {
+        console.error("Error uploading attachments:", error);
+      }
+    } else {
+      setContractAttachments([...contractAttachments, ...newAttachments]);
+    }
   };
 
-  const deleteAttachment = (attachmentId: string) => {
-    setContractAttachments(contractAttachments.filter(att => att.id !== attachmentId));
+  const deleteAttachment = async (attachmentId: string, contractId?: string) => {
+    if (contractId) {
+      try {
+        const contract = contracts.find(c => c.id === contractId);
+        if (!contract) return;
+        const updatedAttachments = contract.attachments.filter((att: any) => att.id !== attachmentId);
+        await contractsService.update(contractId, { attachments: updatedAttachments });
+        fetchData();
+      } catch (error) {
+        console.error("Error deleting attachment:", error);
+      }
+    } else {
+      setContractAttachments(contractAttachments.filter(att => att.id !== attachmentId));
+    }
   };
 
   // Helper to extract image format from data URI
@@ -1499,13 +1066,13 @@ export default function Contracts() {
     pdf.text("CLIENT INFORMATION", margin, yPosition);
     yPosition += lineHeight;
     pdf.setFont(undefined, "normal");
-    pdf.text(`Name: ${contract.clientName}`, margin, yPosition);
+    pdf.text(`Name: ${contract.client_name}`, margin, yPosition);
     yPosition += lineHeight;
-    pdf.text(`Address: ${contract.clientAddress}, ${contract.clientCity}, ${contract.clientState} ${contract.clientZip}`, margin, yPosition, { maxWidth: contentWidth });
+    pdf.text(`Address: ${contract.client_address}, ${contract.client_city}, ${contract.client_state} ${contract.client_zip}`, margin, yPosition, { maxWidth: contentWidth });
     yPosition += lineHeight + 2;
-    pdf.text(`Phone: ${contract.clientPhone}`, margin, yPosition);
+    pdf.text(`Phone: ${contract.client_phone}`, margin, yPosition);
     yPosition += lineHeight;
-    pdf.text(`Email: ${contract.clientEmail}`, margin, yPosition);
+    pdf.text(`Email: ${contract.client_email}`, margin, yPosition);
     yPosition += 15;
 
     // Project Information
@@ -1513,11 +1080,11 @@ export default function Contracts() {
     pdf.text("PROJECT DETAILS", margin, yPosition);
     yPosition += lineHeight;
     pdf.setFont(undefined, "normal");
-    pdf.text(`Project: ${contract.projectName}`, margin, yPosition);
+    pdf.text(`Project: ${contract.project_name}`, margin, yPosition);
     yPosition += lineHeight;
-    pdf.text(`Description: ${contract.projectDescription}`, margin, yPosition, { maxWidth: contentWidth });
+    pdf.text(`Description: ${contract.project_description}`, margin, yPosition, { maxWidth: contentWidth });
     yPosition += lineHeight + 2;
-    pdf.text(`Location: ${contract.projectLocation}`, margin, yPosition, { maxWidth: contentWidth });
+    pdf.text(`Location: ${contract.project_location}`, margin, yPosition, { maxWidth: contentWidth });
     yPosition += 15;
 
     // Cabinet Specifications
@@ -1525,31 +1092,32 @@ export default function Contracts() {
     pdf.text("CABINET SPECIFICATIONS", margin, yPosition);
     yPosition += lineHeight;
     pdf.setFont(undefined, "normal");
-    pdf.text(`Type: ${contract.cabinetType}`, margin, yPosition);
+    pdf.text(`Type: ${contract.cabinet_type}`, margin, yPosition);
     yPosition += lineHeight;
     pdf.text(`Finish: ${contract.material}`, margin, yPosition);
     yPosition += lineHeight;
-    pdf.text(`Installation: ${contract.installationIncluded ? "Yes" : "No"}`, margin, yPosition);
+    pdf.text(`Installation: ${contract.installation_included ? "Yes" : "No"}`, margin, yPosition);
     yPosition += lineHeight;
-    if (contract.additionalNotes) {
-      pdf.text(`Notes: ${contract.additionalNotes}`, margin, yPosition, { maxWidth: contentWidth });
+    if (contract.additional_notes) {
+      pdf.text(`Notes: ${contract.additional_notes}`, margin, yPosition, { maxWidth: contentWidth });
       yPosition += lineHeight + 2;
     }
     yPosition += 10;
 
     // Material Costs (Internal)
-    const materialCost = contract.costTracking.materials.reduce((sum, m) => sum + m.quantity * m.unitPrice, 0);
-    const miscCost = contract.costTracking.miscellaneous.reduce((sum, m) => sum + m.amount, 0);
+    const cost_tracking = contract.cost_tracking as CostTracking;
+    const materialCost = cost_tracking.materials.reduce((sum, m) => sum + m.quantity * m.unit_price, 0);
+    const miscCost = cost_tracking.miscellaneous.reduce((sum, m) => sum + m.amount, 0);
 
     pdf.setFont(undefined, "bold");
     pdf.text("MATERIAL LIST", margin, yPosition);
     yPosition += lineHeight;
     pdf.setFont(undefined, "normal");
 
-    if (contract.costTracking.materials.length > 0) {
-      contract.costTracking.materials.forEach((material) => {
+    if (cost_tracking.materials.length > 0) {
+      cost_tracking.materials.forEach((material) => {
         if (material.quantity > 0) {
-          const cost = material.quantity * material.unitPrice;
+          const cost = material.quantity * material.unit_price;
           const predefinedMaterial = availableMaterials.find(m => m.id === material.id);
           const supplier = material.supplier || predefinedMaterial?.supplier;
 
@@ -1562,7 +1130,7 @@ export default function Contracts() {
           });
 
           // Quantity, price, and supplier on next line
-          const detailsLine = `${material.quantity} ${material.unit} @ $${material.unitPrice.toLocaleString(undefined, { maximumFractionDigits: 2 })} = $${cost.toLocaleString(undefined, { maximumFractionDigits: 2 })}${supplier ? ` [${supplier}]` : ""}`;
+          const detailsLine = `${material.quantity} ${material.unit} @ $${material.unit_price.toLocaleString(undefined, { maximumFractionDigits: 2 })} = $${cost.toLocaleString(undefined, { maximumFractionDigits: 2 })}${supplier ? ` [${supplier}]` : ""}`;
           const detailsLines = pdf.splitTextToSize(detailsLine, contentWidth - 10);
           detailsLines.forEach((line: string) => {
             pdf.text(line, margin + 10, yPosition);
@@ -1586,15 +1154,15 @@ export default function Contracts() {
     yPosition += lineHeight;
     pdf.setFont(undefined, "normal");
     pdf.setFontSize(9);
-    pdf.text(`Method: ${contract.costTracking.laborCost.calculationMethod}`, margin + 3, yPosition);
+    pdf.text(`Method: ${cost_tracking.labor_cost.calculation_method}`, margin + 3, yPosition);
     yPosition += lineHeight;
-    const descLines = pdf.splitTextToSize(`Description: ${contract.costTracking.laborCost.description}`, contentWidth - 5);
+    const descLines = pdf.splitTextToSize(`Description: ${cost_tracking.labor_cost.description}`, contentWidth - 5);
     descLines.forEach((line: string) => {
       pdf.text(line, margin + 3, yPosition);
       yPosition += lineHeight;
     });
     pdf.setFont(undefined, "bold");
-    pdf.text(`Amount: $${contract.costTracking.laborCost.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, margin + 3, yPosition);
+    pdf.text(`Amount: $${cost_tracking.labor_cost.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, margin + 3, yPosition);
     yPosition += lineHeight + 5;
 
     // Misc Costs
@@ -1604,7 +1172,7 @@ export default function Contracts() {
       yPosition += lineHeight;
       pdf.setFont(undefined, "normal");
 
-      contract.costTracking.miscellaneous.forEach((item) => {
+      cost_tracking.miscellaneous.forEach((item) => {
         const line = `${item.description}: $${item.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
         pdf.text(line, margin + 5, yPosition);
         yPosition += lineHeight;
@@ -1613,9 +1181,9 @@ export default function Contracts() {
     }
 
     // Cost Summary
-    const totalCosts = materialCost + contract.costTracking.laborCost.amount + miscCost;
-    const profit = contract.totalValue - totalCosts;
-    const profitMargin = contract.totalValue > 0 ? (profit / contract.totalValue) * 100 : 0;
+    const totalCosts = materialCost + cost_tracking.labor_cost.amount + miscCost;
+    const profit = contract.total_value - totalCosts;
+    const profitMargin = contract.total_value > 0 ? (profit / contract.total_value) * 100 : 0;
 
     // Add separator line
     pdf.setDrawColor(0, 0, 0);
@@ -1630,7 +1198,7 @@ export default function Contracts() {
 
     pdf.setFontSize(10);
     pdf.setFont(undefined, "normal");
-    pdf.text(`Contract Value: $${contract.totalValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, margin + 3, yPosition);
+    pdf.text(`Contract Value: $${(contract.total_value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`, margin + 3, yPosition);
     yPosition += lineHeight;
 
     pdf.text(`Total Costs: $${totalCosts.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, margin + 3, yPosition);
@@ -1745,26 +1313,25 @@ export default function Contracts() {
     pdf.text(`Date: ${new Date().toLocaleDateString()}`, margin, yPosition);
     yPosition += 15;
 
-    // Client Information
+    // Contact Information Box
+    pdf.setDrawColor(200);
+    pdf.rect(margin, yPosition, contentWidth, 35);
+    const boxY = yPosition + 5;
     pdf.setFont(undefined, "bold");
-    pdf.setFontSize(10);
-    pdf.text("CLIENT INFORMATION", margin, yPosition);
-    yPosition += lineHeight;
+    pdf.text("BETWEEN:", margin + 5, boxY);
+    pdf.text("AND:", margin + contentWidth / 2 + 5, boxY);
+    
     pdf.setFont(undefined, "normal");
-    pdf.setFontSize(9);
+    pdf.text("South Park Cabinets INC", margin + 5, boxY + 5);
+    pdf.text("123 Cabinet Way, Suite 100", margin + 5, boxY + 10);
+    pdf.text("City, State 12345", margin + 5, boxY + 15);
+    pdf.text("(555) 123-4567", margin + 5, boxY + 20);
 
-    pdf.text(`Name: ${contract.clientName}`, margin, yPosition);
-    yPosition += lineHeight;
-    const clientAddress = `${contract.clientAddress}, ${contract.clientCity}, ${contract.clientState} ${contract.clientZip}`;
-    const clientAddrLines = pdf.splitTextToSize(`Address: ${clientAddress}`, contentWidth);
-    clientAddrLines.forEach((line: string) => {
-      pdf.text(line, margin, yPosition);
-      yPosition += lineHeight;
-    });
-    pdf.text(`Phone: ${contract.clientPhone}`, margin, yPosition);
-    yPosition += lineHeight;
-    pdf.text(`Email: ${contract.clientEmail}`, margin, yPosition);
-    yPosition += 15;
+    pdf.text(contract.client_name, margin + contentWidth / 2 + 5, boxY + 5);
+    pdf.text(contract.client_address || "", margin + contentWidth / 2 + 5, boxY + 10);
+    pdf.text(`${contract.client_city || ""}, ${contract.client_state || ""} ${contract.client_zip || ""}`, margin + contentWidth / 2 + 5, boxY + 15);
+    pdf.text(contract.client_phone || "", margin + contentWidth / 2 + 5, boxY + 20);
+    yPosition += 45;
 
     // Project Information
     pdf.setFont(undefined, "bold");
@@ -1774,19 +1341,19 @@ export default function Contracts() {
     pdf.setFont(undefined, "normal");
     pdf.setFontSize(9);
 
-    const projectNameLines = pdf.splitTextToSize(`Project: ${contract.projectName}`, contentWidth);
+    const projectNameLines = pdf.splitTextToSize(`Project: ${contract.project_name}`, contentWidth);
     projectNameLines.forEach((line: string) => {
       pdf.text(line, margin, yPosition);
       yPosition += lineHeight;
     });
 
-    const descLines = pdf.splitTextToSize(`Description: ${contract.projectDescription}`, contentWidth);
+    const descLines = pdf.splitTextToSize(`Description: ${contract.project_description || "N/A"}`, contentWidth);
     descLines.forEach((line: string) => {
       pdf.text(line, margin, yPosition);
       yPosition += lineHeight;
     });
 
-    const locLines = pdf.splitTextToSize(`Location: ${contract.projectLocation}`, contentWidth);
+    const locLines = pdf.splitTextToSize(`Location: ${contract.project_location || "As specified above"}`, contentWidth);
     locLines.forEach((line: string) => {
       pdf.text(line, margin, yPosition);
       yPosition += lineHeight;
@@ -1801,15 +1368,15 @@ export default function Contracts() {
     pdf.setFont(undefined, "normal");
     pdf.setFontSize(9);
 
-    pdf.text(`Type: ${contract.cabinetType}`, margin, yPosition);
+    pdf.text(`Type: ${contract.cabinet_type}`, margin, yPosition);
     yPosition += lineHeight;
     pdf.text(`Finish: ${contract.material}`, margin, yPosition);
     yPosition += lineHeight;
-    pdf.text(`Installation: ${contract.installationIncluded ? "Yes" : "No"}`, margin, yPosition);
+    pdf.text(`Installation: ${contract.installation_included ? "Yes" : "No"}`, margin, yPosition);
     yPosition += lineHeight;
 
-    if (contract.additionalNotes) {
-      const noteLines = pdf.splitTextToSize(`Notes: ${contract.additionalNotes}`, contentWidth);
+    if (contract.additional_notes) {
+      const noteLines = pdf.splitTextToSize(`Notes: ${contract.additional_notes}`, contentWidth);
       noteLines.forEach((line: string) => {
         pdf.text(line, margin, yPosition);
         yPosition += lineHeight;
@@ -1825,13 +1392,13 @@ export default function Contracts() {
     pdf.setFont(undefined, "normal");
     pdf.setFontSize(9);
 
-    pdf.text(`Total Contract Value: $${contract.totalValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, margin, yPosition);
+    pdf.text(`Total Contract Value: $${(contract.total_value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`, margin, yPosition);
     yPosition += lineHeight;
-    pdf.text(`Deposit Due: $${contract.depositAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, margin, yPosition);
+    pdf.text(`Deposit Due: $${(contract.deposit_amount || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`, margin, yPosition);
     yPosition += 15;
 
     // Payment Schedule
-    if (contract.paymentSchedule.length > 0) {
+    if (contract.payment_schedule && contract.payment_schedule.length > 0) {
       pdf.setFont(undefined, "bold");
       pdf.setFontSize(10);
       pdf.text("PAYMENT SCHEDULE", margin, yPosition);
@@ -1839,8 +1406,8 @@ export default function Contracts() {
       pdf.setFont(undefined, "normal");
       pdf.setFontSize(9);
 
-      contract.paymentSchedule.forEach((payment, index) => {
-        const dueDate = new Date(payment.dueDate).toLocaleDateString();
+      contract.payment_schedule.forEach((payment: any, index: number) => {
+        const dueDate = new Date(payment.due_date).toLocaleDateString();
         const statusText = payment.status === "paid" ? `(PAID)` : "(Pending)";
 
         // Payment description
@@ -1856,8 +1423,8 @@ export default function Contracts() {
         yPosition += lineHeight;
 
         // Payment method if paid
-        if (payment.status === "paid" && payment.paymentMethod) {
-          const methodText = `Payment Method: ${payment.paymentMethod === "check" ? "Check" : payment.paymentMethod === "direct_deposit" ? "Direct Deposit" : payment.paymentMethod === "bank_transfer" ? "Bank Transfer" : payment.paymentMethod === "wire_transfer" ? "Wire Transfer" : payment.paymentMethod === "credit_card" ? "Credit Card" : "Cash"}${payment.checkNumber ? ` #${payment.checkNumber}` : ""}`;
+        if (payment.status === "paid" && payment.payment_method) {
+          const methodText = `Payment Method: ${payment.payment_method === "check" ? "Check" : payment.payment_method === "direct_deposit" ? "Direct Deposit" : payment.payment_method === "bank_transfer" ? "Bank Transfer" : payment.payment_method === "wire_transfer" ? "Wire Transfer" : payment.payment_method === "credit_card" ? "Credit Card" : "Cash"}${payment.check_number ? ` #${payment.check_number}` : ""}`;
           pdf.setFont(undefined, "italic");
           pdf.setFontSize(8);
           pdf.text(methodText, margin + 5, yPosition);
@@ -1900,8 +1467,8 @@ export default function Contracts() {
       "- The Contractor will provide materials of good quality suitable for the intended purpose.",
       "",
       "4. TIMELINE",
-      `- Work will commence on ${formatDateString(contract.startDate)}`,
-      `- Expected completion date is ${formatDateString(contract.dueDate)}`,
+      `- Work will commence on ${contract.start_date ? formatDateString(contract.start_date) : "TBD"}`,
+      `- Expected completion date is ${contract.due_date ? formatDateString(contract.due_date) : "TBD"}`,
       "- Timeline is an estimate and may be subject to change due to unforeseen circumstances.",
       "",
       "5. WARRANTY",
@@ -2084,18 +1651,18 @@ export default function Contracts() {
     yPosition += lineHeight;
     pdf.setFont(undefined, "normal");
     pdf.setFontSize(9);
-    pdf.text(`${contract.clientName}`, margin, yPosition);
+    pdf.text(`${contract.client_name}`, margin, yPosition);
     yPosition += lineHeight;
-    if (contract.clientAddress) {
-      pdf.text(`${contract.clientAddress}`, margin, yPosition);
+    if (contract.client_address) {
+      pdf.text(`${contract.client_address}`, margin, yPosition);
       yPosition += lineHeight;
     }
-    if (contract.clientCity || contract.clientState || contract.clientZip) {
-      pdf.text(`${contract.clientCity || ""}${contract.clientCity && contract.clientState ? ", " : ""}${contract.clientState || ""} ${contract.clientZip || ""}`.trim(), margin, yPosition);
+    if (contract.client_city || contract.client_state || contract.client_zip) {
+      pdf.text(`${contract.client_city || ""}${contract.client_city && contract.client_state ? ", " : ""}${contract.client_state || ""} ${contract.client_zip || ""}`.trim(), margin, yPosition);
       yPosition += lineHeight;
     }
-    if (contract.clientPhone) {
-      pdf.text(`Phone: ${contract.clientPhone}`, margin, yPosition);
+    if (contract.client_phone) {
+      pdf.text(`Phone: ${contract.client_phone}`, margin, yPosition);
       yPosition += lineHeight;
     }
     yPosition += 10;
@@ -2107,9 +1674,9 @@ export default function Contracts() {
     yPosition += lineHeight;
     pdf.setFont(undefined, "normal");
     pdf.setFontSize(9);
-    pdf.text(`Project: ${contract.projectName}`, margin, yPosition);
+    pdf.text(`Project: ${contract.project_name}`, margin, yPosition);
     yPosition += lineHeight;
-    pdf.text(`Location: ${contract.projectLocation}`, margin, yPosition);
+    pdf.text(`Location: ${contract.project_location}`, margin, yPosition);
     yPosition += lineHeight;
     yPosition += 10;
 
@@ -2127,11 +1694,11 @@ export default function Contracts() {
     pdf.setFont(undefined, "normal");
     pdf.setFontSize(10);
     pdf.text("Total Contract Value:", margin, yPosition);
-    pdf.text(`$${contract.totalValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, margin + 100, yPosition, { align: "right" });
+    pdf.text(`$${(contract.total_value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`, margin + 100, yPosition, { align: "right" });
     yPosition += lineHeight + 8;
 
     // Down Payments Section
-    if (contract.downPayments && contract.downPayments.length > 0) {
+    if (contract.down_payments && contract.down_payments.length > 0) {
       pdf.setDrawColor(200, 200, 200);
       pdf.line(margin, yPosition, margin + contentWidth, yPosition);
       yPosition += 8;
@@ -2159,7 +1726,7 @@ export default function Contracts() {
       pdf.setFontSize(9);
       let totalDownPayments = 0;
 
-      const sortedPayments = [...contract.downPayments].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      const sortedPayments = [...(contract.down_payments || [])].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
       sortedPayments.forEach((payment) => {
         // Format date as M/D/YYYY to avoid timezone issues
@@ -2200,7 +1767,7 @@ export default function Contracts() {
       yPosition += lineHeight + 8;
 
       // Balance Due
-      const balanceDue = contract.totalValue - totalDownPayments;
+      const balanceDue = (contract.total_value || 0) - totalDownPayments;
       pdf.setFont(undefined, "bold");
       pdf.setFontSize(10);
       if (balanceDue > 0) {
@@ -2244,43 +1811,28 @@ export default function Contracts() {
     setEditingContractId(null);
     setTermsAccepted(false);
     setFormData({
-      clientName: "",
-      clientAddress: "",
-      clientCity: "",
-      clientState: "",
-      clientZip: "",
-      projectLocation: "",
-      clientPhone: "",
-      clientEmail: "",
-      projectDescription: "",
-      projectName: "",
-      depositAmount: "",
-      totalValue: "",
-      startDate: "",
-      dueDate: "",
+      client_name: "",
+      client_address: "",
+      client_city: "",
+      client_state: "",
+      client_zip: "",
+      project_location: "",
+      client_phone: "",
+      client_email: "",
+      project_description: "",
+      project_name: "",
+      deposit_amount: "",
+      total_value: "",
+      start_date: "",
+      due_date: "",
       status: "pending",
-      cabinetType: CABINET_TYPES[0],
+      cabinet_type: CABINET_TYPES[0],
       material: FINISHES[0],
-      customFinish: "",
-      installationIncluded: false,
-      additionalNotes: "",
+      custom_finish: "",
+      installation_included: false,
+      additional_notes: "",
     });
-    setCostTracking({
-      materials: getMaterialsForContracts(selectedYear),
-      laborCost: {
-        calculationMethod: "manual",
-        amount: 0,
-        description: "",
-        dailyRate: 900,
-        days: 0,
-        monthlyRate: 18000,
-        months: 0,
-        hourlyRate: 50,
-        hours: 0,
-      },
-      miscellaneous: [],
-      profitMarginPercent: 35,
-    });
+    setCostTracking(initializeCostTracking());
     setContractAttachments([]);
     // Don't clear draft here - keep it available for reopening the form
   };
@@ -2343,24 +1895,24 @@ export default function Contracts() {
         }
 
         // Contract header
-        pdf.text(`${idx + 1}. ${contract.id} - ${contract.projectName}`, margin, yPosition);
+        pdf.text(`${idx + 1}. ${contract.id} - ${contract.project_name}`, margin, yPosition);
         yPosition += lineHeight;
 
         // Contract details
         pdf.setFont(undefined, "normal");
         pdf.setFontSize(9);
 
-        pdf.text(`Client: ${contract.clientName}`, margin + 5, yPosition);
+        pdf.text(`Client: ${contract.client_name}`, margin + 5, yPosition);
         yPosition += lineHeight;
         pdf.text(`Status: ${contract.status.replace("-", " ")}`, margin + 5, yPosition);
         yPosition += lineHeight;
-        pdf.text(`Value: $${contract.totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })} | Deposit: $${contract.depositAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}`, margin + 5, yPosition);
+        pdf.text(`Value: $${(contract.total_value || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })} | Deposit: $${(contract.deposit_amount || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`, margin + 5, yPosition);
         yPosition += lineHeight;
-        pdf.text(`Start: ${formatDateString(contract.startDate)} | Due: ${formatDateString(contract.dueDate)}`, margin + 5, yPosition);
+        pdf.text(`Start: ${formatDateString(contract.start_date)} | Due: ${formatDateString(contract.due_date)}`, margin + 5, yPosition);
         yPosition += lineHeight;
 
-        if (contract.paymentSchedule.length > 0) {
-          pdf.text(`Payments: ${contract.paymentSchedule.length}`, margin + 5, yPosition);
+        if (contract.payment_schedule && contract.payment_schedule.length > 0) {
+          pdf.text(`Payments: ${contract.payment_schedule.length}`, margin + 5, yPosition);
           yPosition += lineHeight;
         }
 
@@ -2407,26 +1959,26 @@ export default function Contracts() {
               setIsEditMode(false);
               setEditingContractId(null);
               setFormData({
-                clientName: "",
-                clientAddress: "",
-                clientCity: "",
-                clientState: "NC",
-                clientZip: "",
-                projectLocation: "",
-                clientPhone: "",
-                clientEmail: "",
-                projectDescription: "",
-                projectName: "",
-                depositAmount: "",
-                totalValue: "",
-                startDate: "",
-                dueDate: "",
+                client_name: "",
+                client_address: "",
+                client_city: "",
+                client_state: "NC",
+                client_zip: "",
+                project_location: "",
+                client_phone: "",
+                client_email: "",
+                project_description: "",
+                project_name: "",
+                deposit_amount: "",
+                total_value: "",
+                start_date: "",
+                due_date: "",
                 status: "pending",
-                cabinetType: CABINET_TYPES[0],
+                cabinet_type: CABINET_TYPES[0],
                 material: FINISHES[0],
-                customFinish: "",
-                installationIncluded: false,
-                additionalNotes: "",
+                custom_finish: "",
+                installation_included: false,
+                additional_notes: "",
               });
               setCostTracking(initializeCostTracking());
               setContractAttachments([]);
@@ -2450,35 +2002,35 @@ export default function Contracts() {
             <div className="space-y-4 py-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="clientName">Client Name *</Label>
+                  <Label htmlFor="client_name">Client Name *</Label>
                   <Input
-                    id="clientName"
+                    id="client_name"
                     placeholder="e.g., Denver Home Renovations LLC"
-                    value={formData.clientName ?? ""}
-                    onChange={(e) => handleFormChange("clientName", e.target.value)}
+                    value={formData.client_name ?? ""}
+                    onChange={(e) => handleFormChange("client_name", e.target.value)}
                     className="border-slate-300"
                   />
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="projectName">Project Name *</Label>
+                  <Label htmlFor="project_name">Project Name *</Label>
                   <Input
-                    id="projectName"
+                    id="project_name"
                     placeholder="e.g., Kitchen Cabinet Upgrade"
-                    value={formData.projectName ?? ""}
-                    onChange={(e) => handleFormChange("projectName", e.target.value)}
+                    value={formData.project_name ?? ""}
+                    onChange={(e) => handleFormChange("project_name", e.target.value)}
                     className="border-slate-300"
                   />
                 </div>
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="projectDescription">Project Description</Label>
+                <Label htmlFor="project_description">Project Description</Label>
                 <Input
-                  id="projectDescription"
+                  id="project_description"
                   placeholder="Describe the project details"
-                  value={formData.projectDescription ?? ""}
-                  onChange={(e) => handleFormChange("projectDescription", e.target.value)}
+                  value={formData.project_description ?? ""}
+                  onChange={(e) => handleFormChange("project_description", e.target.value)}
                   className="border-slate-300"
                 />
               </div>
@@ -2488,59 +2040,59 @@ export default function Contracts() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="clientAddress">Street Address</Label>
+                <Label htmlFor="client_address">Street Address</Label>
                 <Input
-                  id="clientAddress"
+                  id="client_address"
                   placeholder="e.g., 1234 Oak Street"
-                  value={formData.clientAddress ?? ""}
-                  onChange={(e) => handleFormChange("clientAddress", e.target.value)}
+                  value={formData.client_address ?? ""}
+                  onChange={(e) => handleFormChange("client_address", e.target.value)}
                   className="border-slate-300"
                 />
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="clientCity">City</Label>
+                  <Label htmlFor="client_city">City</Label>
                   <Input
-                    id="clientCity"
+                    id="client_city"
                     placeholder="e.g., Denver"
-                    value={formData.clientCity ?? ""}
-                    onChange={(e) => handleFormChange("clientCity", e.target.value)}
+                    value={formData.client_city ?? ""}
+                    onChange={(e) => handleFormChange("client_city", e.target.value)}
                     className="border-slate-300"
                   />
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="clientState">State</Label>
+                  <Label htmlFor="client_state">State</Label>
                   <Input
-                    id="clientState"
+                    id="client_state"
                     placeholder="e.g., CO"
-                    maxLength="2"
-                    value={formData.clientState ?? ""}
-                    onChange={(e) => handleFormChange("clientState", e.target.value.toUpperCase())}
+                    maxLength={2}
+                    value={formData.client_state ?? ""}
+                    onChange={(e) => handleFormChange("client_state", e.target.value.toUpperCase())}
                     className="border-slate-300"
                   />
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="clientZip">ZIP Code</Label>
+                  <Label htmlFor="client_zip">ZIP Code</Label>
                   <Input
-                    id="clientZip"
+                    id="client_zip"
                     placeholder="e.g., 80202"
-                    value={formData.clientZip ?? ""}
-                    onChange={(e) => handleFormChange("clientZip", e.target.value)}
+                    value={formData.client_zip ?? ""}
+                    onChange={(e) => handleFormChange("client_zip", e.target.value)}
                     className="border-slate-300"
                   />
                 </div>
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="projectLocation">Project Location / Installation Address</Label>
+                <Label htmlFor="project_location">Project Location / Installation Address</Label>
                 <Input
-                  id="projectLocation"
+                  id="project_location"
                   placeholder="Leave blank if same as client address"
-                  value={formData.projectLocation ?? ""}
-                  onChange={(e) => handleFormChange("projectLocation", e.target.value)}
+                  value={formData.project_location ?? ""}
+                  onChange={(e) => handleFormChange("project_location", e.target.value)}
                   className="border-slate-300"
                 />
               </div>
@@ -2551,24 +2103,24 @@ export default function Contracts() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="clientPhone">Phone</Label>
+                  <Label htmlFor="client_phone">Phone</Label>
                   <Input
-                    id="clientPhone"
+                    id="client_phone"
                     placeholder="e.g., (303) 555-0101"
-                    value={formData.clientPhone ?? ""}
-                    onChange={(e) => handleFormChange("clientPhone", e.target.value)}
+                    value={formData.client_phone ?? ""}
+                    onChange={(e) => handleFormChange("client_phone", e.target.value)}
                     className="border-slate-300"
                   />
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="clientEmail">Email</Label>
+                  <Label htmlFor="client_email">Email</Label>
                   <Input
-                    id="clientEmail"
+                    id="client_email"
                     type="email"
                     placeholder="e.g., contact@example.com"
-                    value={formData.clientEmail ?? ""}
-                    onChange={(e) => handleFormChange("clientEmail", e.target.value)}
+                    value={formData.client_email ?? ""}
+                    onChange={(e) => handleFormChange("client_email", e.target.value)}
                     className="border-slate-300"
                   />
                 </div>
@@ -2581,7 +2133,7 @@ export default function Contracts() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="cabinetType">Cabinet Type</Label>
-                  <Select value={formData.cabinetType ?? ""} onValueChange={(value) => handleFormChange("cabinetType", value)}>
+                  <Select value={formData.cabinet_type ?? ""} onValueChange={(value) => handleFormChange("cabinet_type", value)}>
                     <SelectTrigger id="cabinetType" className="border-slate-300">
                       <SelectValue placeholder="Select type..." />
                     </SelectTrigger>
@@ -2616,8 +2168,8 @@ export default function Contracts() {
                   <Input
                     id="customFinish"
                     placeholder="e.g., Semi-gloss white, Oak stain #245, Matte polyurethane, Custom color code..."
-                    value={formData.customFinish ?? ""}
-                    onChange={(e) => handleFormChange("customFinish", e.target.value)}
+                    value={formData.custom_finish ?? ""}
+                    onChange={(e) => handleFormChange("custom_finish", e.target.value)}
                     className="border-slate-300"
                   />
                   <p className="text-xs text-slate-500">Describe the specific finish, color, sheen level, or any special customization</p>
@@ -2626,24 +2178,24 @@ export default function Contracts() {
 
               <div className="flex items-center space-x-2 pt-2">
                 <input
-                  id="installationIncluded"
                   type="checkbox"
-                  checked={formData.installationIncluded}
-                  onChange={(e) => handleFormChange("installationIncluded", e.target.checked)}
+                  id="installation_included"
+                  checked={formData.installation_included}
+                  onChange={(e) => handleFormChange("installation_included", e.target.checked)}
                   className="h-4 w-4 rounded border-slate-300 cursor-pointer"
                 />
-                <Label htmlFor="installationIncluded" className="cursor-pointer">
+                <Label htmlFor="installation_included" className="cursor-pointer">
                   Installation Included
                 </Label>
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="additionalNotes">Specifications</Label>
+                <Label htmlFor="additional_notes">Specifications</Label>
                 <textarea
-                  id="additionalNotes"
+                  id="additional_notes"
                   placeholder="Add any special notes or requirements for this project..."
-                  value={formData.additionalNotes ?? ""}
-                  onChange={(e) => handleFormChange("additionalNotes", e.target.value)}
+                  value={formData.additional_notes ?? ""}
+                  onChange={(e) => handleFormChange("additional_notes", e.target.value)}
                   className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   rows={3}
                 />
@@ -2673,8 +2225,8 @@ export default function Contracts() {
                   ) : (
                     <div className="space-y-4">
                       {(() => {
-                        const images = contractAttachments.filter(att => isImageFile(att.fileName));
-                        const others = contractAttachments.filter(att => !isImageFile(att.fileName));
+                        const images = contractAttachments.filter(att => isImageFile(att.file_name));
+                        const others = contractAttachments.filter(att => !isImageFile(att.file_name));
 
                         return (
                           <div className="space-y-4">
@@ -2689,8 +2241,8 @@ export default function Contracts() {
                                       className="relative group aspect-square rounded border border-slate-300 overflow-hidden bg-slate-100"
                                     >
                                       <img
-                                        src={att.fileData}
-                                        alt={att.fileName}
+                                        src={att.file_data}
+                                        alt={att.file_name}
                                         className="w-full h-full object-cover"
                                       />
                                       <button
@@ -2715,10 +2267,10 @@ export default function Contracts() {
                                   {others.map((att) => (
                                     <div key={att.id} className="flex items-center justify-between p-3 bg-white rounded border border-slate-200 hover:border-slate-300 transition-colors">
                                       <div className="flex items-center gap-2 flex-1 min-w-0">
-                                        <span className="text-lg flex-shrink-0">{getFileIcon(att.fileName)}</span>
+                                        <span className="text-lg flex-shrink-0">{getFileIcon(att.file_name)}</span>
                                         <div className="flex-1 min-w-0">
-                                          <p className="text-sm font-medium text-slate-900 truncate">{att.fileName}</p>
-                                          <p className="text-xs text-slate-500">{new Date(att.uploadDate).toLocaleDateString()}</p>
+                                          <p className="text-sm font-medium text-slate-900 truncate">{att.file_name}</p>
+                                          <p className="text-xs text-slate-500">{new Date(att.upload_date).toLocaleDateString()}</p>
                                         </div>
                                       </div>
                                       <button
@@ -2752,9 +2304,9 @@ export default function Contracts() {
                 <div className="flex gap-3 flex-wrap">
                   <button
                     type="button"
-                    onClick={() => setCostTracking({ ...costTracking, laborCost: { ...costTracking.laborCost, calculationMethod: "manual" } })}
+                    onClick={() => setCostTracking({ ...costTracking, labor_cost: { ...costTracking.labor_cost, calculation_method: "manual" } })}
                     className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
-                      costTracking.laborCost.calculationMethod === "manual"
+                      costTracking.labor_cost.calculation_method === "manual"
                         ? "bg-blue-600 text-white"
                         : "bg-slate-200 text-slate-700 hover:bg-slate-300"
                     }`}
@@ -2763,9 +2315,9 @@ export default function Contracts() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setCostTracking({ ...costTracking, laborCost: { ...costTracking.laborCost, calculationMethod: "daily" } })}
+                    onClick={() => setCostTracking({ ...costTracking, labor_cost: { ...costTracking.labor_cost, calculation_method: "daily" } })}
                     className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
-                      costTracking.laborCost.calculationMethod === "daily"
+                      costTracking.labor_cost.calculation_method === "daily"
                         ? "bg-blue-600 text-white"
                         : "bg-slate-200 text-slate-700 hover:bg-slate-300"
                     }`}
@@ -2774,9 +2326,9 @@ export default function Contracts() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setCostTracking({ ...costTracking, laborCost: { ...costTracking.laborCost, calculationMethod: "hours" } })}
+                    onClick={() => setCostTracking({ ...costTracking, labor_cost: { ...costTracking.labor_cost, calculation_method: "hours" } })}
                     className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
-                      costTracking.laborCost.calculationMethod === "hours"
+                      costTracking.labor_cost.calculation_method === "hours"
                         ? "bg-blue-600 text-white"
                         : "bg-slate-200 text-slate-700 hover:bg-slate-300"
                     }`}
@@ -2785,9 +2337,9 @@ export default function Contracts() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setCostTracking({ ...costTracking, laborCost: { ...costTracking.laborCost, calculationMethod: "monthly" } })}
+                    onClick={() => setCostTracking({ ...costTracking, labor_cost: { ...costTracking.labor_cost, calculation_method: "monthly" } })}
                     className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
-                      costTracking.laborCost.calculationMethod === "monthly"
+                      costTracking.labor_cost.calculation_method === "monthly"
                         ? "bg-blue-600 text-white"
                         : "bg-slate-200 text-slate-700 hover:bg-slate-300"
                     }`}
@@ -2797,18 +2349,18 @@ export default function Contracts() {
                 </div>
               </div>
 
-              {costTracking.laborCost.calculationMethod === "manual" && (
+              {costTracking.labor_cost.calculation_method === "manual" && (
                 <div className="space-y-2">
                   <Label htmlFor="laborAmount">Labor Cost ($) *</Label>
                   <Input
                     id="laborAmount"
                     type="number"
                     placeholder="e.g., 5000.00"
-                    value={String(costTracking.laborCost.amount ?? 0)}
+                    value={String(costTracking.labor_cost.amount ?? 0)}
                     onChange={(e) =>
                       setCostTracking({
                         ...costTracking,
-                        laborCost: { ...costTracking.laborCost, amount: parseFloat(e.target.value) || 0 },
+                        labor_cost: { ...costTracking.labor_cost, amount: parseFloat(e.target.value) || 0 },
                       })
                     }
                     className="border-slate-300"
@@ -2818,7 +2370,7 @@ export default function Contracts() {
                 </div>
               )}
 
-              {costTracking.laborCost.calculationMethod === "daily" && (
+              {costTracking.labor_cost.calculation_method === "daily" && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Daily Rate</Label>
@@ -2830,13 +2382,13 @@ export default function Contracts() {
                       id="laborDays"
                       type="number"
                       placeholder="e.g., 8"
-                      value={String(costTracking.laborCost.days ?? 0)}
+                      value={String(costTracking.labor_cost.days ?? 0)}
                       onChange={(e) => {
                         const days = parseFloat(e.target.value) || 0;
                         setCostTracking({
                           ...costTracking,
-                          laborCost: {
-                            ...costTracking.laborCost,
+                          labor_cost: {
+                            ...costTracking.labor_cost,
                             days,
                             amount: days * 900,
                           },
@@ -2850,7 +2402,7 @@ export default function Contracts() {
                 </div>
               )}
 
-              {costTracking.laborCost.calculationMethod === "hours" && (
+              {costTracking.labor_cost.calculation_method === "hours" && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Hourly Rate</Label>
@@ -2862,14 +2414,14 @@ export default function Contracts() {
                       id="laborHours"
                       type="number"
                       placeholder="e.g., 40"
-                      value={String(costTracking.laborCost.hours ?? 0)}
+                      value={String(costTracking.labor_cost.hours ?? 0)}
                       onChange={(e) => {
                         const hours = parseFloat(e.target.value) || 0;
                         setCostTracking({
                           ...costTracking,
-                          laborCost: {
-                            ...costTracking.laborCost,
-                            hourlyRate: 50,
+                          labor_cost: {
+                            ...costTracking.labor_cost,
+                            hourly_rate: 50,
                             hours,
                             amount: hours * 50,
                           },
@@ -2883,7 +2435,7 @@ export default function Contracts() {
                 </div>
               )}
 
-              {costTracking.laborCost.calculationMethod === "monthly" && (
+              {costTracking.labor_cost.calculation_method === "monthly" && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Monthly Rate</Label>
@@ -2895,13 +2447,13 @@ export default function Contracts() {
                       id="laborMonths"
                       type="number"
                       placeholder="e.g., 1"
-                      value={String(costTracking.laborCost.months ?? 0)}
+                      value={String(costTracking.labor_cost.months ?? 0)}
                       onChange={(e) => {
                         const months = parseFloat(e.target.value) || 0;
                         setCostTracking({
                           ...costTracking,
-                          laborCost: {
-                            ...costTracking.laborCost,
+                          labor_cost: {
+                            ...costTracking.labor_cost,
                             months,
                             amount: months * 18000,
                           },
@@ -2916,7 +2468,7 @@ export default function Contracts() {
               )}
 
               <div className="space-y-2 bg-slate-50 p-3 rounded border border-slate-200">
-                <p className="text-sm font-semibold text-slate-900">Labor Cost: ${((costTracking?.laborCost?.amount) || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</p>
+                <p className="text-sm font-semibold text-slate-900">Labor Cost: ${((costTracking?.labor_cost?.amount) || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</p>
               </div>
 
               <div className="space-y-2">
@@ -2924,11 +2476,11 @@ export default function Contracts() {
                 <textarea
                   id="laborDescription"
                   placeholder="e.g., Installation, finishing, custom carpentry work..."
-                  value={costTracking.laborCost.description ?? ""}
+                  value={costTracking.labor_cost.description ?? ""}
                   onChange={(e) =>
                     setCostTracking({
                       ...costTracking,
-                      laborCost: { ...costTracking.laborCost, description: e.target.value },
+                      labor_cost: { ...costTracking.labor_cost, description: e.target.value },
                     })
                   }
                   className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -2952,7 +2504,7 @@ export default function Contracts() {
                     {!costTracking.materials || costTracking.materials.length === 0 ? (
                       <p className="text-sm text-slate-600 italic">Loading materials...</p>
                     ) : costTracking.materials.map((material) => {
-                      const total = material.quantity * material.unitPrice;
+                      const total = material.quantity * material.unit_price;
                       const predefinedMaterial = availableMaterials.find(m => m.id === material.id);
                       const supplier = material.supplier || predefinedMaterial?.supplier;
                       return (
@@ -2960,7 +2512,7 @@ export default function Contracts() {
                           <div className="flex-1">
                             <p className="text-sm font-medium text-slate-900">{material.name}</p>
                             <div className="flex items-center gap-2 mt-1">
-                              <span className="text-xs text-slate-600">${material.unitPrice.toLocaleString(undefined, { maximumFractionDigits: 2 })}/{material.unit}</span>
+                              <span className="text-xs text-slate-600">${material.unit_price.toLocaleString(undefined, { maximumFractionDigits: 2 })}/{material.unit}</span>
                               {supplier && (
                                 <span className="text-xs text-slate-500 italic">• {supplier}</span>
                               )}
@@ -2994,7 +2546,7 @@ export default function Contracts() {
                     <p className="text-sm font-semibold text-slate-900">
                       Standard Materials Subtotal:{" "}
                       <span className="text-blue-600">
-                        ${((costTracking.materials || []).reduce((sum, m) => sum + m.quantity * m.unitPrice, 0)).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                        ${((costTracking.materials || []).reduce((sum, m) => sum + m.quantity * m.unit_price, 0)).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                       </span>
                     </p>
                   </div>
@@ -3011,7 +2563,7 @@ export default function Contracts() {
                           const customMaterial: MaterialItem = {
                             id: `CUSTOM-${Date.now()}`,
                             name: "Custom Material",
-                            unitPrice: 0,
+                            unit_price: 0,
                             quantity: 0,
                             unit: "unit",
                           };
@@ -3032,7 +2584,7 @@ export default function Contracts() {
                         {costTracking.materials
                           .filter((m) => m.id.startsWith("CUSTOM"))
                           .map((material) => {
-                            const total = material.quantity * material.unitPrice;
+                            const total = material.quantity * material.unit_price;
                             return (
                               <div key={material.id} className="flex items-center gap-2 p-3 bg-white rounded border border-slate-200">
                                 <Input
@@ -3050,10 +2602,10 @@ export default function Contracts() {
                                 <Input
                                   type="number"
                                   placeholder="Price"
-                                  value={String(material.unitPrice ?? 0)}
+                                  value={String(material.unit_price ?? 0)}
                                   onChange={(e) => {
                                     const newMaterials = costTracking.materials.map((m) =>
-                                      m.id === material.id ? { ...m, unitPrice: parseFloat(e.target.value) || 0 } : m
+                                      m.id === material.id ? { ...m, unit_price: parseFloat(e.target.value) || 0 } : m
                                     );
                                     setCostTracking({ ...costTracking, materials: newMaterials });
                                   }}
@@ -3101,7 +2653,7 @@ export default function Contracts() {
                     <p className="text-sm font-bold text-slate-900">
                       Total Material Cost (1 section):{" "}
                       <span className="text-green-600">
-                        ${costTracking.materials.reduce((sum, m) => sum + m.quantity * m.unitPrice, 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                        ${costTracking.materials.reduce((sum, m) => sum + m.quantity * m.unit_price, 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                       </span>
                     </p>
                   </div>
@@ -3140,7 +2692,7 @@ export default function Contracts() {
                               placeholder="0.00"
                               value={String(item.amount ?? 0)}
                               onChange={(e) => {
-                                const newMisc = costTracking.miscellaneous.map((m) =>
+                                const newMisc = (costTracking.miscellaneous || []).map((m) =>
                                   m.id === item.id ? { ...m, amount: parseFloat(e.target.value) || 0 } : m
                                 );
                                 setCostTracking({ ...costTracking, miscellaneous: newMisc });
@@ -3151,14 +2703,14 @@ export default function Contracts() {
                             />
                           </div>
                           <span className="text-sm font-semibold text-slate-900 min-w-[70px] text-right">
-                            ${item.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                            ${(item.amount || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                           </span>
                           <button
                             type="button"
                             onClick={() => {
                               setCostTracking({
                                 ...costTracking,
-                                miscellaneous: costTracking.miscellaneous.filter((m) => m.id !== item.id),
+                                miscellaneous: (costTracking.miscellaneous || []).filter((m) => m.id !== item.id),
                               });
                             }}
                             className="text-red-600 hover:text-red-800 p-1"
@@ -3176,14 +2728,14 @@ export default function Contracts() {
                     variant="outline"
                     className="w-full text-xs"
                     onClick={() => {
-                      const newMiscItem: MiscellaneousItem = {
+                      const newMiscItem = {
                         id: `MISC-${Date.now()}`,
                         description: "",
                         amount: 0,
                       };
                       setCostTracking({
                         ...costTracking,
-                        miscellaneous: [...costTracking.miscellaneous, newMiscItem],
+                        miscellaneous: [...(costTracking.miscellaneous || []), newMiscItem],
                       });
                     }}
                   >
@@ -3206,22 +2758,22 @@ export default function Contracts() {
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
                     <span className="text-slate-700">Material Costs:</span>
-                    <span className="font-semibold">${costTracking.materials.reduce((sum, m) => sum + m.quantity * m.unitPrice, 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                    <span className="font-semibold">${(costTracking.materials || []).reduce((sum, m) => sum + m.quantity * m.unit_price, 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-700">Labor Costs:</span>
-                    <span className="font-semibold">${costTracking.laborCost.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                    <span className="font-semibold">${(costTracking.labor_cost.amount || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-700">Miscellaneous Costs:</span>
-                    <span className="font-semibold">${costTracking.miscellaneous.reduce((sum, m) => sum + m.amount, 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                    <span className="font-semibold">${(costTracking.miscellaneous || []).reduce((sum, m) => sum + m.amount, 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
                   </div>
                   <div className="border-t pt-2 flex justify-between">
                     <span className="text-slate-900 font-bold">Total Project Costs:</span>
                     <span className="text-lg font-bold text-blue-600">
                       ${(
-                        ((costTracking?.materials) || []).reduce((sum, m) => sum + m.quantity * m.unitPrice, 0) +
-                        ((costTracking?.laborCost?.amount) || 0) +
+                        ((costTracking?.materials) || []).reduce((sum, m) => sum + m.quantity * m.unit_price, 0) +
+                        ((costTracking?.labor_cost?.amount) || 0) +
                         ((costTracking?.miscellaneous) || []).reduce((sum, m) => sum + m.amount, 0)
                       ).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                     </span>
@@ -3235,13 +2787,13 @@ export default function Contracts() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="totalValue">Total Contract Value *</Label>
+                  <Label htmlFor="total_value">Total Contract Value *</Label>
                   <Input
-                    id="totalValue"
+                    id="total_value"
                     type="number"
                     placeholder="0.00"
-                    value={String(formData.totalValue ?? 0)}
-                    onChange={(e) => handleFormChange("totalValue", e.target.value)}
+                    value={String(formData.total_value ?? 0)}
+                    onChange={(e) => handleFormChange("total_value", e.target.value)}
                     className="border-slate-300"
                     step="0.01"
                     min="0"
@@ -3249,13 +2801,13 @@ export default function Contracts() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="depositAmount">Deposit Amount *</Label>
+                  <Label htmlFor="deposit_amount">Deposit Amount *</Label>
                   <Input
-                    id="depositAmount"
+                    id="deposit_amount"
                     type="number"
                     placeholder="0.00"
-                    value={String(formData.depositAmount ?? 0)}
-                    onChange={(e) => handleFormChange("depositAmount", e.target.value)}
+                    value={String(formData.deposit_amount ?? 0)}
+                    onChange={(e) => handleFormChange("deposit_amount", e.target.value)}
                     className="border-slate-300"
                     step="0.01"
                     min="0"
@@ -3265,23 +2817,23 @@ export default function Contracts() {
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="startDate">Start Date *</Label>
+                  <Label htmlFor="start_date">Start Date *</Label>
                   <Input
-                    id="startDate"
+                    id="start_date"
                     type="date"
-                    value={formData.startDate ?? ""}
-                    onChange={(e) => handleFormChange("startDate", e.target.value)}
+                    value={formData.start_date ?? ""}
+                    onChange={(e) => handleFormChange("start_date", e.target.value)}
                     className="border-slate-300"
                   />
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="dueDate">Due Date *</Label>
+                  <Label htmlFor="due_date">Due Date *</Label>
                   <Input
-                    id="dueDate"
+                    id="due_date"
                     type="date"
-                    value={formData.dueDate ?? ""}
-                    onChange={(e) => handleFormChange("dueDate", e.target.value)}
+                    value={formData.due_date ?? ""}
+                    onChange={(e) => handleFormChange("due_date", e.target.value)}
                     className="border-slate-300"
                   />
                 </div>
@@ -3410,7 +2962,7 @@ export default function Contracts() {
                       <div className="flex-1">
                         <p className="text-sm font-medium text-slate-900">{material.name}</p>
                         <div className="flex items-center gap-2 mt-1">
-                          <span className="text-xs text-slate-600">${material.unitPrice.toLocaleString(undefined, { maximumFractionDigits: 2 })}/{material.unit}</span>
+                          <span className="text-xs text-slate-600">${material.unit_price.toLocaleString(undefined, { maximumFractionDigits: 2 })}/{material.unit}</span>
                           {material.supplier && (
                             <span className="text-xs text-slate-500 italic">• {material.supplier}</span>
                           )}
@@ -3441,12 +2993,12 @@ export default function Contracts() {
                 ) : (
                   <div className="space-y-3">
                     {calculatorMaterials.map((material) => {
-                      const total = material.quantity * material.unitPrice;
+                      const total = material.quantity * material.unit_price;
                       return (
                         <div key={material.id} className="flex items-center gap-3 p-3 bg-slate-50 rounded border border-slate-200">
                           <div className="flex-1">
                             <p className="text-sm font-medium text-slate-900">{material.name}</p>
-                            <p className="text-xs text-slate-600">${material.unitPrice.toLocaleString(undefined, { maximumFractionDigits: 2 })}/{material.unit}</p>
+                            <p className="text-xs text-slate-600">${material.unit_price.toLocaleString(undefined, { maximumFractionDigits: 2 })}/{material.unit}</p>
                           </div>
                           <div className="flex items-center gap-2">
                             <Input
@@ -3488,7 +3040,7 @@ export default function Contracts() {
                       <div className="flex justify-between items-center">
                         <span className="font-semibold text-slate-900">Total Material Cost:</span>
                         <span className="text-2xl font-bold text-blue-600">
-                          ${calculatorMaterials.reduce((sum, m) => sum + (m.quantity * m.unitPrice), 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                          ${calculatorMaterials.reduce((sum, m) => sum + (m.quantity * m.unit_price), 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                         </span>
                       </div>
                     </div>
@@ -3513,7 +3065,7 @@ export default function Contracts() {
       {contracts.length > 0 && (
         <>
           {(() => {
-            const overdueContracts = contracts.filter((c) => isOverdue(c.dueDate));
+            const overdueContracts = contracts.filter((c) => isOverdue(c.due_date));
             if (overdueContracts.length > 0) {
               return (
                 <Card className="border-red-200 bg-red-50">
@@ -3522,7 +3074,7 @@ export default function Contracts() {
                     <div>
                       <p className="font-semibold text-red-900">{overdueContracts.length} Overdue Contract{overdueContracts.length !== 1 ? "s" : ""}</p>
                       <p className="text-sm text-red-800">
-                        {overdueContracts.map((c) => `${c.id} (${c.clientName})`).join(", ")}
+                        {overdueContracts.map((c) => `${c.id} (${c.client_name})`).join(", ")}
                       </p>
                     </div>
                   </CardContent>
@@ -3598,13 +3150,13 @@ export default function Contracts() {
                             {contract.id}
                           </button>
                         </td>
-                        <td className="p-3 text-slate-700 text-xs whitespace-nowrap">{contract.clientName}</td>
-                        <td className="p-3 text-slate-700 whitespace-nowrap">{contract.projectName}</td>
-                        <td className="p-3 text-slate-700 font-medium whitespace-nowrap">${contract.totalValue.toLocaleString()}</td>
-                        <td className="p-3 text-slate-700 whitespace-nowrap">${contract.depositAmount.toLocaleString()}</td>
-                        <td className={`p-3 whitespace-nowrap ${isOverdue(contract.dueDate) ? "text-red-600 font-semibold" : "text-slate-700"}`}>
-                          {formatDateString(contract.dueDate)}
-                          {isOverdue(contract.dueDate) && " ⚠️"}
+                        <td className="p-3 text-slate-700 text-xs whitespace-nowrap">{contract.client_name}</td>
+                        <td className="p-3 text-slate-700 whitespace-nowrap">{contract.project_name}</td>
+                        <td className="p-3 text-slate-700 font-medium whitespace-nowrap">${contract.total_value.toLocaleString()}</td>
+                        <td className="p-3 text-slate-700 whitespace-nowrap">${contract.deposit_amount.toLocaleString()}</td>
+                        <td className={`p-3 whitespace-nowrap ${isOverdue(contract.due_date) ? "text-red-600 font-semibold" : "text-slate-700"}`}>
+                          {formatDateString(contract.due_date)}
+                          {isOverdue(contract.due_date) && " ⚠️"}
                         </td>
                         <td className="p-3 whitespace-nowrap">
                           <span className={`inline-block px-2 py-1 rounded text-xs font-medium ${getStatusBadge(contract.status)}`}>
@@ -3657,7 +3209,7 @@ export default function Contracts() {
                 <div>
                   <CardTitle>Payment Schedule</CardTitle>
                   <CardDescription>
-                    {contracts.find((c) => c.id === selectedContractId)?.projectName} - {contracts.find((c) => c.id === selectedContractId)?.clientName}
+                    {contracts.find((c) => c.id === selectedContractId)?.project_name} - {contracts.find((c) => c.id === selectedContractId)?.client_name}
                   </CardDescription>
                 </div>
                 <Button
@@ -3672,7 +3224,7 @@ export default function Contracts() {
                 <div className="space-y-3">
                   {contracts
                     .find((c) => c.id === selectedContractId)
-                    ?.paymentSchedule.map((payment) => (
+                    ?.payment_schedule.map((payment) => (
                       <div
                         key={payment.id}
                         className="p-4 bg-slate-50 rounded-lg border border-slate-200 space-y-3"
@@ -3681,7 +3233,7 @@ export default function Contracts() {
                           <div>
                             <p className="font-semibold text-slate-900">{payment.description}</p>
                             <p className="text-sm text-slate-600">
-                              Due: {formatDateString(payment.dueDate)}
+                              Due: {formatDateString(payment.due_date)}
                             </p>
                           </div>
                           <div className="text-right">
@@ -3797,8 +3349,8 @@ export default function Contracts() {
                 <Input
                   id="paymentDueDate"
                   type="date"
-                  value={paymentForm.dueDate ?? ""}
-                  onChange={(e) => setPaymentForm({ ...paymentForm, dueDate: e.target.value })}
+                  value={paymentForm.due_date ?? ""}
+                  onChange={(e) => setPaymentForm({ ...paymentForm, due_date: e.target.value })}
                   className="border-slate-300"
                 />
               </div>
@@ -3826,20 +3378,20 @@ export default function Contracts() {
                     <Input
                       id="paidDate"
                       type="date"
-                      value={paymentForm.paidDate ?? ""}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, paidDate: e.target.value || "" })}
+                      value={paymentForm.paid_date ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, paid_date: e.target.value || "" })}
                       className="border-slate-300"
                     />
                   </div>
 
-                  {paymentForm.paymentMethod !== "cash" && (
+                  {paymentForm.payment_method !== "cash" && (
                     <div className="space-y-2">
                       <Label htmlFor="transactionRef">Transaction Reference</Label>
                       <Input
                         id="transactionRef"
                         placeholder="e.g., TXN-001, Check #123, Auth Code"
-                        value={paymentForm.transactionReference ?? ""}
-                        onChange={(e) => setPaymentForm({ ...paymentForm, transactionReference: e.target.value })}
+                        value={paymentForm.transaction_reference ?? ""}
+                        onChange={(e) => setPaymentForm({ ...paymentForm, transaction_reference: e.target.value })}
                         className="border-slate-300"
                       />
                       <p className="text-xs text-slate-500">
@@ -3854,7 +3406,7 @@ export default function Contracts() {
                       id="receiptAttachment"
                       type="file"
                       accept="image/*,.pdf"
-                      onChange={(e) => setPaymentForm({ ...paymentForm, receiptAttachment: e.target.files?.[0]?.name || "" })}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, receipt_attachment: e.target.files?.[0]?.name || "" })}
                       className="border-slate-300"
                     />
                     <p className="text-xs text-slate-500">
@@ -3866,7 +3418,7 @@ export default function Contracts() {
 
               <div className="border-t pt-4">
                 <h3 className="font-semibold text-slate-900 mb-3">Payment Method *</h3>
-                <Select value={paymentForm.paymentMethod ?? "cash"} onValueChange={(value) => setPaymentForm({ ...paymentForm, paymentMethod: value as any })}>
+                <Select value={paymentForm.payment_method ?? "cash"} onValueChange={(value) => setPaymentForm({ ...paymentForm, payment_method: value as any })}>
                   <SelectTrigger className="border-slate-300">
                     <SelectValue placeholder="Select payment method" />
                   </SelectTrigger>
@@ -3882,48 +3434,48 @@ export default function Contracts() {
                 </Select>
               </div>
 
-              {(paymentForm.paymentMethod === "direct_deposit" || paymentForm.paymentMethod === "bank_transfer" || paymentForm.paymentMethod === "wire_transfer") && (
+              {(paymentForm.payment_method === "direct_deposit" || paymentForm.payment_method === "bank_transfer" || paymentForm.payment_method === "wire_transfer") && (
                 <>
                   <div className="bg-slate-50 p-4 rounded space-y-3 border border-slate-200">
                     <p className="text-sm font-semibold text-slate-700">Bank Information *</p>
 
                     <div className="space-y-2">
-                      <Label htmlFor="bankName">Bank Name *</Label>
+                      <Label htmlFor="bank_name">Bank Name *</Label>
                       <Input
-                        id="bankName"
+                        id="bank_name"
                         placeholder="e.g., Wells Fargo, Chase Bank"
-                        value={paymentForm.bankName ?? ""}
-                        onChange={(e) => setPaymentForm({ ...paymentForm, bankName: e.target.value })}
+                        value={paymentForm.bank_name ?? ""}
+                        onChange={(e) => setPaymentForm({ ...paymentForm, bank_name: e.target.value })}
                         className="border-slate-300"
                       />
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="routingNumber">Routing Number *</Label>
+                      <Label htmlFor="routing_number">Routing Number *</Label>
                       <Input
-                        id="routingNumber"
+                        id="routing_number"
                         placeholder="9-digit routing number"
-                        value={paymentForm.routingNumber ?? ""}
-                        onChange={(e) => setPaymentForm({ ...paymentForm, routingNumber: e.target.value })}
+                        value={paymentForm.routing_number ?? ""}
+                        onChange={(e) => setPaymentForm({ ...paymentForm, routing_number: e.target.value })}
                         className="border-slate-300"
                       />
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="accountNumber">Account Number *</Label>
+                      <Label htmlFor="account_number">Account Number *</Label>
                       <Input
-                        id="accountNumber"
+                        id="account_number"
                         type="password"
                         placeholder="Account number (will be masked)"
-                        value={paymentForm.accountNumber ?? ""}
-                        onChange={(e) => setPaymentForm({ ...paymentForm, accountNumber: e.target.value })}
+                        value={paymentForm.account_number ?? ""}
+                        onChange={(e) => setPaymentForm({ ...paymentForm, account_number: e.target.value })}
                         className="border-slate-300"
                       />
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="accountType">Account Type *</Label>
-                      <Select value={paymentForm.accountType ?? "checking"} onValueChange={(value) => setPaymentForm({ ...paymentForm, accountType: value as any })}>
+                      <Label htmlFor="account_type">Account Type *</Label>
+                      <Select value={paymentForm.account_type ?? "checking"} onValueChange={(value) => setPaymentForm({ ...paymentForm, account_type: value as any })}>
                         <SelectTrigger className="border-slate-300">
                           <SelectValue placeholder="Select account type" />
                         </SelectTrigger>
@@ -3937,63 +3489,63 @@ export default function Contracts() {
                 </>
               )}
 
-              {paymentForm.paymentMethod === "check" && (
+              {paymentForm.payment_method === "check" && (
                 <>
                   <div className="bg-slate-50 p-4 rounded space-y-3 border border-slate-200">
                     <p className="text-sm font-semibold text-slate-700">Check Information *</p>
 
                     <div className="space-y-2">
-                      <Label htmlFor="checkNumber">Check Number *</Label>
+                      <Label htmlFor="check_number">Check Number *</Label>
                       <Input
-                        id="checkNumber"
+                        id="check_number"
                         placeholder="e.g., 1001"
-                        value={paymentForm.checkNumber ?? ""}
-                        onChange={(e) => setPaymentForm({ ...paymentForm, checkNumber: e.target.value })}
+                        value={paymentForm.check_number ?? ""}
+                        onChange={(e) => setPaymentForm({ ...paymentForm, check_number: e.target.value })}
                         className="border-slate-300"
                       />
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="checkBankName">Bank Name *</Label>
+                      <Label htmlFor="check_bank_name">Bank Name *</Label>
                       <Input
-                        id="checkBankName"
+                        id="check_bank_name"
                         placeholder="e.g., Wells Fargo, Chase Bank"
-                        value={paymentForm.bankName ?? ""}
-                        onChange={(e) => setPaymentForm({ ...paymentForm, bankName: e.target.value })}
+                        value={paymentForm.bank_name ?? ""}
+                        onChange={(e) => setPaymentForm({ ...paymentForm, bank_name: e.target.value })}
                         className="border-slate-300"
                       />
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="checkRoutingNumber">Routing Number</Label>
+                      <Label htmlFor="check_routing_number">Routing Number</Label>
                       <Input
-                        id="checkRoutingNumber"
+                        id="check_routing_number"
                         placeholder="9-digit routing number"
-                        value={paymentForm.routingNumber ?? ""}
-                        onChange={(e) => setPaymentForm({ ...paymentForm, routingNumber: e.target.value })}
+                        value={paymentForm.routing_number ?? ""}
+                        onChange={(e) => setPaymentForm({ ...paymentForm, routing_number: e.target.value })}
                         className="border-slate-300"
                       />
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="checkAccountNumber">Account Number</Label>
+                      <Label htmlFor="check_account_number">Account Number</Label>
                       <Input
-                        id="checkAccountNumber"
+                        id="check_account_number"
                         type="password"
                         placeholder="Account number (will be masked)"
-                        value={paymentForm.accountNumber ?? ""}
-                        onChange={(e) => setPaymentForm({ ...paymentForm, accountNumber: e.target.value })}
+                        value={paymentForm.account_number ?? ""}
+                        onChange={(e) => setPaymentForm({ ...paymentForm, account_number: e.target.value })}
                         className="border-slate-300"
                       />
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="checkAttachment">Attach Check Image (optional)</Label>
+                      <Label htmlFor="check_attachment">Attach Check Image (optional)</Label>
                       <Input
-                        id="checkAttachment"
+                        id="check_attachment"
                         type="file"
                         accept="image/*,.pdf"
-                        onChange={(e) => setPaymentForm({ ...paymentForm, checkAttachment: e.target.files?.[0]?.name || "" })}
+                        onChange={(e) => setPaymentForm({ ...paymentForm, check_attachment: e.target.files?.[0]?.name || "" })}
                         className="border-slate-300"
                       />
                       <p className="text-xs text-slate-500">
@@ -4004,30 +3556,30 @@ export default function Contracts() {
                 </>
               )}
 
-              {paymentForm.paymentMethod === "credit_card" && (
+              {paymentForm.payment_method === "credit_card" && (
                 <>
                   <div className="bg-slate-50 p-4 rounded space-y-3 border border-slate-200">
                     <p className="text-sm font-semibold text-slate-700">Credit Card Information *</p>
 
                     <div className="space-y-2">
-                      <Label htmlFor="creditCardLast4">Last 4 Digits of Card *</Label>
+                      <Label htmlFor="credit_card_last4">Last 4 Digits of Card *</Label>
                       <Input
-                        id="creditCardLast4"
+                        id="credit_card_last4"
                         placeholder="e.g., 4242"
-                        value={paymentForm.creditCardLast4 ?? ""}
-                        onChange={(e) => setPaymentForm({ ...paymentForm, creditCardLast4: e.target.value })}
+                        value={paymentForm.credit_card_last4 ?? ""}
+                        onChange={(e) => setPaymentForm({ ...paymentForm, credit_card_last4: e.target.value })}
                         className="border-slate-300"
-                        maxLength="4"
+                        maxLength={4}
                       />
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="transactionReference">Transaction/Authorization Code *</Label>
+                      <Label htmlFor="transaction_reference">Transaction/Authorization Code *</Label>
                       <Input
-                        id="transactionReference"
+                        id="transaction_reference"
                         placeholder="e.g., TXN-1234567890"
-                        value={paymentForm.transactionReference ?? ""}
-                        onChange={(e) => setPaymentForm({ ...paymentForm, transactionReference: e.target.value })}
+                        value={paymentForm.transaction_reference ?? ""}
+                        onChange={(e) => setPaymentForm({ ...paymentForm, transaction_reference: e.target.value })}
                         className="border-slate-300"
                       />
                     </div>
@@ -4035,30 +3587,30 @@ export default function Contracts() {
                 </>
               )}
 
-              {paymentForm.paymentMethod === "debit_card" && (
+              {paymentForm.payment_method === "debit_card" && (
                 <>
                   <div className="bg-slate-50 p-4 rounded space-y-3 border border-slate-200">
                     <p className="text-sm font-semibold text-slate-700">Debit Card Information *</p>
 
                     <div className="space-y-2">
-                      <Label htmlFor="debitCardLast4">Last 4 Digits of Card *</Label>
+                      <Label htmlFor="debit_card_last4">Last 4 Digits of Card *</Label>
                       <Input
-                        id="debitCardLast4"
+                        id="debit_card_last4"
                         placeholder="e.g., 4242"
-                        value={paymentForm.creditCardLast4 ?? ""}
-                        onChange={(e) => setPaymentForm({ ...paymentForm, creditCardLast4: e.target.value })}
+                        value={paymentForm.credit_card_last4 ?? ""}
+                        onChange={(e) => setPaymentForm({ ...paymentForm, credit_card_last4: e.target.value })}
                         className="border-slate-300"
-                        maxLength="4"
+                        maxLength={4}
                       />
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="debitTransactionReference">Transaction/Authorization Code *</Label>
+                      <Label htmlFor="debit_transaction_reference">Transaction/Authorization Code *</Label>
                       <Input
-                        id="debitTransactionReference"
+                        id="debit_transaction_reference"
                         placeholder="e.g., TXN-1234567890"
-                        value={paymentForm.transactionReference ?? ""}
-                        onChange={(e) => setPaymentForm({ ...paymentForm, transactionReference: e.target.value })}
+                        value={paymentForm.transaction_reference ?? ""}
+                        onChange={(e) => setPaymentForm({ ...paymentForm, transaction_reference: e.target.value })}
                         className="border-slate-300"
                       />
                     </div>
@@ -4076,18 +3628,18 @@ export default function Contracts() {
                     id: "",
                     description: "",
                     amount: 0,
-                    dueDate: "",
+                    due_date: "",
                     status: "pending",
-                    paymentMethod: "cash",
-                    bankName: "",
-                    routingNumber: "",
-                    accountNumber: "",
-                    accountType: "checking",
-                    checkAttachment: "",
-                    checkNumber: "",
-                    creditCardLast4: "",
-                    transactionReference: "",
-                    receiptAttachment: ""
+                    payment_method: "cash",
+                    bank_name: "",
+                    routing_number: "",
+                    account_number: "",
+                    account_type: "checking",
+                    check_attachment: "",
+                    check_number: "",
+                    credit_card_last4: "",
+                    transaction_reference: "",
+                    receipt_attachment: ""
                   });
                   setEditingPaymentId(null);
                 }}
@@ -4114,12 +3666,12 @@ export default function Contracts() {
               const contract = contracts.find((c) => c.id === budgetSummaryContractId);
               if (!contract) return null;
 
-              const materialCost = contract.costTracking.materials.reduce((sum, m) => sum + m.quantity * m.unitPrice, 0);
-              const laborCost = contract.costTracking.laborCost.amount;
-              const miscellaneousCost = contract.costTracking.miscellaneous.reduce((sum, m) => sum + m.amount, 0);
+              const materialCost = (contract.cost_tracking?.materials || []).reduce((sum: number, m: any) => sum + m.quantity * (m.unit_price || 0), 0);
+              const laborCost = contract.cost_tracking?.labor_cost?.amount || 0;
+              const miscellaneousCost = (contract.cost_tracking?.miscellaneous || []).reduce((sum: number, m: any) => sum + (m.amount || 0), 0);
               const totalCosts = materialCost + laborCost + miscellaneousCost;
-              const projectedProfit = contract.totalValue - totalCosts;
-              const profitMargin = contract.totalValue > 0 ? (projectedProfit / contract.totalValue) * 100 : 0;
+              const projectedProfit = (contract.total_value || 0) - totalCosts;
+              const profitMargin = (contract.total_value || 0) > 0 ? (projectedProfit / contract.total_value) * 100 : 0;
 
               const handlePrintBudgetSummary = () => {
                 const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
@@ -4140,9 +3692,9 @@ export default function Contracts() {
                 pdf.setFont(undefined, "normal");
                 pdf.text(`Contract ID: ${contract.id}`, margin, yPosition);
                 yPosition += lineHeight;
-                pdf.text(`Project: ${contract.projectName}`, margin, yPosition);
+                pdf.text(`Project: ${contract.project_name}`, margin, yPosition);
                 yPosition += lineHeight;
-                pdf.text(`Client: ${contract.clientName}`, margin, yPosition);
+                pdf.text(`Client: ${contract.client_name}`, margin, yPosition);
                 yPosition += lineHeight;
                 pdf.text(`Generated: ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`, margin, yPosition);
                 yPosition += 15;
@@ -4152,13 +3704,13 @@ export default function Contracts() {
                 pdf.text("💼 Labor Costs", margin, yPosition);
                 yPosition += lineHeight;
                 pdf.setFont(undefined, "normal");
-                pdf.text(contract.costTracking.laborCost.description, margin + 3, yPosition);
+                pdf.text(contract.cost_tracking?.labor_cost?.description || "No description provided", margin + 3, yPosition);
                 yPosition += lineHeight;
                 pdf.text(`$${laborCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, margin + 3, yPosition);
                 yPosition += lineHeight;
-                if (contract.costTracking.laborCost.dailyRate && contract.costTracking.laborCost.days) {
+                if (contract.cost_tracking?.labor_cost?.daily_rate && contract.cost_tracking?.labor_cost?.days) {
                   pdf.setFontSize(8);
-                  pdf.text(`$${contract.costTracking.laborCost.dailyRate} × ${contract.costTracking.laborCost.days} days`, margin + 5, yPosition);
+                  pdf.text(`$${contract.cost_tracking.labor_cost.daily_rate} × ${contract.cost_tracking.labor_cost.days} days`, margin + 5, yPosition);
                   yPosition += lineHeight;
                   pdf.setFontSize(10);
                 }
@@ -4170,10 +3722,10 @@ export default function Contracts() {
                 yPosition += lineHeight;
                 pdf.setFont(undefined, "normal");
 
-                const materialsWithQty = contract.costTracking.materials.filter((m) => m.quantity > 0);
+                const materialsWithQty = (contract.cost_tracking?.materials || []).filter((m: any) => m.quantity > 0);
                 if (materialsWithQty.length > 0) {
-                  materialsWithQty.forEach((material) => {
-                    const cost = material.quantity * material.unitPrice;
+                  materialsWithQty.forEach((material: any) => {
+                    const cost = material.quantity * (material.unit_price || 0);
                     const predefinedMaterial = availableMaterials.find(m => m.id === material.id);
                     const supplier = material.supplier || predefinedMaterial?.supplier;
                     const supplierText = supplier ? ` (${supplier})` : "";
@@ -4190,14 +3742,14 @@ export default function Contracts() {
                 yPosition += lineHeight + 10;
 
                 // Miscellaneous
-                if (contract.costTracking.miscellaneous.length > 0) {
+                if ((contract.cost_tracking?.miscellaneous || []).length > 0) {
                   pdf.setFont(undefined, "bold");
                   pdf.text("📋 Miscellaneous Costs", margin, yPosition);
                   yPosition += lineHeight;
                   pdf.setFont(undefined, "normal");
 
-                  contract.costTracking.miscellaneous.forEach((item) => {
-                    pdf.text(`${item.description}: $${item.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, margin + 3, yPosition);
+                  contract.cost_tracking!.miscellaneous.forEach((item: any) => {
+                    pdf.text(`${item.description}: $${(item.amount || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`, margin + 3, yPosition);
                     yPosition += lineHeight;
                   });
                   yPosition += 5;
@@ -4215,7 +3767,7 @@ export default function Contracts() {
                 pdf.setFontSize(10);
                 pdf.setFont(undefined, "normal");
                 const summaryItems = [
-                  [`Contract Total:`, `$${contract.totalValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}`],
+                  [`Contract Total:`, `$${(contract.total_value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`],
                   [`Material Costs:`, `$${materialCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}`],
                   [`Labor Costs:`, `$${laborCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}`],
                   [`Miscellaneous Costs:`, `$${miscellaneousCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}`],
@@ -4232,7 +3784,7 @@ export default function Contracts() {
                 pdf.setFont(undefined, "bold");
                 pdf.setFontSize(11);
                 const profitColor = projectedProfit >= 0 ? [0, 100, 0] : [200, 0, 0];
-                pdf.setTextColor(...profitColor);
+                pdf.setTextColor(profitColor[0], profitColor[1], profitColor[2]);
                 pdf.text(`Projected Profit: $${projectedProfit.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, margin, yPosition);
                 yPosition += lineHeight;
                 pdf.text(`Profit Margin: ${profitMargin.toFixed(1)}%`, margin, yPosition);
@@ -4246,7 +3798,7 @@ export default function Contracts() {
                     <div>
                       <DialogTitle>Budget Summary - {contract.id}</DialogTitle>
                       <DialogDescription>
-                        {contract.projectName} | {contract.clientName}
+                        {contract.project_name} | {contract.client_name}
                       </DialogDescription>
                     </div>
                     <Button
@@ -4270,17 +3822,17 @@ export default function Contracts() {
                           <div className="font-semibold text-slate-900">💼 Labor Costs</div>
                           <div className="bg-slate-50 p-3 rounded border border-slate-200">
                             <div className="flex justify-between items-center">
-                              <span className="text-slate-700">{contract.costTracking.laborCost.description}</span>
+                              <span className="text-slate-700">{contract.cost_tracking?.labor_cost?.description}</span>
                               <span className="font-semibold text-slate-900">${laborCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
                             </div>
-                            {contract.costTracking.laborCost.calculationMethod === "daily" && contract.costTracking.laborCost.dailyRate && contract.costTracking.laborCost.days && (
+                            {contract.cost_tracking?.labor_cost?.calculation_method === "daily" && contract.cost_tracking?.labor_cost?.daily_rate && contract.cost_tracking?.labor_cost?.days && (
                               <p className="text-xs text-slate-600 mt-1">
-                                ${contract.costTracking.laborCost.dailyRate} × {contract.costTracking.laborCost.days} days
+                                ${contract.cost_tracking.labor_cost.daily_rate} × {contract.cost_tracking.labor_cost.days} days
                               </p>
                             )}
-                            {contract.costTracking.laborCost.calculationMethod === "monthly" && contract.costTracking.laborCost.monthlyRate && contract.costTracking.laborCost.months && (
+                            {contract.cost_tracking?.labor_cost?.calculation_method === "monthly" && contract.cost_tracking?.labor_cost?.monthly_rate && contract.cost_tracking?.labor_cost?.months && (
                               <p className="text-xs text-slate-600 mt-1">
-                                ${contract.costTracking.laborCost.monthlyRate} × {contract.costTracking.laborCost.months} months
+                                ${contract.cost_tracking.labor_cost.monthly_rate} × {contract.cost_tracking.labor_cost.months} months
                               </p>
                             )}
                           </div>
@@ -4289,11 +3841,11 @@ export default function Contracts() {
                         <div className="border-t pt-4 space-y-3">
                           <div className="font-semibold text-slate-900">🛠️ Material Costs</div>
                           <div className="space-y-2">
-                            {contract.costTracking.materials.filter((m) => m.quantity > 0).length > 0 ? (
+                            {(contract.cost_tracking?.materials || []).filter((m: any) => m.quantity > 0).length > 0 ? (
                               <div className="space-y-2">
-                                {contract.costTracking.materials
-                                  .filter((m) => m.quantity > 0)
-                                  .map((material) => {
+                                {(contract.cost_tracking?.materials || [])
+                                  .filter((m: any) => m.quantity > 0)
+                                  .map((material: any) => {
                                     const predefinedMaterial = availableMaterials.find(m => m.id === material.id);
                                     const supplier = material.supplier || predefinedMaterial?.supplier;
                                     return (
@@ -4307,7 +3859,7 @@ export default function Contracts() {
                                         )}
                                       </div>
                                       <span className="font-semibold text-slate-900">
-                                        ${(material.quantity * material.unitPrice).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                                        ${(material.quantity * (material.unit_price || 0)).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                                       </span>
                                     </div>
                                     );
@@ -4323,15 +3875,15 @@ export default function Contracts() {
                           </div>
                         </div>
 
-                        {contract.costTracking.miscellaneous.length > 0 && (
+                        {(contract.cost_tracking?.miscellaneous || []).length > 0 && (
                           <div className="border-t pt-4 space-y-3">
                             <div className="font-semibold text-slate-900">📋 Miscellaneous Costs</div>
                             <div className="space-y-2">
-                              {contract.costTracking.miscellaneous.map((item) => (
+                              {(contract.cost_tracking?.miscellaneous || []).map((item: any) => (
                                 <div key={item.id} className="flex justify-between items-center p-2 bg-slate-50 rounded border border-slate-200 text-sm">
                                   <span className="text-slate-700">{item.description}</span>
                                   <span className="font-semibold text-slate-900">
-                                    ${item.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                                    ${(item.amount || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                                   </span>
                                 </div>
                               ))}
@@ -4356,7 +3908,7 @@ export default function Contracts() {
                             <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
                               <p className="text-sm text-slate-600 font-medium">Contract Total</p>
                               <p className="text-2xl font-bold text-slate-900 mt-1">
-                                ${contract.totalValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                                ${(contract.total_value ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                               </p>
                             </div>
                             <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
@@ -4413,12 +3965,12 @@ export default function Contracts() {
                         <div className="space-y-4 bg-slate-50 p-4 rounded-lg border border-slate-200">
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                             <div className="space-y-2">
-                              <Label htmlFor="invoiceNumber">Invoice Number *</Label>
+                              <Label htmlFor="invoice_number">Invoice Number *</Label>
                               <Input
-                                id="invoiceNumber"
+                                id="invoice_number"
                                 placeholder="INV-001"
-                                value={expenseForm.invoiceNumber ?? ""}
-                                onChange={(e) => setExpenseForm({ ...expenseForm, invoiceNumber: e.target.value })}
+                                value={expenseForm.invoice_number ?? ""}
+                                onChange={(e) => setExpenseForm({ ...expenseForm, invoice_number: e.target.value })}
                                 className="border-slate-300"
                               />
                             </div>
@@ -4452,12 +4004,12 @@ export default function Contracts() {
                               </div>
                             </div>
                             <div className="space-y-2">
-                              <Label htmlFor="purchaseDate">Purchase Date *</Label>
+                              <Label htmlFor="purchase_date">Purchase Date *</Label>
                               <Input
-                                id="purchaseDate"
+                                id="purchase_date"
                                 type="date"
-                                value={expenseForm.purchaseDate ?? ""}
-                                onChange={(e) => setExpenseForm({ ...expenseForm, purchaseDate: e.target.value })}
+                                value={expenseForm.purchase_date ?? ""}
+                                onChange={(e) => setExpenseForm({ ...expenseForm, purchase_date: e.target.value })}
                                 className="border-slate-300"
                               />
                             </div>
@@ -4511,23 +4063,23 @@ export default function Contracts() {
                           </Button>
                         </div>
 
-                        {contract.expenses.length > 0 ? (
+                        {(contract.expenses || []).length > 0 ? (
                           <div className="space-y-2">
-                            {contract.expenses.map((expense) => (
+                            {(contract.expenses || []).map((expense: any) => (
                               <div key={expense.id} className="flex justify-between items-start p-3 bg-white rounded border border-slate-200 text-sm">
                                 <div className="flex-1">
-                                  <p className="font-semibold text-slate-900">{expense.invoiceNumber} - {expense.vendor}</p>
+                                  <p className="font-semibold text-slate-900">{expense.invoice_number} - {expense.vendor}</p>
                                   <p className="text-xs text-slate-600 mt-1">
                                     {expense.description}
                                   </p>
                                   <div className="flex gap-2 mt-1 text-xs">
                                     <span className="bg-slate-100 px-2 py-1 rounded">{expense.category}</span>
-                                    <span className="text-slate-600">{formatDateString(expense.purchaseDate)}</span>
+                                    <span className="text-slate-600">{formatDateString(expense.purchase_date)}</span>
                                   </div>
                                 </div>
                                 <div className="text-right flex flex-col items-end gap-2">
                                   <div>
-                                    <p className="font-bold text-slate-900">${expense.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}</p>
+                                    <p className="font-bold text-slate-900">${(expense.amount || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</p>
                                   </div>
                                   <div className="flex items-center gap-2">
                                     <Button
@@ -4604,7 +4156,7 @@ export default function Contracts() {
             <CardTitle className="text-lg">Pending Payments</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold text-orange-600">${pendingPayments.toLocaleString()}</p>
+            <p className="text-3xl font-bold text-orange-600">${(totalValue - totalDeposits).toLocaleString()}</p>
           </CardContent>
         </Card>
       </div>
@@ -4656,17 +4208,17 @@ export default function Contracts() {
         const contract = contracts.find((c) => c.id === detailsContractId);
         if (!contract) return null;
 
-        const paidPayments = contract.paymentSchedule.filter((p) => p.status === "paid");
-        const pendingPaymentCount = contract.paymentSchedule.filter((p) => p.status === "pending").length;
-        const totalPaid = paidPayments.reduce((sum, p) => sum + p.amount, 0);
-        const totalRemaining = contract.paymentSchedule.reduce((sum, p) => sum + (p.status === "pending" ? p.amount : 0), 0);
+        const paidPayments = (contract.payment_schedule || []).filter((p: any) => p.status === "paid");
+        const pendingPaymentCount = (contract.payment_schedule || []).filter((p: any) => p.status === "pending").length;
+        const totalPaid = paidPayments.reduce((sum: number, p: any) => sum + p.amount, 0);
+        const totalRemaining = (contract.payment_schedule || []).reduce((sum: number, p: any) => sum + (p.status === "pending" ? p.amount : 0), 0);
 
         return (
           <Sheet open={!!detailsContractId} onOpenChange={(open) => !open && setDetailsContractId(null)}>
             <SheetContent className="w-full sm:w-[600px] max-h-[90vh] overflow-y-auto">
               <SheetHeader>
                 <SheetTitle className="text-2xl">{contract.id}</SheetTitle>
-                <SheetDescription>{contract.projectName}</SheetDescription>
+                <SheetDescription>{contract.project_name}</SheetDescription>
               </SheetHeader>
 
               <div className="space-y-6 mt-6">
@@ -4674,10 +4226,10 @@ export default function Contracts() {
                 <div className="border-b pb-4">
                   <h3 className="font-semibold text-slate-900 mb-3">Client Information</h3>
                   <div className="space-y-2 text-sm">
-                    <div><span className="text-slate-600">Name:</span> <span className="font-medium">{contract.clientName}</span></div>
-                    <div><span className="text-slate-600">Email:</span> <span className="font-medium">{contract.clientEmail}</span></div>
-                    <div><span className="text-slate-600">Phone:</span> <span className="font-medium">{contract.clientPhone}</span></div>
-                    <div><span className="text-slate-600">Address:</span> <span className="font-medium">{contract.clientAddress}, {contract.clientCity}, {contract.clientState} {contract.clientZip}</span></div>
+                    <div><span className="text-slate-600">Name:</span> <span className="font-medium">{contract.client_name}</span></div>
+                    <div><span className="text-slate-600">Email:</span> <span className="font-medium">{contract.client_email}</span></div>
+                    <div><span className="text-slate-600">Phone:</span> <span className="font-medium">{contract.client_phone}</span></div>
+                    <div><span className="text-slate-600">Address:</span> <span className="font-medium">{contract.client_address}, {contract.client_city}, {contract.client_state} {contract.client_zip}</span></div>
                   </div>
                 </div>
 
@@ -4685,13 +4237,13 @@ export default function Contracts() {
                 <div className="border-b pb-4">
                   <h3 className="font-semibold text-slate-900 mb-3">Project Details</h3>
                   <div className="space-y-2 text-sm">
-                    <div><span className="text-slate-600">Location:</span> <span className="font-medium">{contract.projectLocation}</span></div>
-                    <div><span className="text-slate-600">Cabinet Type:</span> <span className="font-medium">{contract.cabinetType}</span></div>
+                    <div><span className="text-slate-600">Location:</span> <span className="font-medium">{contract.project_location}</span></div>
+                    <div><span className="text-slate-600">Cabinet Type:</span> <span className="font-medium">{contract.cabinet_type}</span></div>
                     <div><span className="text-slate-600">Finish Type:</span> <span className="font-medium">{contract.material}</span></div>
-                    {contract.customFinish && (
-                      <div><span className="text-slate-600">Finish Customization:</span> <span className="font-medium text-blue-700">{contract.customFinish}</span></div>
+                    {contract.custom_finish && (
+                      <div><span className="text-slate-600">Finish Customization:</span> <span className="font-medium text-blue-700">{contract.custom_finish}</span></div>
                     )}
-                    <div><span className="text-slate-600">Installation:</span> <span className="font-medium">{contract.installationIncluded ? "Included" : "Not Included"}</span></div>
+                    <div><span className="text-slate-600">Installation:</span> <span className="font-medium">{contract.installation_included ? "Included" : "Not Included"}</span></div>
                   </div>
                 </div>
 
@@ -4699,8 +4251,8 @@ export default function Contracts() {
                 <div className="border-b pb-4">
                   <h3 className="font-semibold text-slate-900 mb-3">Financial Summary</h3>
                   <div className="space-y-2 text-sm">
-                    <div className="flex justify-between"><span className="text-slate-600">Total Value:</span> <span className="font-bold text-slate-900">${contract.totalValue.toLocaleString()}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-600">Deposit:</span> <span className="font-medium">${contract.depositAmount.toLocaleString()}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-600">Total Value:</span> <span className="font-bold text-slate-900">${(contract.total_value ?? 0).toLocaleString()}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-600">Deposit:</span> <span className="font-medium">${(contract.deposit_amount ?? 0).toLocaleString()}</span></div>
                     <div className="flex justify-between"><span className="text-slate-600">Amount Paid:</span> <span className="font-medium text-green-600">${totalPaid.toLocaleString()}</span></div>
                     <div className="flex justify-between"><span className="text-slate-600">Amount Remaining:</span> <span className="font-medium text-orange-600">${totalRemaining.toLocaleString()}</span></div>
                   </div>
@@ -4710,8 +4262,8 @@ export default function Contracts() {
                 <div className="border-b pb-4">
                   <h3 className="font-semibold text-slate-900 mb-3">Timeline</h3>
                   <div className="space-y-2 text-sm">
-                    <div><span className="text-slate-600">Start Date:</span> <span className="font-medium">{formatDateString(contract.startDate)}</span></div>
-                    <div><span className="text-slate-600">Due Date:</span> <span className="font-medium">{formatDateString(contract.dueDate)}</span></div>
+                    <div><span className="text-slate-600">Start Date:</span> <span className="font-medium">{formatDateString(contract.start_date)}</span></div>
+                    <div><span className="text-slate-600">Due Date:</span> <span className="font-medium">{formatDateString(contract.due_date)}</span></div>
                     <div><span className="text-slate-600">Status:</span> <span className={`inline-block px-2 py-1 rounded text-xs font-medium mt-1 ${getStatusBadge(contract.status)}`}>{contract.status.replace("-", " ")}</span></div>
                   </div>
                 </div>
@@ -4722,7 +4274,7 @@ export default function Contracts() {
                   <div className="space-y-3">
                     <div className="flex justify-between text-sm">
                       <span className="text-slate-600">Total Payments:</span>
-                      <span className="font-medium">{contract.paymentSchedule.length}</span>
+                      <span className="font-medium">{(contract.payment_schedule || []).length}</span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-slate-600">Paid:</span>
@@ -4759,20 +4311,20 @@ export default function Contracts() {
                     </Button>
                   </div>
 
-                  {contract.downPayments && contract.downPayments.length > 0 ? (
+                  {contract.down_payments && contract.down_payments.length > 0 ? (
                     <div className="space-y-2">
-                      {contract.downPayments.map((dp) => (
+                      {contract.down_payments.map((dp: any) => (
                         <div key={dp.id} className="flex items-center justify-between p-3 bg-slate-50 rounded border border-slate-200 text-sm">
                           <div className="flex-1">
-                            <div className="font-medium text-slate-900">${dp.amount.toLocaleString()}</div>
-                            <div className="text-xs text-slate-600">{new Date(dp.date).toLocaleDateString()} • {dp.method.replace("_", " ")}</div>
+                            <div className="font-medium text-slate-900">${(dp.amount || 0).toLocaleString()}</div>
+                            <div className="text-xs text-slate-600">{dp.date ? new Date(dp.date).toLocaleDateString() : "N/A"} • {dp.method.replace("_", " ")}</div>
                             {dp.description && <div className="text-xs text-slate-600 mt-1">{dp.description}</div>}
                           </div>
                           <Button
                             size="sm"
                             variant="ghost"
                             onClick={() => {
-                              const downPayment = contract.downPayments!.find(p => p.id === dp.id);
+                              const downPayment = contract.down_payments!.find((p: any) => p.id === dp.id);
                               if (downPayment) {
                                 setDownPaymentForm(downPayment);
                                 setEditingDownPaymentId(dp.id);
@@ -4790,7 +4342,7 @@ export default function Contracts() {
                           <div className="flex-1">
                             <div className="flex justify-between text-sm">
                               <span className="font-medium text-slate-900">Total Down Payments:</span>
-                              <span className="font-bold text-green-600">${(contract.downPayments.reduce((sum, dp) => sum + dp.amount, 0)).toLocaleString()}</span>
+                              <span className="font-bold text-green-600">${(contract.down_payments.reduce((sum: number, dp: any) => sum + (dp.amount || 0), 0)).toLocaleString()}</span>
                             </div>
                           </div>
                           <Button
@@ -4811,11 +4363,11 @@ export default function Contracts() {
                 </div>
 
                 {/* Additional Info */}
-                {contract.costTracking.materials.length > 0 && (
+                {(contract.cost_tracking?.materials || []).length > 0 && (
                   <div className="border-b pb-4">
                     <h3 className="font-semibold text-slate-900 mb-3">Materials</h3>
                     <div className="text-sm text-slate-600">
-                      <span>{contract.costTracking.materials.length} material items added</span>
+                      <span>{(contract.cost_tracking?.materials || []).length} material items added</span>
                     </div>
                   </div>
                 )}
@@ -4829,8 +4381,8 @@ export default function Contracts() {
 
                     {/* Separate images and other files */}
                     {(() => {
-                      const images = contract.attachments.filter(att => isImageFile(att.fileName));
-                      const others = contract.attachments.filter(att => !isImageFile(att.fileName));
+                      const images = (contract.attachments || []).filter((att: any) => isImageFile(att.file_name));
+                      const others = (contract.attachments || []).filter((att: any) => !isImageFile(att.file_name));
 
                       return (
                         <div className="space-y-4">
@@ -4839,16 +4391,16 @@ export default function Contracts() {
                             <div>
                               <p className="text-xs text-slate-600 font-medium mb-2">Design Images ({images.length})</p>
                               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-                                {images.map((att) => (
+                                {images.map((att: any) => (
                                   <button
                                     key={att.id}
                                     onClick={() => setLightboxImage(att)}
                                     className="group relative aspect-square rounded border border-slate-300 overflow-hidden hover:border-blue-500 transition-colors cursor-pointer bg-slate-100"
-                                    title={att.fileName}
+                                    title={att.file_name}
                                   >
                                     <img
-                                      src={att.fileData}
-                                      alt={att.fileName}
+                                      src={att.file_data}
+                                      alt={att.file_name}
                                       className="w-full h-full object-cover group-hover:scale-105 transition-transform"
                                     />
                                     <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
@@ -4865,16 +4417,16 @@ export default function Contracts() {
                             <div>
                               <p className="text-xs text-slate-600 font-medium mb-2">Documents ({others.length})</p>
                               <div className="space-y-2">
-                                {others.map((att) => (
+                                {others.map((att: any) => (
                                   <div key={att.id} className="flex items-center gap-3 p-3 bg-slate-50 rounded border border-slate-200 hover:bg-slate-100 transition-colors">
-                                    <span className="text-xl flex-shrink-0">{getFileIcon(att.fileName)}</span>
+                                    <span className="text-xl flex-shrink-0">{getFileIcon(att.file_name)}</span>
                                     <div className="flex-1 min-w-0">
-                                      <p className="text-sm font-medium text-slate-900 truncate">{att.fileName}</p>
-                                      <p className="text-xs text-slate-500">{new Date(att.uploadDate).toLocaleDateString()}</p>
+                                      <p className="text-sm font-medium text-slate-900 truncate">{att.file_name}</p>
+                                      <p className="text-xs text-slate-500">{new Date(att.upload_date).toLocaleDateString()}</p>
                                     </div>
                                     <a
-                                      href={att.fileData}
-                                      download={att.fileName}
+                                      href={att.file_data}
+                                      download={att.file_name}
                                       className="flex-shrink-0 text-blue-600 hover:text-blue-800 p-1"
                                       title="Download file"
                                     >
@@ -5028,89 +4580,14 @@ export default function Contracts() {
 
             <div className="flex gap-3 pt-4">
               <Button
-                onClick={() => {
-                  if (!downPaymentForm.amount || !downPaymentForm.date) {
-                    alert("Please fill in Amount and Date");
-                    return;
-                  }
-
-                  const currentContract = contracts.find(c => c.id === detailsContractId);
-                  if (!currentContract) return;
-
-                  const updatedContracts = contracts.map(contract =>
-                    contract.id === detailsContractId
-                      ? {
-                          ...contract,
-                          downPayments: editingDownPaymentId
-                            ? (contract.downPayments || []).map(dp =>
-                                dp.id === editingDownPaymentId ? downPaymentForm : dp
-                              )
-                            : [...(contract.downPayments || []), { ...downPaymentForm, id: `DP-${Date.now()}` }]
-                        }
-                      : contract
-                  );
-
-                  setContracts(updatedContracts);
-
-                  // Auto-generate invoice when down payment is recorded
-                  const updatedContract = updatedContracts.find(c => c.id === detailsContractId);
-                  if (updatedContract && !editingDownPaymentId) {
-                    // Small delay to ensure state is updated
-                    setTimeout(() => {
-                      generateInvoicePDF(updatedContract);
-
-                      // Show success message
-                      toast({
-                        title: "✅ Down Payment Recorded",
-                        description: `Down payment of $${downPaymentForm.amount.toFixed(2)} recorded. Invoice generated.`,
-                      });
-                    }, 100);
-                  } else if (updatedContract && editingDownPaymentId) {
-                    toast({
-                      title: "✅ Down Payment Updated",
-                      description: `Down payment updated. Invoice regenerated.`,
-                    });
-                    setTimeout(() => {
-                      generateInvoicePDF(updatedContract);
-                    }, 100);
-                  }
-
-                  setIsDownPaymentModalOpen(false);
-                  setDownPaymentForm({
-                    id: "",
-                    amount: 0,
-                    date: "",
-                    method: "wire_transfer",
-                    description: ""
-                  });
-                  setEditingDownPaymentId(null);
-                }}
+                onClick={handleSaveDownPayment}
                 className="flex-1 bg-blue-600 hover:bg-blue-700"
               >
                 {editingDownPaymentId ? "Update" : "Add"} Down Payment & Generate Invoice
               </Button>
               {editingDownPaymentId && (
                 <Button
-                  onClick={() => {
-                    const updatedContracts = contracts.map(contract =>
-                      contract.id === detailsContractId
-                        ? {
-                            ...contract,
-                            downPayments: (contract.downPayments || []).filter(dp => dp.id !== editingDownPaymentId)
-                          }
-                        : contract
-                    );
-                    setContracts(updatedContracts);
-                    setIsDownPaymentModalOpen(false);
-                    setDownPaymentForm({
-                      id: "",
-                      amount: 0,
-                      date: "",
-                      method: "wire_transfer",
-                      description: ""
-                    });
-                    setEditingDownPaymentId(null);
-                  }}
+                  onClick={handleDeleteDownPayment}
                   variant="destructive"
                 >
                   Delete
@@ -5147,11 +4624,11 @@ export default function Contracts() {
                   <tbody>
                     {availableMaterials.map((material) => {
                       const quantity = costTracking.materials.find(m => m.id === material.id)?.quantity || 0;
-                      const subtotal = material.unitPrice * quantity;
+                      const subtotal = material.unit_price * quantity;
                       return (
                         <tr key={material.id} className="border-b hover:bg-slate-50">
                           <td className="p-3">{material.name}</td>
-                          <td className="text-center p-3">${material.unitPrice.toFixed(2)}</td>
+                          <td className="text-center p-3">${material.unit_price.toFixed(2)}</td>
                           <td className="text-center p-3">
                             <Input
                               type="number"
@@ -5191,13 +4668,13 @@ export default function Contracts() {
                 <span className="font-semibold">
                   ${costTracking.materials.reduce((sum, m) => {
                     const material = availableMaterials.find(am => am.id === m.id);
-                    return sum + (material ? material.unitPrice * m.quantity : 0);
+                    return sum + (material ? material.unit_price * m.quantity : 0);
                   }, 0).toFixed(2)}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="font-medium">Labor Cost:</span>
-                <span className="font-semibold">${costTracking.laborCost.amount.toFixed(2)}</span>
+                <span className="font-semibold">${costTracking.labor_cost.amount.toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="font-medium">Miscellaneous:</span>
@@ -5211,24 +4688,24 @@ export default function Contracts() {
                   ${(
                     costTracking.materials.reduce((sum, m) => {
                       const material = availableMaterials.find(am => am.id === m.id);
-                      return sum + (material ? material.unitPrice * m.quantity : 0);
+                      return sum + (material ? material.unit_price * m.quantity : 0);
                     }, 0) +
-                    costTracking.laborCost.amount +
+                    costTracking.labor_cost.amount +
                     costTracking.miscellaneous.reduce((sum, m) => sum + m.amount, 0)
                   ).toFixed(2)}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="font-medium">Profit Margin ({costTracking.profitMarginPercent}%):</span>
+                <span className="font-medium">Profit Margin ({costTracking.profit_margin_percent}%):</span>
                 <span className="font-semibold">
                   ${(
                     (costTracking.materials.reduce((sum, m) => {
                       const material = availableMaterials.find(am => am.id === m.id);
-                      return sum + (material ? material.unitPrice * m.quantity : 0);
+                      return sum + (material ? material.unit_price * m.quantity : 0);
                     }, 0) +
-                    costTracking.laborCost.amount +
+                    costTracking.labor_cost.amount +
                     costTracking.miscellaneous.reduce((sum, m) => sum + m.amount, 0)) *
-                    (costTracking.profitMarginPercent / 100)
+                    (costTracking.profit_margin_percent / 100)
                   ).toFixed(2)}
                 </span>
               </div>
@@ -5238,11 +4715,11 @@ export default function Contracts() {
                   ${(
                     (costTracking.materials.reduce((sum, m) => {
                       const material = availableMaterials.find(am => am.id === m.id);
-                      return sum + (material ? material.unitPrice * m.quantity : 0);
+                      return sum + (material ? material.unit_price * m.quantity : 0);
                     }, 0) +
-                    costTracking.laborCost.amount +
+                    costTracking.labor_cost.amount +
                     costTracking.miscellaneous.reduce((sum, m) => sum + m.amount, 0)) *
-                    (1 + costTracking.profitMarginPercent / 100)
+                    (1 + costTracking.profit_margin_percent / 100)
                   ).toFixed(2)}
                 </span>
               </div>
@@ -5258,15 +4735,15 @@ export default function Contracts() {
                 // Update the total value in the form based on calculator results
                 const materialTotal = costTracking.materials.reduce((sum, m) => {
                   const material = availableMaterials.find(am => am.id === m.id);
-                  return sum + (material ? material.unitPrice * m.quantity : 0);
+                  return sum + (material ? material.unit_price * m.quantity : 0);
                 }, 0);
-                const subtotal = materialTotal + costTracking.laborCost.amount + costTracking.miscellaneous.reduce((sum, m) => sum + m.amount, 0);
-                const total = subtotal * (1 + costTracking.profitMarginPercent / 100);
+                const subtotal = materialTotal + costTracking.labor_cost.amount + costTracking.miscellaneous.reduce((sum, m) => sum + m.amount, 0);
+                const total = subtotal * (1 + costTracking.profit_margin_percent / 100);
 
                 setFormData(prev => ({
                   ...prev,
-                  totalValue: total.toFixed(2),
-                  depositAmount: (total * 0.5).toFixed(2)
+                  total_value: total.toFixed(2),
+                  deposit_amount: (total * 0.5).toFixed(2)
                 }));
 
                 setIsCalculatorOpen(false);
@@ -5296,20 +4773,20 @@ export default function Contracts() {
               </button>
 
               <img
-                src={lightboxImage.fileData}
-                alt={lightboxImage.fileName}
+                src={lightboxImage.file_data}
+                alt={lightboxImage.file_name}
                 className="max-w-full max-h-full object-contain"
               />
             </div>
 
             <div className="bg-slate-900 text-white p-4 flex items-center justify-between">
               <div>
-                <p className="font-medium">{lightboxImage.fileName}</p>
-                <p className="text-sm text-slate-400">{new Date(lightboxImage.uploadDate).toLocaleDateString()}</p>
+                <p className="font-medium">{lightboxImage.file_name}</p>
+                <p className="text-sm text-slate-400">{new Date(lightboxImage.upload_date).toLocaleDateString()}</p>
               </div>
               <a
-                href={lightboxImage.fileData}
-                download={lightboxImage.fileName}
+                href={lightboxImage.file_data}
+                download={lightboxImage.file_name}
                 className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded transition-colors"
               >
                 <Download className="w-4 h-4" />

@@ -26,8 +26,11 @@ export default function EmployeeOnboarding() {
     position: "",
     startDate: "",
     address: "",
+    ssn: "",
+    itin: "",
     weeklyRate: "",
     paymentMethod: "cash",
+    defaultDaysWorked: "5",
     bankName: "",
     routingNumber: "",
     accountNumber: "",
@@ -61,6 +64,12 @@ export default function EmployeeOnboarding() {
       if (!formData.checkNumber.trim()) newErrors.checkNumber = "Check number is required for check payments";
     }
 
+    // Validate tax ID - at least one is required
+    if (!formData.ssn.trim() && !formData.itin.trim()) {
+      newErrors.ssn = "At least one tax ID (SSN or ITIN) is required";
+      newErrors.itin = "At least one tax ID (SSN or ITIN) is required";
+    }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -74,29 +83,28 @@ export default function EmployeeOnboarding() {
     setIsSubmitting(true);
 
     try {
-      // Construct the bank_details / extended info object
-      // We are storing contact info here since the schema is minimal
-      const extendedDetails = {
-        email: formData.email,
-        telephone: formData.telephone,
-        address: formData.address,
-        bankName: formData.bankName,
-        routingNumber: formData.routingNumber,
-        accountNumber: formData.accountNumber, // In a real app, encrypt this!
-        accountType: formData.accountType,
-        checkNumber: formData.checkNumber, // For reference
+      // Construct the bank_details object with only bank-related info
+      const bankDetails = {
+        bank_name: formData.bankName,
+        routing_number: formData.routingNumber,
+        account_number: formData.accountNumber, // In a real app, encrypt this!
+        account_type: formData.accountType,
+        check_number: formData.checkNumber,
       };
 
       await employeesService.upsertPublic({
         name: formData.name,
         email: formData.email,
+        telephone: formData.telephone,
+        address: formData.address,
         position: formData.position,
+        ssn: formData.ssn || null,
         weekly_rate: parseFloat(formData.weeklyRate),
         hire_date: formData.startDate,
         payment_method: formData.paymentMethod as any,
-        status: "active",
-        bank_details: extendedDetails,
-        user_id: user?.id || null,
+        payment_status: "active",
+        default_days_worked: parseInt(formData.defaultDaysWorked),
+        bank_details: bankDetails,
       });
 
       setSubmitted(true);
@@ -111,8 +119,11 @@ export default function EmployeeOnboarding() {
           position: "",
           startDate: "",
           address: "",
+          ssn: "",
+          itin: "",
           weeklyRate: "",
           paymentMethod: "cash",
+          defaultDaysWorked: "5",
           bankName: "",
           routingNumber: "",
           accountNumber: "",
@@ -147,10 +158,7 @@ export default function EmployeeOnboarding() {
               </div>
               <h2 className="text-2xl font-bold text-slate-900">Thank You!</h2>
               <p className="text-slate-600">
-                Your information has been successfully submitted. Your account is now <strong>Pending Verification</strong>.
-              </p>
-              <p className="text-slate-600">
-                Our HR team will review your details. You will be able to log in once your account has been validated.
+                Your information has been successfully submitted.
               </p>
               <p className="text-sm text-slate-500 mt-4">
                 Redirecting you back in a moment...
@@ -319,6 +327,61 @@ export default function EmployeeOnboarding() {
               </div>
             </div>
 
+            {/* Tax Information Section */}
+            <div>
+              <h3 className="text-sm font-semibold text-slate-700 mb-4 uppercase tracking-wide">
+                Tax Information
+              </h3>
+              <p className="text-sm text-slate-600 mb-4">
+                Please provide at least one form of tax identification for IRS reporting purposes.
+              </p>
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="ssn" className="text-slate-700 font-medium">
+                    Social Security Number (SSN)
+                  </Label>
+                  <Input
+                    id="ssn"
+                    placeholder="XXX-XX-XXXX"
+                    value={formData.ssn}
+                    onChange={(e) =>
+                      setFormData({ ...formData, ssn: e.target.value })
+                    }
+                    className={`mt-1 ${
+                      errors.ssn ? "border-red-500" : "border-slate-300"
+                    }`}
+                  />
+                  {errors.ssn && (
+                    <p className="text-red-600 text-sm mt-1">{errors.ssn}</p>
+                  )}
+                </div>
+
+                <div>
+                  <Label htmlFor="itin" className="text-slate-700 font-medium">
+                    ITIN (W-7)
+                  </Label>
+                  <Input
+                    id="itin"
+                    placeholder="XXX-XX-XXXX"
+                    value={formData.itin}
+                    onChange={(e) =>
+                      setFormData({ ...formData, itin: e.target.value })
+                    }
+                    className={`mt-1 ${
+                      errors.itin ? "border-red-500" : "border-slate-300"
+                    }`}
+                  />
+                  {errors.itin && (
+                    <p className="text-red-600 text-sm mt-1">{errors.itin}</p>
+                  )}
+                </div>
+
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded text-sm text-blue-800">
+                  At least one tax ID is required to proceed with payroll setup.
+                </div>
+              </div>
+            </div>
+
             {/* Payment Information Section */}
             <div>
               <h3 className="text-sm font-semibold text-slate-700 mb-4 uppercase tracking-wide">
@@ -348,6 +411,31 @@ export default function EmployeeOnboarding() {
                       {errors.weeklyRate}
                     </p>
                   )}
+                </div>
+
+                <div>
+                  <Label htmlFor="defaultDaysWorked" className="text-slate-700 font-medium">
+                    Default Days Worked Per Week *
+                  </Label>
+                  <Select
+                    value={formData.defaultDaysWorked}
+                    onValueChange={(value) =>
+                      setFormData({ ...formData, defaultDaysWorked: value })
+                    }
+                  >
+                    <SelectTrigger className="mt-1 border-slate-300">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1">1 Day</SelectItem>
+                      <SelectItem value="2">2 Days</SelectItem>
+                      <SelectItem value="3">3 Days</SelectItem>
+                      <SelectItem value="4">4 Days</SelectItem>
+                      <SelectItem value="5">5 Days</SelectItem>
+                      <SelectItem value="6">6 Days</SelectItem>
+                      <SelectItem value="7">7 Days</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 <div>

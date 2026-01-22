@@ -105,14 +105,14 @@ export default function Employees() {
     days_worked: 5,
     overrideAmount: "",
     payment_method: "cash" as Payment['payment_method'],
-    checkNumber: "",
+    check_number: "",
     bank_name: "",
     routing_number: "",
     account_number: "",
     account_type: "checking",
-    creditCardLast4: "",
-    transactionReference: "",
-    receiptAttachment: "",
+    credit_card_last_four: "",
+    transaction_reference: "",
+    receipt_attachment: "",
   });
   const [formData, setFormData] = useState<EmployeeFormData>({
     name: "",
@@ -234,14 +234,14 @@ export default function Employees() {
         days_worked: payment.days_worked || 5,
         overrideAmount: "",
         payment_method: (payment.payment_method || "cash") as any,
-        checkNumber: payment.check_number || "",
+        check_number: payment.check_number || "",
         bank_name: payment.bank_name || "",
-        routing_number: "",
-        account_number: "",
-        account_type: "checking",
-        creditCardLast4: "",
-        transactionReference: "",
-        receiptAttachment: "",
+        routing_number: payment.routing_number || "",
+        account_number: payment.account_number || "",
+        account_type: payment.account_type || "checking",
+        credit_card_last_four: payment.account_last_four || "",
+        transaction_reference: "",
+        receipt_attachment: "",
       });
     } else {
       setEditingPayment(null);
@@ -253,14 +253,14 @@ export default function Employees() {
         days_worked: 5,
         overrideAmount: "",
         payment_method: "cash",
-        checkNumber: "",
+        check_number: "",
         bank_name: "",
         routing_number: "",
         account_number: "",
         account_type: "checking",
-        creditCardLast4: "",
-        transactionReference: "",
-        receiptAttachment: "",
+        credit_card_last_four: "",
+        transaction_reference: "",
+        receipt_attachment: "",
       });
     }
     setIsPaymentModalOpen(true);
@@ -290,11 +290,10 @@ export default function Employees() {
       employee_id: employee_id,
       week_start_date: paymentFormData.week_start_date,
       days_worked: paymentFormData.days_worked,
-      weekly_rate: employee.weekly_rate,
       amount: amount,
       status: editingPayment ? editingPayment.status : "pending",
       payment_method: paymentFormData.payment_method as any,
-      check_number: paymentFormData.checkNumber,
+      check_number: paymentFormData.check_number,
       bank_name: paymentFormData.bank_name,
     };
 
@@ -525,7 +524,7 @@ export default function Employees() {
         account_type: formData.account_type,
       },
       direct_deposit: formData.payment_method === "direct_deposit",
-      payment_day: formData.paymentDay,
+      payment_day: formData.payment_day,
       payment_status: formData.payment_status,
       default_days_worked: parseInt(formData.default_days_worked, 10) || 5,
     };
@@ -567,8 +566,8 @@ export default function Employees() {
       account_number: "",
       account_type: "checking",
       check_attachment: "",
-      checkNumber: "",
-      paymentDay: "wednesday",
+      check_number: "",
+      payment_day: "wednesday",
       payment_status: "active",
       default_days_worked: "5",
     });
@@ -593,8 +592,8 @@ export default function Employees() {
       account_number: employee.bank_details?.account_number || "",
       account_type: employee.bank_details?.account_type || "checking",
       check_attachment: "",
-      checkNumber: "",
-      paymentDay: employee.payment_day || "wednesday",
+      check_number: "",
+      payment_day: employee.payment_day || "wednesday",
       payment_status: employee.payment_status || "active",
       default_days_worked: (employee.default_days_worked || 5).toString(),
     });
@@ -973,13 +972,13 @@ export default function Employees() {
         `"${emp.telephone || ""}"`,
         `"${emp.email || ""}"`,
         emp.payment_method || "",
-        `"${emp.bank_name || ""}"`,
-        emp.routing_number || "",
-        emp.account_number || "",
-        emp.account_type || "",
-        emp.checkNumber || "",
+        `"${emp.bank_details?.bank_name || ""}"`,
+        emp.bank_details?.routing_number || "",
+        emp.bank_details?.account_number || "",
+        emp.bank_details?.account_type || "",
+        emp.bank_details?.check_number || "",
         emp.direct_deposit ? "Yes" : "No",
-        emp.paymentDay || "",
+        emp.payment_day || "",
         emp.payment_status || "active",
         emp.default_days_worked || "5"
       ].join(","))
@@ -1158,9 +1157,10 @@ export default function Employees() {
         account_number: "",
         account_type: "checking",
         check_attachment: "",
-        checkNumber: "",
-        paymentDay: "wednesday",
+        check_number: "",
+        payment_day: "wednesday",
         payment_status: "active",
+        default_days_worked: "5",
       });
     }
     setIsModalOpen(open);
@@ -1187,7 +1187,7 @@ export default function Employees() {
       const maxId = existingIds.length > 0 ? Math.max(...existingIds) : 0;
       let nextId = maxId + 1;
 
-      const bulkEmployees: Employee[] = [
+      const bulkEmployees: any[] = [
         {
           id: `EMP-${String(nextId++).padStart(3, "0")}`,
           name: "Steven Sadler",
@@ -1235,7 +1235,7 @@ export default function Employees() {
           weekly_rate: 900,
           hire_date: "2026-07-20",
           payment_start_date: "2026-07-20",
-          paymentDay: "wednesday",
+          payment_day: "wednesday",
           payment_status: "active",
         },
         {
@@ -1245,7 +1245,7 @@ export default function Employees() {
           weekly_rate: 900,
           hire_date: "2026-02-19",
           payment_start_date: "2026-02-19",
-          paymentDay: "wednesday",
+          payment_day: "wednesday",
           payment_status: "active",
         },
         {
@@ -1255,7 +1255,7 @@ export default function Employees() {
           weekly_rate: 900,
           hire_date: "2026-02-19",
           payment_start_date: "2026-02-19",
-          paymentDay: "wednesday",
+          payment_day: "wednesday",
           payment_status: "active",
         },
         {
@@ -2096,12 +2096,12 @@ export default function Employees() {
                   <div className="bg-slate-50 p-4 rounded border border-slate-200 space-y-3">
                     <div>
                       <p className="text-xs font-semibold text-slate-600 uppercase">Bank Name</p>
-                      <p className="text-slate-900">{viewingEmployee.bank_name}</p>
+                      <p className="text-slate-900">{viewingEmployee.bank_details?.bank_name}</p>
                     </div>
-                    {viewingEmployee.checkNumber && (
+                    {viewingEmployee.bank_details?.check_number && (
                       <div>
                         <p className="text-xs font-semibold text-slate-600 uppercase">Check Number</p>
-                        <p className="text-slate-900">{viewingEmployee.checkNumber}</p>
+                        <p className="text-slate-900">{viewingEmployee.bank_details?.check_number}</p>
                       </div>
                     )}
                   </div>
@@ -2109,23 +2109,23 @@ export default function Employees() {
                   <div className="bg-slate-50 p-4 rounded border border-slate-200 space-y-3">
                     <div>
                       <p className="text-xs font-semibold text-slate-600 uppercase">Bank Name</p>
-                      <p className="text-slate-900">{viewingEmployee.bank_name}</p>
+                      <p className="text-slate-900">{viewingEmployee.bank_details?.bank_name}</p>
                     </div>
                     <div>
                       <p className="text-xs font-semibold text-slate-600 uppercase">Routing Number</p>
-                      <p className="text-slate-900">{viewingEmployee.routing_number}</p>
+                      <p className="text-slate-900">{viewingEmployee.bank_details?.routing_number}</p>
                     </div>
                     <div>
                       <p className="text-xs font-semibold text-slate-600 uppercase">Account Number</p>
                       <p className="text-slate-900">
-                        {'•'.repeat(Math.max(0, (viewingEmployee.account_number?.length || 0) - 4))} {viewingEmployee.account_number?.slice(-4)}
+                        {'•'.repeat(Math.max(0, (viewingEmployee.bank_details?.account_number?.length || 0) - 4))} {viewingEmployee.bank_details?.account_number?.slice(-4)}
                       </p>
                     </div>
                     {(viewingEmployee.payment_method === "direct_deposit" || viewingEmployee.payment_method === "ach" || viewingEmployee.payment_method === "wire") && (
                       <div>
                         <p className="text-xs font-semibold text-slate-600 uppercase">Account Type</p>
                         <p className="text-slate-900">
-                          {viewingEmployee.account_type === "checking" ? "Checking" : "Savings"}
+                          {viewingEmployee.bank_details?.account_type === "checking" ? "Checking" : "Savings"}
                         </p>
                       </div>
                     )}
@@ -2138,7 +2138,7 @@ export default function Employees() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <p className="text-xs font-semibold text-slate-600 uppercase">Payment Day</p>
-                    <p className="text-slate-900 capitalize">{viewingEmployee.paymentDay || "Friday"}</p>
+                    <p className="text-slate-900 capitalize">{viewingEmployee.bank_details?.payment_day || "Friday"}</p>
                   </div>
                   <div>
                     <p className="text-xs font-semibold text-slate-600 uppercase">Payment Status</p>
@@ -2193,7 +2193,7 @@ export default function Employees() {
                           <div className="flex items-center justify-between">
                             <div>
                               <p className="text-sm font-semibold text-slate-900">
-                                {formatDateString(absence.fromDate)} to {formatDateString(absence.toDate)}
+                                {formatDateString(absence.from_date)} to {formatDateString(absence.to_date)}
                               </p>
                               <p className="text-xs text-slate-600">{absence.days_worked_per_week} days working per week</p>
                               {absence.reason && (
@@ -2250,9 +2250,6 @@ export default function Employees() {
                           </div>
                         </div>
 
-                        {payment.overrideAmount && (
-                          <p className="text-xs text-blue-600">Override amount: ${payment.overrideAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}</p>
-                        )}
 
                         {payment.payment_method && (
                           <div className="bg-white p-2 rounded border border-slate-200 text-xs space-y-1">
@@ -2265,8 +2262,8 @@ export default function Employees() {
                               {payment.payment_method === "credit_card" && "Credit Card"}
                               {payment.payment_method === "cash" && "Cash"}
                             </p>
-                            {payment.checkNumber && (
-                              <p className="text-slate-600"><span className="font-semibold">Check #:</span> {payment.checkNumber}</p>
+                            {payment.check_number && (
+                              <p className="text-slate-600"><span className="font-semibold">Check #:</span> {payment.check_number}</p>
                             )}
                             {payment.bank_name && (
                               <p className="text-slate-600"><span className="font-semibold">Bank:</span> {payment.bank_name}</p>
@@ -2277,14 +2274,8 @@ export default function Employees() {
                             {payment.account_number && (
                               <p className="text-slate-600"><span className="font-semibold">Account:</span> {'•'.repeat(Math.max(0, (payment.account_number?.length || 0) - 4))} {payment.account_number?.slice(-4)}</p>
                             )}
-                            {payment.creditCardLast4 && (
-                              <p className="text-slate-600"><span className="font-semibold">Card:</span> ****{payment.creditCardLast4}</p>
-                            )}
-                            {payment.transactionReference && (
-                              <p className="text-slate-600"><span className="font-semibold">Reference:</span> {payment.transactionReference}</p>
-                            )}
-                            {payment.receiptAttachment && (
-                              <p className="text-blue-600">📎 {payment.receiptAttachment}</p>
+                            {payment.account_last_four && (
+                              <p className="text-slate-600"><span className="font-semibold">Card:</span> ****{payment.account_last_four}</p>
                             )}
                           </div>
                         )}
@@ -2357,7 +2348,7 @@ export default function Employees() {
                     {getEmployeeAbsences(absenceEmployeeId).map((absence) => {
                       const absenceWeekCount = getWeekCount();
                       const dailyRate = Math.round((employees.find(e => e.id === absenceEmployeeId)?.weekly_rate || 0) / 5);
-                      const absenceDays = Math.ceil((new Date(absence.toDate).getTime() - new Date(absence.fromDate).getTime()) / (1000 * 60 * 60 * 24)) + 1;
+                      const absenceDays = Math.ceil((new Date(absence.to_date).getTime() - new Date(absence.from_date).getTime()) / (1000 * 60 * 60 * 24)) + 1;
                       const absenceWeeks = Math.ceil(absenceDays / 7);
                       const amountForAbsence = dailyRate * absence.days_worked_per_week * absenceWeeks;
 
@@ -2366,7 +2357,7 @@ export default function Employees() {
                           <div className="flex items-start justify-between">
                             <div className="flex-1">
                               <p className="text-sm font-semibold text-slate-900">
-                                {formatDateString(absence.fromDate)} to {formatDateString(absence.toDate)}
+                                {formatDateString(absence.from_date)} to {formatDateString(absence.to_date)}
                               </p>
                               <p className="text-xs text-slate-600 mt-1">{absence.days_worked_per_week}/5 days working per week</p>
                               {absence.reason && (
@@ -2791,8 +2782,8 @@ export default function Employees() {
                     <Input
                       id="checkNumber"
                       placeholder="e.g., 1001"
-                      value={paymentFormData.checkNumber}
-                      onChange={(e) => handlePaymentFormChange("checkNumber", e.target.value)}
+                      value={paymentFormData.check_number}
+                      onChange={(e) => handlePaymentFormChange("check_number", e.target.value)}
                       className="border-slate-300"
                     />
                   </div>
@@ -2852,8 +2843,8 @@ export default function Employees() {
                     <Input
                       id="creditCardLast4"
                       placeholder="e.g., 4242"
-                      value={paymentFormData.creditCardLast4}
-                      onChange={(e) => handlePaymentFormChange("creditCardLast4", e.target.value)}
+                      value={paymentFormData.credit_card_last_four}
+                      onChange={(e) => handlePaymentFormChange("credit_card_last_four", e.target.value)}
                       className="border-slate-300"
                       maxLength="4"
                     />
@@ -2867,8 +2858,8 @@ export default function Employees() {
                   <Input
                     id="transactionRef"
                     placeholder="e.g., TXN-001, Confirmation Code"
-                    value={paymentFormData.transactionReference}
-                    onChange={(e) => handlePaymentFormChange("transactionReference", e.target.value)}
+                    value={paymentFormData.transaction_reference}
+                    onChange={(e) => handlePaymentFormChange("transaction_reference", e.target.value)}
                     className="border-slate-300"
                   />
                 </div>

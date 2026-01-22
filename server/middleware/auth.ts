@@ -18,6 +18,13 @@ export const getSupabase = () => {
 
 export const authMiddleware = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    // Skip authentication for public endpoints
+    const publicEndpoints = ['/upsert-public'];
+    if (publicEndpoints.some(endpoint => req.path.includes(endpoint))) {
+      console.log(`[AuthMiddleware] Skipping auth for public endpoint: ${req.path}`);
+      return next();
+    }
+
     const authHeader = req.headers.authorization;
     if (!authHeader) {
       return res.status(401).json({ error: 'No authorization header provided' });

@@ -98,6 +98,48 @@ async function apiFetch<T>(
   }
 }
 
+// Public API fetch for unauthenticated endpoints (e.g., employee onboarding)
+export async function publicApiFetch<T>(
+  endpoint: string,
+  options: RequestInit = {},
+  timeoutMs: number = 10000,
+): Promise<T> {
+  const url = `${API_BASE}${endpoint}`;
+
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        ...options.headers,
+      },
+    });
+
+    clearTimeout(id);
+
+    if (!response.ok) {
+      const errorContent = await response.json().catch(() => ({
+        error: `HTTP ${response.status}: ${response.statusText}`,
+      }));
+      throw new Error(
+        errorContent.error || `API Request failed: ${response.statusText}`,
+      );
+    }
+
+    return response.json();
+  } catch (err: any) {
+    clearTimeout(id);
+    if (err.name === "AbortError") {
+      throw new Error(`API Request timed out after ${timeoutMs}ms`);
+    }
+    throw err;
+  }
+}
+
 // ============================================
 // EMPLOYEES SERVICE
 // ============================================
@@ -118,7 +160,7 @@ export const employeesService = {
   },
 
   async upsertPublic(employee: Partial<Employee>) {
-    return apiFetch<{ message: string }>("/employees/upsert-public", {
+    return publicApiFetch<{ message: string }>("/employees/upsert-public", {
       method: "POST",
       body: JSON.stringify(employee),
     });

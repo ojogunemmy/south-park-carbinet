@@ -4,9 +4,19 @@ import { CheckCircle, Clock, AlertCircle, Printer, Trash2, Paperclip, Download, 
 import jsPDF from "jspdf";
 import { useState, useEffect } from "react";
 import { useYear } from "@/contexts/YearContext";
-import { getYearData, saveYearData, shouldUseExampleData, getTodayDate, formatDateString, formatDateToString } from "@/utils/yearStorage";
+import { getTodayDate, formatDateString, formatDateToString } from "@/utils/yearStorage";
 import { useAutoSave } from "@/hooks/useAutoSave";
 import { useToast } from "@/hooks/use-toast";
+import {
+  employeesService,
+  paymentsService,
+  absencesService,
+  settingsService,
+  type Employee,
+  type Payment,
+  type EmployeeAbsence,
+  type Settings,
+} from "@/lib/supabase-service";
 import {
   Dialog,
   DialogContent,
@@ -25,15 +35,6 @@ import {
 } from "@/components/ui/select";
 import { Toaster } from "sonner";
 
-interface EmployeeAbsence {
-  id: string;
-  employeeId: string;
-  fromDate: string;
-  toDate: string;
-  daysWorkedPerWeek: number;
-  reason?: string;
-}
-
 interface CheckAttachment {
   id: string;
   filename: string;
@@ -43,344 +44,27 @@ interface CheckAttachment {
   data: string; // base64 encoded data
 }
 
-interface PaymentObligation {
-  id: string;
-  employeeId: string;
-  employeeName: string;
-  employeePosition: string;
-  amount: number;
-  weekStartDate: string;
-  weekEndDate: string;
-  dueDate: string;
-  status: "pending" | "paid" | "canceled";
-  paidDate?: string;
-  paymentMethod?: string;
-  bankName?: string;
-  routingNumber?: string;
-  accountNumber?: string;
-  accountType?: string;
-  daysWorked?: number;
-  isAdjustedForAbsence?: boolean;
-  fullWeeklySalary?: number;
-  deductionAmount?: number;
-  downPayment?: number;
-  paidCheckNumber?: string;
-  paidAccountLast4?: string;
-  paidBankName?: string;
+// PaymentObligation needs to extend Payment with joined employee details for backwards compatibility in the UI
+// while we transition to full snake_case.
+type PaymentObligation = Payment & {
+  employee_name: string;
+  employee_position?: string;
+  is_adjusted_for_absence: boolean;
+  full_weekly_salary: number;
   attachments?: CheckAttachment[];
-  isSeverance?: boolean;
-  severanceReason?: string;
-  severanceDate?: string;
-}
+  is_severance?: boolean;
+  severance_reason?: string;
+  severance_date?: string;
+};
 
-interface Employee {
-  id: string;
-  name: string;
-  position: string;
-  weeklyRate: number;
-  startDate: string;
-  paymentMethod?: string;
-  bankName?: string;
-  routingNumber?: string;
-  accountNumber?: string;
-  accountType?: string;
-  paymentDay?: string;
-  paymentStatus?: "active" | "paused" | "leaving" | "laid_off";
-  defaultDaysWorkedPerWeek?: number;
-}
-
-const exampleEmployees: Employee[] = [
-  {
-    id: "EMP-001",
-    name: "Julio Funez",
-    position: "Assembler",
-    weeklyRate: 1200,
-    startDate: "2025-01-12",
-    paymentStartDate: "2026-01-04",
-    ssn: "85909977255",
-    address: "197 lamplighter Winnsboro SC",
-    telephone: "(984) 245-6558",
-    email: "juliofunez@gmail.com",
-    paymentMethod: "check",
-    directDeposit: false,
-    paymentDay: "wednesday",
-    paymentStatus: "active",
-    defaultDaysWorkedPerWeek: 5,
-  },
-  {
-    id: "EMP-002",
-    name: "Jayro Calderon",
-    position: "Assistant",
-    weeklyRate: 900,
-    startDate: "2025-11-20",
-    paymentStartDate: "2026-01-04",
-    ssn: "",
-    address: "197 lamplighter Winnsboro SC",
-    telephone: "(714) 760-1310",
-    email: "lopeznahun85@gmail.com",
-    paymentMethod: "check",
-    directDeposit: false,
-    paymentDay: "wednesday",
-    paymentStatus: "active",
-    defaultDaysWorkedPerWeek: 5,
-  },
-  {
-    id: "EMP-003",
-    name: "Darwin Hernandez",
-    position: "Assembler",
-    weeklyRate: 1500,
-    startDate: "2022-04-18",
-    paymentStartDate: "2026-01-04",
-    ssn: "",
-    address: "12831 wedgefield dr",
-    telephone: "(702) 984-9684",
-    email: "darwin.hernandez@example.com",
-    paymentMethod: "check",
-    directDeposit: false,
-    paymentDay: "wednesday",
-    paymentStatus: "active",
-  },
-  {
-    id: "EMP-004",
-    name: "Wilson Hernandez",
-    position: "Assembler",
-    weeklyRate: 1300,
-    startDate: "2024-07-20",
-    paymentStartDate: "2026-01-04",
-    ssn: "456-78-9012",
-    address: "2427 sunset ave",
-    telephone: "(980) 376-2654",
-    email: "",
-    paymentMethod: "check",
-    directDeposit: false,
-    paymentDay: "wednesday",
-    paymentStatus: "active",
-  },
-  {
-    id: "EMP-005",
-    name: "Lucas Moura (2m Home Solutions)",
-    position: "Machine Operator",
-    weeklyRate: 1400,
-    startDate: "2024-02-19",
-    paymentStartDate: "2026-01-04",
-    ssn: "",
-    address: "10321 Osprey dr, Pineville dr",
-    telephone: "(980) 213-9706",
-    email: "2mhomesolutionsnc@gmail.com",
-    paymentMethod: "check",
-    directDeposit: false,
-    paymentDay: "wednesday",
-    paymentStatus: "active",
-  },
-  {
-    id: "EMP-006",
-    name: "Gustavo Sousa",
-    position: "Painter",
-    weeklyRate: 1500,
-    startDate: "2024-02-19",
-    paymentStartDate: "2026-01-04",
-    ssn: "",
-    address: "11838 Nantuckety Ln NC 28270",
-    telephone: "(980) 378-7312",
-    email: "GS4707770@gmail.com",
-    paymentMethod: "check",
-    directDeposit: false,
-    paymentDay: "wednesday",
-    paymentStatus: "active",
-    defaultDaysWorkedPerWeek: 5,
-  },
-  {
-    id: "EMP-007",
-    name: "Noel Zapata",
-    position: "Assembler",
-    weeklyRate: 1200,
-    startDate: "2024-12-13",
-    paymentStartDate: "2026-01-04",
-    ssn: "789-01-2345",
-    address: "112831 Webgefield Dr, 28208 Charlotte NC",
-    telephone: "(704) 298-2900",
-    email: "noel.zapata@example.com",
-    paymentMethod: "check",
-    directDeposit: false,
-    paymentDay: "wednesday",
-    paymentStatus: "active",
-  },
-  {
-    id: "EMP-008",
-    name: "Marco Afonso (MCI Pro Service LLC)",
-    position: "Installer",
-    weeklyRate: 1500,
-    startDate: "2026-01-01",
-    paymentStartDate: "2026-01-04",
-    ssn: "890-12-3456",
-    address: "357 Ash Way, Denver, CO 80209",
-    telephone: "(303) 555-8901",
-    email: "marco.afonso@example.com",
-    paymentMethod: "check",
-    directDeposit: false,
-    paymentDay: "wednesday",
-    paymentStatus: "active",
-    defaultDaysWorkedPerWeek: 5,
-  },
-  {
-    id: "EMP-009",
-    name: "Luis Araya",
-    position: "Installer",
-    weeklyRate: 1300,
-    startDate: "2026-01-02",
-    paymentStartDate: "2026-01-04",
-    ssn: "901-23-4567",
-    address: "246 Oak Ridge, Denver, CO 80210",
-    telephone: "(303) 555-9012",
-    email: "luis.araya@example.com",
-    paymentMethod: "check",
-    directDeposit: false,
-    paymentDay: "wednesday",
-    paymentStatus: "active",
-  },
-  {
-    id: "EMP-010",
-    name: "Carlos Ruiz",
-    position: "Installer",
-    weeklyRate: 1200,
-    startDate: "2026-01-03",
-    paymentStartDate: "2026-01-04",
-    ssn: "012-34-5678",
-    address: "135 Willow St, Denver, CO 80211",
-    telephone: "(303) 555-0234",
-    email: "carlos@example.com",
-    paymentMethod: "check",
-    directDeposit: false,
-    paymentDay: "wednesday",
-    paymentStatus: "active",
-    defaultDaysWorkedPerWeek: 5,
-  },
-  {
-    id: "EMP-011",
-    name: "Jhonata Nunes",
-    position: "Assistant",
-    weeklyRate: 900,
-    startDate: "2026-01-04",
-    paymentStartDate: "2026-01-04",
-    ssn: "123-34-5678",
-    address: "468 Spruce Rd, Denver, CO 80212",
-    telephone: "(303) 555-1345",
-    email: "yonthan.nunez@example.com",
-    paymentMethod: "check",
-    directDeposit: false,
-    paymentDay: "wednesday",
-    paymentStatus: "active",
-    defaultDaysWorkedPerWeek: 5,
-  },
-  {
-    id: "EMP-012",
-    name: "Luis Molina",
-    position: "Operation Manager",
-    weeklyRate: 1500,
-    startDate: "2026-01-05",
-    paymentStartDate: "2026-01-04",
-    ssn: "234-45-6789",
-    address: "579 Hickory Ct, Denver, CO 80213",
-    telephone: "(303) 555-2456",
-    email: "luis.molina@example.com",
-    paymentMethod: "check",
-    directDeposit: false,
-    paymentDay: "wednesday",
-    paymentStatus: "active",
-  },
-  {
-    id: "EMP-013",
-    name: "Emmanuel Alejandro Camarena Burdier",
-    position: "Digital Strategist",
-    weeklyRate: 1000,
-    startDate: "2026-01-06",
-    paymentStartDate: "2026-01-04",
-    ssn: "026-55-3649",
-    address: "690 Chestnut Dr, Denver, CO 80214",
-    telephone: "(303) 555-3567",
-    email: "emmanuel.camarena@example.com",
-    paymentMethod: "direct_deposit",
-    directDeposit: true,
-    paymentDay: "wednesday",
-    paymentStatus: "active",
-    defaultDaysWorkedPerWeek: 5,
-  },
-  {
-    id: "EMP-014",
-    name: "Tuan Nguyen",
-    position: "Manager",
-    weeklyRate: 1400,
-    startDate: "2026-01-07",
-    paymentStartDate: "2026-01-04",
-    ssn: "456-67-8901",
-    address: "801 Dogwood Ln, Denver, CO 80215",
-    telephone: "(303) 555-4678",
-    email: "tuan.nguyen@example.com",
-    paymentMethod: "check",
-    directDeposit: false,
-    paymentDay: "wednesday",
-    paymentStatus: "active",
-  },
-  {
-    id: "EMP-015",
-    name: "Richard Fix",
-    position: "Driver",
-    weeklyRate: 1100,
-    startDate: "2026-01-01",
-    paymentStartDate: "2026-01-04",
-    ssn: "567-78-9012",
-    address: "912 Elder Way, Denver, CO 80216",
-    telephone: "(303) 555-5789",
-    email: "richard.fix@example.com",
-    paymentMethod: "check",
-    directDeposit: false,
-    paymentDay: "wednesday",
-    paymentStatus: "active",
-  },
-  {
-    id: "EMP-016",
-    name: "Julio Paraguassu",
-    position: "Painter",
-    weeklyRate: 1500,
-    startDate: "2026-01-08",
-    paymentStartDate: "2026-01-04",
-    ssn: "",
-    address: "",
-    telephone: "",
-    email: "",
-    paymentMethod: "check",
-    directDeposit: false,
-    paymentDay: "wednesday",
-    paymentStatus: "active",
-  },
-];
+const exampleEmployees: Employee[] = [];
 
 export default function Payments() {
   const { toast } = useToast();
   const { selectedYear } = useYear();
 
   // Load employees from localStorage or use example employees
-  const getEmployees = () => {
-    const saved = getYearData<Employee[]>("employees", selectedYear, null);
-    if (saved && Array.isArray(saved) && saved.length > 0) {
-      try {
-        // Deduplicate by ID to prevent duplicate key warnings
-        const seenIds = new Set<string>();
-        return saved.filter((emp: Employee) => {
-          if (emp && emp.id && !seenIds.has(emp.id)) {
-            seenIds.add(emp.id);
-            return true;
-          }
-          return false;
-        });
-      } catch (error) {
-        console.error("Error loading employees:", error);
-        return exampleEmployees;
-      }
-    }
-    // Use example employees as fallback
-    return exampleEmployees;
-  };
+  // Data loading logic will be handled by loadFreshData
 
   // Helper function to convert number to words for checks
   const convertNumberToWords = (num: number): string => {
@@ -425,13 +109,12 @@ export default function Payments() {
 
   // Get the next check number based on starting number and already-used checks
   const getNextCheckNumber = (): number => {
-    const settings = getCompanySettings();
-    const startingNumber = settings?.checkStartNumber || 1001;
+    const startingNumber = settings?.check_start_number || 1001;
 
     // Find all check numbers that have been used
     const usedCheckNumbers = payments
-      .filter(p => p.paidCheckNumber)
-      .map(p => parseInt(p.paidCheckNumber || '0', 10))
+      .filter(p => p.check_number)
+      .map(p => parseInt(p.check_number || '0', 10))
       .filter(n => !isNaN(n) && n > 0);
 
     if (usedCheckNumbers.length === 0) {
@@ -460,7 +143,6 @@ export default function Payments() {
     }
 
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-    const settings = getCompanySettings();
     let pageNumber = 1;
 
     checksToGenerate.forEach((payment, index) => {
@@ -474,20 +156,18 @@ export default function Payments() {
       // Company header
       doc.setFontSize(18);
       doc.setFont(undefined, 'bold');
-      doc.text(settings?.companyName || 'Your Company', 15, y);
+      doc.text(settings?.company_name || 'Your Company', 15, y);
       y += 7;
 
       doc.setFontSize(9);
       doc.setFont(undefined, 'normal');
-      doc.text(settings?.companyAddress || '', 15, y);
+      doc.text(settings?.company_address || '', 15, y);
       y += 5;
-      doc.text(`${settings?.companyCity}, ${settings?.companyState} ${settings?.companyZip}`, 15, y);
-      y += 5;
-      doc.text(settings?.companyPhone || '', 15, y);
+      doc.text(settings?.company_phone || '', 15, y);
       y += 10;
 
       // Check number (top right)
-      const checkNum = parseInt(payment.paidCheckNumber || '0', 10);
+      const checkNum = parseInt(payment.check_number || '0', 10);
       doc.setFontSize(10);
       doc.setFont(undefined, 'bold');
       doc.text(checkNum.toString().padStart(4, '0'), 180, 20);
@@ -510,7 +190,7 @@ export default function Payments() {
       y += 6;
       doc.setFont(undefined, 'normal');
       doc.setFontSize(14);
-      doc.text(payment.employeeName, 15, y);
+      doc.text(payment.employee_name, 15, y);
       y += 8;
 
       // Amount in words
@@ -542,7 +222,7 @@ export default function Payments() {
       y += 5;
       doc.setFont(undefined, 'normal');
       doc.setFontSize(10);
-      const memo = payment.isSeverance ? 'Severance Payment' : `Week of ${new Date(payment.weekStartDate).toLocaleDateString()}`;
+      const memo = payment.is_severance ? 'Severance Payment' : `Week of ${new Date(payment.week_start_date).toLocaleDateString()}`;
       doc.text(memo, 15, y);
       y += 12;
 
@@ -557,7 +237,7 @@ export default function Payments() {
       y += 20;
       doc.setFontSize(14);
       doc.setFont(undefined, 'bold');
-      const micrLine = `|${settings?.routingNumber?.padEnd(9, '0') || '000000000'}|${payment.employeeId.padEnd(12, ' ')}|${checkNum.toString().padStart(8, '0')}|`;
+      const micrLine = `|${settings?.routing_number?.padEnd(9, '0') || '000000000'}|${payment.employee_id.padEnd(12, ' ')}|${checkNum.toString().padStart(8, '0')}|`;
       doc.text(micrLine, 15, y);
     });
 
@@ -619,7 +299,7 @@ export default function Payments() {
     y += 6;
     doc.setFont(undefined, 'normal');
     doc.setFontSize(14);
-    doc.text(payment.employeeName, 15, y);
+    doc.text(payment.employee_name, 15, y);
     y += 8;
 
     // Amount in words
@@ -651,7 +331,7 @@ export default function Payments() {
     y += 5;
     doc.setFont(undefined, 'normal');
     doc.setFontSize(10);
-    const memo = payment.isSeverance ? 'Severance Payment' : `Week of ${new Date(payment.weekStartDate).toLocaleDateString()}`;
+    const memo = payment.is_severance ? 'Severance Payment' : `Week of ${new Date(payment.week_start_date).toLocaleDateString()}`;
     doc.text(memo, 15, y);
     y += 12;
 
@@ -666,37 +346,27 @@ export default function Payments() {
     y += 20;
     doc.setFontSize(14);
     doc.setFont(undefined, 'bold');
-    const micrLine = `|${settings?.routingNumber?.padEnd(9, '0') || '000000000'}|${payment.employeeId.padEnd(12, ' ')}|${checkNum.toString().padStart(8, '0')}|`;
+    const micrLine = `|${settings?.routing_number?.padEnd(9, '0') || '000000000'}|${payment.employee_id.padEnd(12, ' ')}|${checkNum.toString().padStart(8, '0')}|`;
     doc.text(micrLine, 15, y);
 
     // Save PDF
-    const fileName = `check_${payment.employeeName.replace(/\s+/g, '_')}_${checkNum}.pdf`;
+    const fileName = `check_${payment.employee_name.replace(/\s+/g, '_')}_${checkNum}.pdf`;
     doc.save(fileName);
   };
 
-  const [employees, setEmployees] = useState<Employee[]>(getEmployees());
-  const [absences, setAbsences] = useState<EmployeeAbsence[]>(() => {
-    return getYearData<EmployeeAbsence[]>("employeeAbsences", selectedYear, []);
-  });
-
-  // Initialize payments from localStorage or generate if empty
-  const initializePayments = (): PaymentObligation[] => {
-    console.log("🔄 initializePayments called for year:", selectedYear);
-    const saved = getYearData<PaymentObligation[]>("payments", selectedYear, []);
-    console.log("📂 Loaded from localStorage:", saved.length, "payments");
-    // Return saved payments or empty array to trigger generation in useEffect
-    return saved && saved.length > 0 ? saved : [];
-  };
-
-  const [payments, setPayments] = useState<PaymentObligation[]>(initializePayments());
+  // Loading initial state
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [absences, setAbsences] = useState<EmployeeAbsence[]>([]);
+  const [payments, setPayments] = useState<PaymentObligation[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [selectedPaymentId, setSelectedPaymentId] = useState<string | null>(null);
-  const [paidDate, setPaidDate] = useState("");
+  const [paid_date, setPaidDate] = useState("");
   const [paidDeduction, setPaidDeduction] = useState<number>(0);
-  const [paidCheckNumber, setPaidCheckNumber] = useState("");
-  const [bankName, setBankName] = useState("");
-  const [routingNumber, setRoutingNumber] = useState("");
-  const [accountNumber, setAccountNumber] = useState("");
+  const [check_number, setPaidCheckNumber] = useState("");
+  const [bank_name, setBankName] = useState("");
+  const [routing_number, setRoutingNumber] = useState("");
+  const [account_number, setAccountNumber] = useState("");
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string>("");
   const [isEditAmountOpen, setIsEditAmountOpen] = useState(false);
   const [editingPaymentId, setEditingPaymentId] = useState<string | null>(null);
@@ -735,7 +405,7 @@ export default function Payments() {
 
   // Add Week Payments modal state
   const [isAddWeekModalOpen, setIsAddWeekModalOpen] = useState(false);
-  const [weekStartDate, setWeekStartDate] = useState<string>("");
+  const [week_start_date, setWeekStartDate] = useState<string>("");
   const [selectedEmployeesForWeek, setSelectedEmployeesForWeek] = useState<Set<string>>(new Set());
   const [weekDaysWorked, setWeekDaysWorked] = useState<number>(5);
 
@@ -744,487 +414,81 @@ export default function Payments() {
   const [editingDownPaymentPaymentId, setEditingDownPaymentPaymentId] = useState<string | null>(null);
   const [editingDownPaymentAmount, setEditingDownPaymentAmount] = useState<number>(0);
 
+  // Settings state
+  const [settings, setSettings] = useState<Settings | null>(null);
+
   // Reload employees, absences, and payments when year changes
-  useEffect(() => {
-    console.log("📥 Year changed to:", selectedYear);
-    setEmployees(getEmployees());
-    setAbsences(getYearData<EmployeeAbsence[]>("employeeAbsences", selectedYear, []));
-    // Always reload payments from localStorage to ensure fresh data
-    const savedPayments = getYearData<PaymentObligation[]>("payments", selectedYear, []);
-    console.log("📥 Loading saved payments on year change:", savedPayments.length);
-    setPayments(savedPayments.length > 0 ? savedPayments : []);
-  }, [selectedYear]);
-
-  // Listen for changes to localStorage (when Employees page updates in same tab)
-  useEffect(() => {
-    const handleStorageChange = () => {
-      const updatedEmployees = getEmployees();
-      setEmployees(updatedEmployees);
-      const updatedPayments = getYearData<PaymentObligation[]>("payments", selectedYear, []);
-      setPayments(updatedPayments);
-    };
-
-    // Storage event for cross-tab updates
-    window.addEventListener("storage", handleStorageChange);
-
-    // Custom event for same-tab updates (when severance payment is created from Employees page)
-    const handleCustomUpdate = () => {
-      const updatedEmployees = getEmployees();
-      setEmployees(updatedEmployees);
-      const updatedPayments = getYearData<PaymentObligation[]>("payments", selectedYear, []);
-      setPayments(updatedPayments);
-    };
-    window.addEventListener("employeesUpdated", handleCustomUpdate);
-
-    return () => {
-      window.removeEventListener("storage", handleStorageChange);
-      window.removeEventListener("employeesUpdated", handleCustomUpdate);
-    };
-  }, [selectedYear]);
-
-  // Reload employees when page becomes visible (tab switch)
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        const updatedEmployees = getEmployees();
-        setEmployees(updatedEmployees);
-        const updatedPayments = getYearData<PaymentObligation[]>("payments", selectedYear, []);
-        setPayments(updatedPayments);
-      }
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, [selectedYear]);
-
-  // Load fresh data from localStorage when component mounts and when page becomes visible
-  useEffect(() => {
-    console.log("📥 Setting up payment data loading effect for year:", selectedYear);
-
-    const loadFreshData = () => {
-      console.log("🔄 Loading fresh payment data from localStorage for year:", selectedYear);
-      try {
-        // FORCE reload directly from localStorage
-        const key = `payments_${selectedYear}`;
-        const rawData = localStorage.getItem(key);
-
-        if (rawData) {
-          const updatedPayments = JSON.parse(rawData);
-          console.log("✅ Loaded", updatedPayments.length, "payments from localStorage");
-          console.log("📋 Key used:", key);
-
-          // Show any paid payments
-          const paidPayments = updatedPayments.filter((p: PaymentObligation) => p.status === "paid");
-          if (paidPayments.length > 0) {
-            console.log("💰 Found", paidPayments.length, "paid payments:");
-            paidPayments.forEach(p => {
-              console.log(`   - ${p.employeeName}: Check #${p.paidCheckNumber || 'N/A'}`);
-            });
-          }
-
-          setPayments(updatedPayments);
-        } else {
-          console.warn("⚠️ No payment data found in localStorage for year", selectedYear);
-          console.log("📋 Key checked:", key);
-          setPayments([]);
-        }
-      } catch (error) {
-        console.error("❌ Error loading payments:", error);
-        setPayments([]);
-      }
-    };
-
-    // Load on mount - CRITICAL: must happen first before any effects modify state
-    console.log("📍 Component mounted for year", selectedYear);
-    loadFreshData();
-
-    // Also reload when window receives focus (user switches back from another app/tab)
-    const handleWindowFocus = () => {
-      console.log("🔄 Window focus event - reloading payments from storage");
-      loadFreshData();
-    };
-
-    // Also reload when page becomes visible (navigating back to this page via browser back button)
-    const handlePageShow = () => {
-      console.log("🔄 Page show event (browser navigation back) - reloading payments from storage");
-      loadFreshData();
-    };
-
-    // Listen for visibility changes (tab/window switch)
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        console.log("👁️ Document became visible - reloading payments from storage");
-        loadFreshData();
-      }
-    };
-
-    window.addEventListener("focus", handleWindowFocus);
-    window.addEventListener("pageshow", handlePageShow);
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-
-    return () => {
-      console.log("🧹 Cleaning up payment data loading listeners");
-      window.removeEventListener("focus", handleWindowFocus);
-      window.removeEventListener("pageshow", handlePageShow);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    };
-  }, [selectedYear]);
-
-  // Save payments to localStorage whenever they change
-  useEffect(() => {
-    if (payments.length > 0) {
-      console.log("🔄 Auto-saving payments to localStorage for year:", selectedYear);
-      console.log("📊 Payments to save:", payments.length, "items");
-
-      // Find any paid payments to log
-      const paidPayments = payments.filter(p => p.status === "paid");
-      if (paidPayments.length > 0) {
-        console.log("💰 Paid payments detected:", paidPayments.length);
-        paidPayments.forEach(p => {
-          console.log(`   - ${p.employeeName}: Check #${p.paidCheckNumber || 'N/A'}, Paid: ${p.paidDate}`);
-        });
-      }
-
-      try {
-        saveYearData("payments", selectedYear, payments);
-        console.log("✅ Payments saved successfully");
-
-        // Verify it was saved immediately
-        setTimeout(() => {
-          const saved = getYearData<PaymentObligation[]>("payments", selectedYear, []);
-          const savedPaid = saved.filter(p => p.status === "paid");
-          console.log("🔍 Verification - Total saved:", saved.length, "items, Paid:", savedPaid.length);
-
-          if (savedPaid.length !== paidPayments.length) {
-            console.warn("⚠️ WARNING: Paid payment count mismatch! Expected:", paidPayments.length, "Got:", savedPaid.length);
-          }
-        }, 100);
-      } catch (error) {
-        console.error("❌ CRITICAL ERROR saving payments:", error);
-      }
+  const loadFreshData = async () => {
+    setIsLoading(true);
+    try {
+      const [empData, payData, absData, settingsData] = await Promise.all([
+        employeesService.getAll(),
+        paymentsService.getAll(),
+        absencesService.getAll(),
+        settingsService.get(),
+      ]);
+      setEmployees(empData || []);
+      setPayments(payData || []);
+      setAbsences(absData || []);
+      setSettings(settingsData || null);
+    } catch (error) {
+      console.error("Error loading data:", error);
+      toast({
+        title: "Error Loading Data",
+        description: "Failed to fetch information from Supabase.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
     }
-  }, [payments, selectedYear]);
+  };
 
-  // Filter payments to only show selected year on year change
+  // Reload data when year changes
+  useEffect(() => {
+    loadFreshData();
+  }, [selectedYear]);
+
+  // Listen for external updates
+  useEffect(() => {
+    const handleCustomUpdate = () => loadFreshData();
+    window.addEventListener("employeesUpdated", handleCustomUpdate);
+    window.addEventListener("focus", handleCustomUpdate);
+    document.addEventListener("visibilitychange", handleCustomUpdate);
+
+    return () => {
+      window.removeEventListener("employeesUpdated", handleCustomUpdate);
+      window.removeEventListener("focus", handleCustomUpdate);
+      document.removeEventListener("visibilitychange", handleCustomUpdate);
+    };
+  }, []);
+
+
+
+  // Filter payments logic
   useEffect(() => {
     setIsAllMarkedAsPaid(false);
   }, [selectedYear]);
 
-  // For 2026, auto-generate all payments ONLY if they're missing
-  // This effect ONLY runs on first mount (when employees list loads)
-  useEffect(() => {
-    // Safety check: only run for 2026
-    if (selectedYear !== 2026) return;
-    if (employees.length === 0) return;
-
-    // CRITICAL: Check localStorage DIRECTLY, not state
-    // State may not have loaded yet from the year change effect
-    const key = `payments_${selectedYear}`;
-    const rawData = localStorage.getItem(key);
-
-    console.log("🔍 Auto-generation check - Checking localStorage directly for key:", key);
-    console.log("🔍 localStorage has data:", rawData ? "YES" : "NO");
-
-    // If data already exists in localStorage, DON'T regenerate
-    if (rawData) {
-      console.log("✅ Saved payments exist in localStorage - skipping regeneration");
-      // Load it into state
-      try {
-        const savedPayments = JSON.parse(rawData);
-        console.log("✅ Loaded", savedPayments.length, "payments from localStorage");
-        setPayments(savedPayments);
-      } catch (error) {
-        console.error("❌ Error parsing saved payments:", error);
-      }
-      return;
-    }
-
-    // Also check state as a fallback (in case data is already in memory)
-    if (payments.length > 0) {
-      console.log("✅ Payments already in state - skipping regeneration");
-      return;
-    }
-
-    console.log("🔄 Auto-generating payments for 2026 (first time)...");
-
-    // Generate all payments for the entire year
-    const allPayments: PaymentObligation[] = [];
-
-    // Helper function to parse dates
-    const parseDate = (dateString: string): Date => {
-      const [year, month, day] = dateString.split('-').map(Number);
-      return new Date(year, month - 1, day);
-    };
-
-    const startDate = parseDate("2026-01-01");
-    const endDate = parseDate("2026-12-31");
-
-    let weekStart = new Date(startDate);
-    while (weekStart.getDay() !== 0) {
-      weekStart.setDate(weekStart.getDate() + 1);
-    }
-
-    while (weekStart <= endDate) {
-      const weekEnd = new Date(weekStart);
-      weekEnd.setDate(weekStart.getDate() + 7);
-
-      employees.forEach((emp) => {
-        const empPaymentStart = emp.paymentStartDate || emp.startDate || "1900-01-01";
-        const empPaymentStartDate = parseDate(empPaymentStart);
-
-        if (weekStart >= empPaymentStartDate) {
-          const weekStartStr = formatDateToString(weekStart);
-          const dailyRate = emp.weeklyRate / 5;
-          const dueDate = new Date(weekEnd.getTime() + 86400000);
-
-          allPayments.push({
-            id: `PAY-${emp.id}-${weekStartStr}`,
-            employeeId: emp.id,
-            employeeName: emp.name,
-            employeePosition: emp.position,
-            amount: dailyRate * 5,
-            weekStartDate: weekStartStr,
-            weekEndDate: formatDateToString(weekEnd),
-            dueDate: formatDateToString(dueDate),
-            status: "pending" as const,
-            paymentMethod: emp.paymentMethod,
-            bankName: emp.bankName,
-            routingNumber: emp.routingNumber,
-            accountNumber: emp.accountNumber,
-            accountType: emp.accountType,
-            daysWorked: 5,
-            isAdjustedForAbsence: false,
-            fullWeeklySalary: emp.weeklyRate,
-            deductionAmount: 0,
-          });
-        }
-      });
-
-      weekStart.setDate(weekStart.getDate() + 7);
-    }
-
-    if (allPayments.length > 0) {
-      console.log("💾 Setting generated payments:", allPayments.length);
-      setPayments(allPayments);
-    }
-  }, [selectedYear]);
-
-  // Generate payments for entire selected year (DISABLED - using auto-generation above instead)
-  useEffect(() => {
-    // This useEffect is disabled because the auto-generation useEffect above handles it
-    return;
-    if (employees.length > 0) {
-      const generatedPayments: PaymentObligation[] = [];
-      const seenPaymentIds = new Set<string>();
-
-      // First, collect all existing payment IDs to avoid duplicates
-      payments.forEach((p) => {
-        seenPaymentIds.add(p.id);
-      });
-
-      // Generate payments for entire selected year
-      const startDate = parseLocalDate(`${selectedYear}-01-01`);
-      const endDate = parseLocalDate(`${selectedYear}-12-31`);
-
-      // Start from the first Sunday (day 0)
-      const weekStart = new Date(startDate);
-      while (weekStart.getDay() !== 0) { // 0 = Sunday
-        weekStart.setDate(weekStart.getDate() + 1);
-      }
-
-      // Generate weekly payments for the year
-      while (weekStart <= endDate) {
-        const weekEnd = new Date(weekStart);
-        weekEnd.setDate(weekStart.getDate() + 7); // Next Sunday (7 days)
-
-        employees.forEach((emp) => {
-          const empStartDate = parseLocalDate(emp.startDate || "1900-01-01");
-          let canPayThisWeek = weekStart >= empStartDate;
-
-          // Also check payment start date if it exists
-          if (canPayThisWeek && emp.paymentStartDate) {
-            const empPaymentStartDate = parseLocalDate(emp.paymentStartDate);
-            canPayThisWeek = weekStart >= empPaymentStartDate;
-          }
-
-          // Generate payments if employee is eligible for this week
-          if (canPayThisWeek) {
-            const weekStartStr = formatDateToString(weekStart);
-            const paymentId = `PAY-${emp.id}-${weekStartStr}`;
-
-            // Only generate if we haven't already
-            if (!seenPaymentIds.has(paymentId)) {
-              seenPaymentIds.add(paymentId);
-
-              let daysWorked = 5;
-              let isAdjustedForAbsence = false;
-
-              for (const absence of absences) {
-                if (absence.employeeId === emp.id) {
-                  const absenceStart = parseLocalDate(absence.fromDate);
-                  const absenceEnd = parseLocalDate(absence.toDate);
-
-                  if (weekStart >= absenceStart && weekStart <= absenceEnd) {
-                    daysWorked = absence.daysWorkedPerWeek;
-                    isAdjustedForAbsence = true;
-                    break;
-                  }
-                }
-              }
-
-              const dailyRate = emp.weeklyRate / 5;
-              const adjustedAmount = dailyRate * daysWorked;
-              const deductionAmount = isAdjustedForAbsence ? (dailyRate * (5 - daysWorked)) : 0;
-              const dueDate = new Date(weekEnd.getTime() + 86400000);
-
-              generatedPayments.push({
-                id: paymentId,
-                employeeId: emp.id,
-                employeeName: emp.name,
-                employeePosition: emp.position,
-                amount: adjustedAmount,
-                weekStartDate: weekStartStr,
-                weekEndDate: formatDateToString(weekEnd),
-                dueDate: formatDateToString(dueDate),
-                status: "pending",
-                paymentMethod: emp.paymentMethod,
-                bankName: emp.bankName,
-                routingNumber: emp.routingNumber,
-                accountNumber: emp.accountNumber,
-                accountType: emp.accountType,
-                daysWorked: daysWorked,
-                isAdjustedForAbsence: isAdjustedForAbsence,
-                fullWeeklySalary: emp.weeklyRate,
-                deductionAmount: deductionAmount,
-              });
-            }
-          }
-        });
-
-        weekStart.setDate(weekStart.getDate() + 7);
-      }
-
-      // Only update if there are new payments to add
-      if (generatedPayments.length > 0) {
-        setPayments([...payments, ...generatedPayments]);
-      }
-    }
-  }, [employees.length, selectedYear, absences]); // Regenerate when employees change
-
   // Parse date string in local timezone (not UTC)
   const parseLocalDate = (dateString: string): Date => {
+    if (!dateString) return new Date();
     const [year, month, day] = dateString.split('-').map(Number);
     return new Date(year, month - 1, day);
   };
 
-  const generatePayments = () => {
-    const generatedPayments: PaymentObligation[] = [];
-    const seenPaymentIds = new Set<string>();
-
-    // Generate payments for entire selected year
-    const startDate = parseLocalDate(`${selectedYear}-01-01`);
-    const endDate = parseLocalDate(`${selectedYear}-12-31`);
-
-    // Start from the first Sunday
-    const weekStart = new Date(startDate);
-    while (weekStart.getDay() !== 0) { // 0 = Sunday
-      weekStart.setDate(weekStart.getDate() + 1);
-    }
-
-    // Generate all weekly payments
-    while (weekStart <= endDate) {
-      const weekEnd = new Date(weekStart);
-      weekEnd.setDate(weekStart.getDate() + 7); // Next Sunday (7 days)
-
-      employees.forEach((emp) => {
-        const empStartDate = parseLocalDate(emp.startDate);
-        let canPayThisWeek = weekStart >= empStartDate;
-
-        // Also check payment start date if it exists
-        if (canPayThisWeek && emp.paymentStartDate) {
-          const empPaymentStartDate = parseLocalDate(emp.paymentStartDate);
-          canPayThisWeek = weekStart >= empPaymentStartDate;
-        }
-
-        // Generate payments if employee is eligible for this week
-        if (canPayThisWeek) {
-          const weekStartStr = formatDateToString(weekStart);
-          const paymentId = `PAY-${emp.id}-${weekStartStr}`;
-
-          // Skip if we've already generated this payment (deduplication)
-          if (seenPaymentIds.has(paymentId)) {
-            return;
-          }
-          seenPaymentIds.add(paymentId);
-
-          const paymentStatus = "pending";
-
-          // Check if this week falls within any absence date range for this employee
-          let daysWorked = 5; // Default to full week
-          let isAdjustedForAbsence = false;
-
-          for (const absence of absences) {
-            if (absence.employeeId === emp.id) {
-              const absenceStart = parseLocalDate(absence.fromDate);
-              const absenceEnd = parseLocalDate(absence.toDate);
-
-              // Check if the week start date falls within the absence period
-              if (weekStart >= absenceStart && weekStart <= absenceEnd) {
-                daysWorked = absence.daysWorkedPerWeek;
-                isAdjustedForAbsence = true;
-                break;
-              }
-            }
-          }
-
-          const dailyRate = emp.weeklyRate / 5;
-          const adjustedAmount = dailyRate * daysWorked;
-          const deductionAmount = isAdjustedForAbsence ? (dailyRate * (5 - daysWorked)) : 0;
-          const dueDate = new Date(weekEnd.getTime() + 86400000); // Next day after week ends
-
-          generatedPayments.push({
-            id: paymentId,
-            employeeId: emp.id,
-            employeeName: emp.name,
-            employeePosition: emp.position,
-            amount: adjustedAmount,
-            weekStartDate: weekStartStr,
-            weekEndDate: formatDateToString(weekEnd),
-            dueDate: formatDateToString(dueDate),
-            status: paymentStatus,
-            paymentMethod: emp.paymentMethod,
-            bankName: emp.bankName,
-            routingNumber: emp.routingNumber,
-            accountNumber: emp.accountNumber,
-            accountType: emp.accountType,
-            daysWorked: daysWorked,
-            isAdjustedForAbsence: isAdjustedForAbsence,
-            fullWeeklySalary: emp.weeklyRate,
-            deductionAmount: deductionAmount,
-            paidCheckNumber: emp.checkNumber, // Include employee's check number
-          });
-        }
-      });
-
-      // Move to next week
-      weekStart.setDate(weekStart.getDate() + 7);
-    }
-
-    setPayments(generatedPayments);
-  };
 
   const handleMarkAsPaid = (paymentId: string) => {
     console.log("📌 handleMarkAsPaid clicked - Opening payment modal");
     console.log("🔑 Payment ID:", paymentId);
 
     const payment = payments.find(p => p.id === paymentId);
-    console.log("💰 Payment found:", payment?.employeeName, "-", payment?.amount);
+    console.log("💰 Payment found:", payment?.employee_name, "-", payment?.amount);
 
     setSelectedPaymentId(paymentId);
     setPaidDate(getTodayDate());
     setPaidDeduction(0);
     setPaidCheckNumber("");
-    setSelectedPaymentMethod(payment?.paymentMethod || "");
+    setSelectedPaymentMethod(payment?.payment_method || "");
     setBankName("");
     setRoutingNumber("");
     setAccountNumber("");
@@ -1233,9 +497,9 @@ export default function Payments() {
     console.log("🔓 Payment modal opened");
   };
 
-  const handleConfirmPayment = () => {
+  const handleConfirmPayment = async () => {
     console.log("💳 handleConfirmPayment called");
-    console.log("📅 paidDate:", paidDate);
+    console.log("📅 paid_date:", paid_date);
     console.log("💳 selectedPaymentMethod:", selectedPaymentMethod);
     console.log("🔑 selectedPaymentId:", selectedPaymentId);
 
@@ -1246,7 +510,7 @@ export default function Payments() {
       return;
     }
 
-    if (!paidDate) {
+    if (!paid_date) {
       console.error("❌ No paid date selected");
       alert("Please enter a payment date");
       return;
@@ -1267,86 +531,33 @@ export default function Payments() {
       return;
     }
 
-    console.log("✅ Payment found:", payment.employeeName);
-
-    const updatedPayments = payments.map((p) =>
-      p.id === selectedPaymentId
-        ? {
-            ...p,
-            status: "paid",
-            paidDate,
-            paymentMethod: selectedPaymentMethod,
-            deductionAmount: paidDeduction,
-            paidCheckNumber: selectedPaymentMethod === "check" ? paidCheckNumber : undefined,
-            paidAccountLast4: accountNumber ? accountNumber.slice(-4) : payment?.accountNumber?.slice(-4),
-            paidBankName: bankName || payment?.bankName,
-            bankName: bankName || payment?.bankName,
-            routingNumber: routingNumber || payment?.routingNumber,
-            accountNumber: accountNumber || payment?.accountNumber
-          }
-        : p
-    );
-
-    console.log("💾 handleConfirmPayment - Marking payment as paid");
-    console.log("🔑 Payment ID:", selectedPaymentId);
-    console.log("📅 Paid Date:", paidDate);
-    console.log("🏦 Method:", selectedPaymentMethod);
-    console.log("🔢 Check #:", paidCheckNumber);
-
-    // Log the updated payment object
-    const updatedPayment = updatedPayments.find(p => p.id === selectedPaymentId);
-    console.log("📦 Full Updated Payment Object:", updatedPayment);
-
-    setPayments(updatedPayments);
-
-    // CRITICAL: Save via multiple methods to ensure persistence
-    console.log("💾 SAVING PAYMENT DATA - Multiple methods...");
-
-    // Method 1: Save via saveYearData utility
     try {
-      saveYearData("payments", selectedYear, updatedPayments);
-      console.log("✅ Method 1: Data saved via saveYearData");
+      await paymentsService.update(selectedPaymentId, {
+        status: "paid",
+        paid_date,
+        payment_method: selectedPaymentMethod,
+        deduction_amount: paidDeduction,
+        check_number: selectedPaymentMethod === "check" ? check_number : undefined,
+        account_last_four: account_number ? account_number.slice(-4) : payment?.account_last_four,
+        bank_name: bank_name || payment?.bank_name,
+      });
+      await loadFreshData();
     } catch (error) {
-      console.error("❌ Method 1 FAILED:", error);
-    }
-
-    // Method 2: Direct localStorage save as backup
-    try {
-      const key = `payments_${selectedYear}`;
-      const jsonString = JSON.stringify(updatedPayments);
-      localStorage.setItem(key, jsonString);
-      console.log("✅ Method 2: Data saved DIRECTLY to localStorage");
-      console.log("🔑 Key:", key);
-      console.log("📦 Size:", jsonString.length, "bytes");
-
-      // Verify immediately
-      const verified = localStorage.getItem(key);
-      if (verified && verified.length > 0) {
-        const parsed = JSON.parse(verified);
-        const paidCount = parsed.filter((p: PaymentObligation) => p.status === "paid").length;
-        console.log("✔️ Verification SUCCESSFUL: localStorage contains", parsed.length, "payments (", paidCount, "paid)");
-
-        // Extra verification: check the specific payment we just updated
-        const updatedPaymentId = selectedPaymentId;
-        const savedPayment = parsed.find((p: PaymentObligation) => p.id === updatedPaymentId);
-        if (savedPayment) {
-          console.log("✅ Specific payment verified: Payment", updatedPaymentId, "is in localStorage as status=", savedPayment.status, "with check #", savedPayment.paidCheckNumber);
-        } else {
-          console.error("❌ Specific payment NOT found in localStorage!");
-        }
-      } else {
-        console.error("❌ Verification FAILED: localStorage is empty or not readable");
-      }
-    } catch (error) {
-      console.error("❌ Method 2 FAILED:", error);
+      console.error("Error updating payment:", error);
+      toast({
+        title: "Error",
+        description: "Failed to update payment in Supabase.",
+        variant: "destructive",
+      });
     }
 
     // Capture values before resetting for toast message
-    const checkNumber = paidCheckNumber;
+    const checkNumberVal = check_number;
     const method = selectedPaymentMethod;
 
     // Close modal
     setIsPaymentModalOpen(false);
+    setSelectedPaymentId(null);
     setPaidDate("");
     setPaidDeduction(0);
     setPaidCheckNumber("");
@@ -1354,26 +565,26 @@ export default function Payments() {
     setRoutingNumber("");
     setAccountNumber("");
     setSelectedPaymentMethod("");
-    setSelectedPaymentId(null);
 
-    // Show success notification
-    const methodLabel = method === "check" ? `Check #${checkNumber}` : method?.replace(/_/g, " ") || "payment";
     toast({
-      title: "✅ Payment Saved",
-      description: `Payment marked as paid via ${methodLabel}`,
+      title: "✓ Payment Confirmed",
+      description: `Payment marked as paid via ${method}${method === 'check' ? ` (Check #${checkNumberVal})` : ''}`,
     });
 
     console.log("✅ handleConfirmPayment COMPLETED SUCCESSFULLY");
   };
 
-  const handleMarkAsPending = (paymentId: string) => {
-    const updatedPayments = payments.map((p) =>
-      p.id === paymentId
-        ? { ...p, status: "pending", paidDate: undefined }
-        : p
-    );
-    setPayments(updatedPayments);
-    saveYearData("payments", selectedYear, updatedPayments);
+  const handleMarkAsPending = async (payment_id: string) => {
+    try {
+      await paymentsService.update(payment_id, { status: "pending", paid_date: null });
+      await loadFreshData();
+      toast({
+        title: "✓ Status Updated",
+        description: "Payment has been marked as pending.",
+      });
+    } catch (error) {
+      console.error("Error marking as pending:", error);
+    }
   };
 
   const handleEditAmount = (paymentId: string) => {
@@ -1385,20 +596,27 @@ export default function Payments() {
     }
   };
 
-  const handleConfirmAmountEdit = () => {
+  const handleConfirmAmountEdit = async () => {
     if (!editingPaymentId || editingAmount < 0) {
       alert("Please enter a valid amount");
       return;
     }
 
-    const updatedPayments = payments.map((p) =>
-      p.id === editingPaymentId
-        ? { ...p, amount: editingAmount }
-        : p
-    );
-
-    setPayments(updatedPayments);
-    saveYearData("payments", selectedYear, updatedPayments);
+    try {
+      await paymentsService.update(editingPaymentId, { amount: editingAmount });
+      await loadFreshData();
+      toast({
+        title: "✓ Amount Updated",
+        description: "Payment amount has been updated.",
+      });
+    } catch (error) {
+      console.error("Error updating payment amount:", error);
+      toast({
+        title: "Error",
+        description: "Failed to update payment amount.",
+        variant: "destructive",
+      });
+    }
 
     setIsEditAmountOpen(false);
     setEditingPaymentId(null);
@@ -1409,12 +627,12 @@ export default function Payments() {
     const payment = payments.find(p => p.id === paymentId);
     if (payment) {
       setEditingDaysPaymentId(paymentId);
-      setEditingDaysWorked(payment.daysWorked || 5);
+      setEditingDaysWorked(payment.days_worked || 5);
       setIsEditDaysOpen(true);
     }
   };
 
-  const handleConfirmDaysEdit = () => {
+  const handleConfirmDaysEdit = async () => {
     if (!editingDaysPaymentId || editingDaysWorked < 1 || editingDaysWorked > 7) {
       alert("Please enter a valid number of days (1-7)");
       return;
@@ -1424,29 +642,35 @@ export default function Payments() {
     if (!payment) return;
 
     // Calculate new amount based on days worked
-    let weeklyRate = payment.fullWeeklySalary || 0;
-    if (!weeklyRate && payment.amount && payment.daysWorked) {
-      weeklyRate = (payment.amount / payment.daysWorked) * 5;
+    let weekly_rate = payment.full_weekly_salary || 0;
+    if (!weekly_rate && payment.amount && payment.days_worked) {
+      weekly_rate = (payment.amount / payment.days_worked) * 5;
     }
-    if (!weeklyRate && payment.amount) {
-      weeklyRate = payment.amount / 5 * 5;
+    if (!weekly_rate && payment.amount) {
+      weekly_rate = payment.amount / 5 * 5;
     }
 
-    const dailyRate = weeklyRate > 0 ? weeklyRate / 5 : 0;
+    const dailyRate = weekly_rate > 0 ? weekly_rate / 5 : 0;
     const newAmount = dailyRate * editingDaysWorked;
 
-    const updatedPayments = payments.map((p) =>
-      p.id === editingDaysPaymentId
-        ? {
-            ...p,
-            daysWorked: editingDaysWorked,
-            amount: newAmount || payment.amount, // Fallback to original amount
-          }
-        : p
-    );
-
-    setPayments(updatedPayments);
-    saveYearData("payments", selectedYear, updatedPayments);
+    try {
+      await paymentsService.update(editingDaysPaymentId, {
+        days_worked: editingDaysWorked,
+        amount: newAmount || payment.amount,
+      });
+      await loadFreshData();
+      toast({
+        title: "✓ Days Worked Updated",
+        description: "Days worked and payment amount have been updated.",
+      });
+    } catch (error) {
+      console.error("Error updating days worked:", error);
+      toast({
+        title: "Error",
+        description: "Failed to update days worked.",
+        variant: "destructive",
+      });
+    }
 
     setIsEditDaysOpen(false);
     setEditingDaysPaymentId(null);
@@ -1459,7 +683,7 @@ export default function Payments() {
     console.log("📦 Found payment:", payment);
     if (payment) {
       setEditingDownPaymentPaymentId(paymentId);
-      setEditingDownPaymentAmount(payment.downPayment || 0);
+      setEditingDownPaymentAmount(payment.down_payment || 0);
       setIsEditDownPaymentOpen(true);
       console.log("✅ Down payment modal opened");
     } else {
@@ -1467,7 +691,7 @@ export default function Payments() {
     }
   };
 
-  const handleConfirmDownPaymentEdit = () => {
+  const handleConfirmDownPaymentEdit = async () => {
     console.log("💾 handleConfirmDownPaymentEdit - Updating down payment");
     console.log("🔑 Payment ID:", editingDownPaymentPaymentId);
     console.log("💰 Down Payment Amount:", editingDownPaymentAmount);
@@ -1493,27 +717,23 @@ export default function Payments() {
       return;
     }
 
-    console.log("✅ Found payment to update:", payment.employeeName);
-    const downPaymentAmount = editingDownPaymentAmount;
+    console.log("✅ Found payment to update:", payment.employee_name);
+    const down_payment_amount = editingDownPaymentAmount;
 
-    const updatedPayments = payments.map((p) =>
-      p.id === editingDownPaymentPaymentId
-        ? { ...p, downPayment: downPaymentAmount }
-        : p
-    );
-
-    const updatedPayment = updatedPayments.find(p => p.id === editingDownPaymentPaymentId);
-    console.log("✅ Updated payment object:", updatedPayment);
-
-    setPayments(updatedPayments);
-
-    // Save to localStorage with error handling
     try {
-      saveYearData("payments", selectedYear, updatedPayments);
-      console.log("✅ Down payment saved to localStorage");
+      await paymentsService.update(editingDownPaymentPaymentId, { down_payment: down_payment_amount });
+      await loadFreshData();
+      toast({
+        title: "✅ Success",
+        description: `Down payment updated to $${down_payment_amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      });
     } catch (error) {
-      console.error("❌ Error saving to localStorage:", error);
-      alert("Error saving down payment. Please try again.");
+      console.error("❌ Error updating down payment:", error);
+      toast({
+        title: "Error",
+        description: "Failed to update down payment.",
+        variant: "destructive",
+      });
       return;
     }
 
@@ -1522,16 +742,10 @@ export default function Payments() {
     setEditingDownPaymentPaymentId(null);
     setEditingDownPaymentAmount(0);
 
-    // Show success message
-    toast({
-      title: "✅ Success",
-      description: `Down payment updated to $${downPaymentAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-    });
-
     console.log("✅ Down payment edit completed successfully");
   };
 
-  const handleApplyBulkDays = () => {
+  const handleApplyBulkDays = async () => {
     if (bulkDaysValue < 1 || bulkDaysValue > 7) {
       alert("Please enter a valid number of days (1-7)");
       return;
@@ -1540,7 +754,7 @@ export default function Payments() {
     // Only update pending payments in the current filtered view (current week)
     const pendingPaymentsList = filteredPayments.filter(p => p.status === "pending");
     if (pendingPaymentsList.length === 0) {
-      alert("No pending payments to update for this week");
+      toast({ description: "No pending payments to update for this week" });
       return;
     }
 
@@ -1549,73 +763,86 @@ export default function Payments() {
       paymentsSnapshot: payments.map(p => ({ ...p })), // Deep copy
     });
 
-    // Get the IDs of payments we want to update
-    const pendingPaymentIds = new Set(pendingPaymentsList.map(p => p.id));
-
-    // Update only the pending payments in the filtered view
-    const updatedPayments = payments.map((p) => {
-      if (pendingPaymentIds.has(p.id)) {
-        // Calculate new amount based on days worked
-        // Use fullWeeklySalary if available, otherwise calculate from current amount
-        let weeklyRate = p.fullWeeklySalary || 0;
-        if (!weeklyRate && p.amount && p.daysWorked) {
-          weeklyRate = (p.amount / p.daysWorked) * 5;
-        }
-        if (!weeklyRate && p.amount) {
-          weeklyRate = p.amount / 5 * 5; // Assume it was 5 days
-        }
-
-        const dailyRate = weeklyRate > 0 ? weeklyRate / 5 : 0;
-        const newAmount = dailyRate * bulkDaysValue;
-
-        return {
-          ...p,
-          daysWorked: bulkDaysValue,
-          amount: newAmount || p.amount, // Fallback to original amount if calculation fails
-        };
+    const updates = pendingPaymentsList.map(async (p) => {
+      // Calculate new amount based on days worked
+      let weekly_rate = p.full_weekly_salary || 0;
+      if (!weekly_rate && p.amount && p.days_worked) {
+        weekly_rate = (p.amount / p.days_worked) * 5;
       }
-      return p;
+      if (!weekly_rate && p.amount) {
+        weekly_rate = p.amount / 5 * 5; // Assume it was 5 days
+      }
+
+      const dailyRate = weekly_rate > 0 ? weekly_rate / 5 : 0;
+      const newAmount = dailyRate * bulkDaysValue;
+
+      return paymentsService.update(p.id, {
+        days_worked: bulkDaysValue,
+        amount: newAmount || p.amount, // Fallback to original amount if calculation fails
+      });
     });
 
-    setPayments(updatedPayments);
-    saveYearData("payments", selectedYear, updatedPayments);
+    try {
+      await Promise.all(updates);
+      await loadFreshData(); // Reload all data after bulk update
+      toast({
+        title: "Success",
+        description: `Updated ${pendingPaymentsList.length} pending payment${pendingPaymentsList.length !== 1 ? 's' : ''} for this week to ${bulkDaysValue} days worked`,
+      });
+    } catch (error) {
+      console.error("Error applying bulk days:", error);
+      toast({
+        title: "Error",
+        description: "Failed to apply bulk days update.",
+        variant: "destructive",
+      });
+    }
+
     setIsBulkDaysOpen(false);
     setBulkDaysValue(5);
-
-    toast({
-      title: "Success",
-      description: `Updated ${pendingPaymentsList.length} pending payment${pendingPaymentsList.length !== 1 ? 's' : ''} for this week to ${bulkDaysValue} days worked`,
-    });
   };
 
-  const handleRevertBulkDays = () => {
+  const handleRevertBulkDays = async () => {
     if (!lastBulkOperation) {
       alert("No recent bulk operation to revert");
       return;
     }
 
-    // Restore the previous state
-    setPayments(lastBulkOperation.paymentsSnapshot);
-    saveYearData("payments", selectedYear, lastBulkOperation.paymentsSnapshot);
-    setLastBulkOperation(null);
-
-    toast({
-      title: "✓ Reverted",
-      description: "Bulk set days operation has been reverted.",
+    // Restore the previous state by updating each payment individually
+    const revertUpdates = lastBulkOperation.paymentsSnapshot.map(async (p) => {
+      return paymentsService.update(p.id, {
+        days_worked: p.days_worked,
+        amount: p.amount,
+        status: p.status,
+        paid_date: p.paid_date,
+        deduction_amount: p.deduction_amount,
+        check_number: p.check_number,
+        account_last_four: p.account_last_four,
+        bank_name: p.bank_name,
+        // Add other fields that might have been changed by bulk operation
+      });
     });
+
+    try {
+      await Promise.all(revertUpdates);
+      await loadFreshData(); // Reload all data after revert
+      setLastBulkOperation(null);
+
+      toast({
+        title: "✓ Reverted",
+        description: "Bulk set days operation has been reverted.",
+      });
+    } catch (error) {
+      console.error("Error reverting bulk days:", error);
+      toast({
+        title: "Error",
+        description: "Failed to revert bulk days operation.",
+        variant: "destructive",
+      });
+    }
   };
 
-  const getCompanySettings = () => {
-    const saved = localStorage.getItem("companySettings");
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch {
-        return null;
-      }
-    }
-    return null;
-  };
+
 
   const handlePrintCheck = (paymentId: string) => {
     setSelectedCheckPaymentId(paymentId);
@@ -1627,21 +854,30 @@ export default function Payments() {
     setIsDeleteConfirmOpen(true);
   };
 
-  const handleConfirmRemovePayment = () => {
+  const handleConfirmRemovePayment = async () => {
     if (!selectedDeletePaymentId) return;
 
     const paymentToRemove = payments.find(p => p.id === selectedDeletePaymentId);
-    setPayments(payments.filter(p => p.id !== selectedDeletePaymentId));
-
-    setIsDeleteConfirmOpen(false);
-    setSelectedDeletePaymentId(null);
 
     if (paymentToRemove) {
-      toast({
-        title: "Payment Removed",
-        description: `Payment for ${paymentToRemove.employeeName} (${new Date(paymentToRemove.weekStartDate).toLocaleDateString()}) has been removed.`,
-      });
+      try {
+        await paymentsService.delete(selectedDeletePaymentId);
+        await loadFreshData();
+        toast({
+          title: "Payment Removed",
+          description: `Payment for ${paymentToRemove.employee_name} (${new Date(paymentToRemove.week_start_date).toLocaleDateString()}) has been removed.`,
+        });
+      } catch (error) {
+        console.error("Error deleting payment:", error);
+        toast({
+          title: "Error",
+          description: "Failed to remove payment.",
+          variant: "destructive",
+        });
+      }
     }
+    setIsDeleteConfirmOpen(false);
+    setSelectedDeletePaymentId(null);
   };
 
   // Find the earliest pending payment date (coming week to pay)
@@ -1650,9 +886,9 @@ export default function Payments() {
     const pendingPayments = payments.filter(p => p.status === "pending");
     if (pendingPayments.length > 0) {
       // Use string comparison on YYYY-MM-DD format (lexicographic ordering works correctly)
-      return pendingPayments.reduce((earliest, p) => {
-        if (!earliest || p.weekStartDate < earliest) {
-          return p.weekStartDate;
+      return pendingPayments.reduce<string | null>((earliest, p) => {
+        if (!earliest || p.week_start_date < earliest) {
+          return p.week_start_date;
         }
         return earliest;
       }, null);
@@ -1662,9 +898,9 @@ export default function Payments() {
     // This way, if week 1 is all paid, it shows week 1's paid status
     if (payments.length > 0) {
       // Use string comparison on YYYY-MM-DD format (lexicographic ordering works correctly)
-      return payments.reduce((earliest, p) => {
-        if (!earliest || p.weekStartDate < earliest) {
-          return p.weekStartDate;
+      return payments.reduce<string | null>((earliest, p) => {
+        if (!earliest || p.week_start_date < earliest) {
+          return p.week_start_date;
         }
         return earliest;
       }, null);
@@ -1676,33 +912,33 @@ export default function Payments() {
   const filteredPayments = payments
     .filter((p) => {
       const statusMatch = filterStatus === "all" || p.status === filterStatus;
-      const employeeMatch = filterEmployee === "all" || p.employeeId === filterEmployee;
+      const employeeMatch = filterEmployee === "all" || p.employee_id === filterEmployee;
 
       let dateMatch = true;
 
       // If user set manual date filters, use those
       if (filterFromDate || filterToDate) {
-        const paymentDate = parseLocalDate(p.dueDate);
+        const paymentDate = parseLocalDate(p.due_date);
 
         if (filterFromDate) {
-          const fromDate = parseLocalDate(filterFromDate);
-          if (paymentDate < fromDate) dateMatch = false;
+          const from_date = parseLocalDate(filterFromDate);
+          if (paymentDate < from_date) dateMatch = false;
         }
         if (filterToDate) {
-          const toDate = parseLocalDate(filterToDate);
-          if (paymentDate > toDate) dateMatch = false;
+          const to_date = parseLocalDate(filterToDate);
+          if (paymentDate > to_date) dateMatch = false;
         }
       } else if (upcomingPaymentWeek) {
         // Otherwise, default to showing only the coming week's payments
-        dateMatch = p.weekStartDate === upcomingPaymentWeek;
+        dateMatch = p.week_start_date === upcomingPaymentWeek;
       }
 
       return statusMatch && employeeMatch && dateMatch;
     })
     .sort((a, b) => {
       // Primary sort: by Employee ID in ascending order (EMP-001, EMP-002, etc.)
-      const aIdMatch = a.employeeId.match(/EMP-(\d+)/);
-      const bIdMatch = b.employeeId.match(/EMP-(\d+)/);
+      const aIdMatch = a.employee_id.match(/EMP-(\d+)/);
+      const bIdMatch = b.employee_id.match(/EMP-(\d+)/);
 
       if (aIdMatch && bIdMatch) {
         const aNum = parseInt(aIdMatch[1], 10);
@@ -1712,9 +948,9 @@ export default function Payments() {
         }
       }
 
-      // Secondary sort: by dueDate in ascending order (oldest first)
-      const aDate = parseLocalDate(a.dueDate);
-      const bDate = parseLocalDate(b.dueDate);
+      // Secondary sort: by due_date in ascending order (oldest first)
+      const aDate = parseLocalDate(a.due_date);
+      const bDate = parseLocalDate(b.due_date);
       return aDate.getTime() - bDate.getTime();
     });
 
@@ -1722,176 +958,135 @@ export default function Payments() {
   const paidPayments = filteredPayments.filter((p) => p.status === "paid");
   const totalPending = pendingPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
   const totalPaid = paidPayments.reduce((sum, p) => {
-    const deduction = p.deductionAmount || 0;
+    const deduction = p.deduction_amount || 0;
     return sum + ((p.amount || 0) - deduction);
   }, 0);
 
-  // Calculate all-time totals (across all weeks, not filtered by week)
-  const allTimePaidPayments = payments.filter((p) => p.status === "paid");
-  const allTimeTotalPaid = allTimePaidPayments.reduce((sum, p) => {
-    const deduction = p.deductionAmount || 0;
-    return sum + ((p.amount || 0) - deduction);
-  }, 0);
-
-  const allTimePendingPayments = payments.filter((p) => p.status === "pending");
-  const allTimeTotalPending = allTimePendingPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
-
-  // Calculate weekly obligation (total of all employees' weekly rates)
-  const weeklyObligation = employees.reduce((sum, e) => sum + (e.weeklyRate || 0), 0);
-
-  const allTimeOverduePayments = payments.filter((p) => p.status === "overdue");
-  const allTimeTotalOverdue = allTimeOverduePayments.reduce((sum, p) => sum + (p.amount || 0), 0);
-
-  const handleMarkAllAsPaid = () => {
-    const today = getTodayDate();
-    const pendingCount = filteredPayments.filter(p => p.status === "pending").length;
-
-    if (!isAllMarkedAsPaid) {
-      // Mark all pending as paid
-      if (pendingCount === 0) {
-        toast({ description: "No pending payments to mark as paid" });
-        return;
+  const handleMarkAllAsPaid = async () => {
+    const confirmed = window.confirm("Are you sure you want to mark ALL pending payments as paid?");
+    if (confirmed) {
+      const today = getTodayDate();
+      const pendingIds = payments.filter(p => p.status === "pending").map(p => p.id);
+      
+      try {
+        await Promise.all(pendingIds.map(id => 
+          paymentsService.update(id, { status: "paid", paid_date: today })
+        ));
+        await loadFreshData();
+        toast({
+          title: "✓ All Paid",
+          description: "All pending payments have been marked as paid.",
+        });
+      } catch (error) {
+        console.error("Error marking all as paid:", error);
+        toast({
+          title: "Error",
+          description: "Failed to mark all payments as paid.",
+          variant: "destructive",
+        });
       }
-
-      const updatedPayments = payments.map((p) =>
-        p.status === "pending"
-          ? { ...p, status: "paid", paidDate: today }
-          : p
-      );
-      setPayments(updatedPayments);
-      saveYearData("payments", selectedYear, updatedPayments);
-
-      setIsAllMarkedAsPaid(true);
-      toast({
-        title: "Success",
-        description: `${pendingCount} payment${pendingCount !== 1 ? 's' : ''} marked as paid`,
-      });
-    } else {
-      // Revert all paid payments back to pending (regardless of date)
-      const updatedPayments = payments.map((p) =>
-        p.status === "paid"
-          ? { ...p, status: "pending", paidDate: undefined }
-          : p
-      );
-      setPayments(updatedPayments);
-      saveYearData("payments", selectedYear, updatedPayments);
-
-      setIsAllMarkedAsPaid(false);
-      toast({
-        title: "Reverted",
-        description: "All payments reverted to pending",
-      });
     }
   };
 
-  const isOverdue = (dueDate: string) => {
-    return new Date(dueDate) < new Date() && new Date().toDateString() !== new Date(dueDate).toDateString();
+  const isOverdue = (due_date: string) => {
+    return new Date(due_date) < new Date() && new Date().toDateString() !== new Date(due_date).toDateString();
   };
 
-  const handleAddPayment = () => {
+  const handleAddPayment = async () => {
     if (!addPaymentEmployeeId) {
       alert("Please select an employee");
       return;
     }
+
     if (!addPaymentReason) {
-      alert("Please enter a reason for this payment");
+      alert("Please enter a reason/note for this payment");
       return;
     }
+
     if (addPaymentAmount <= 0) {
       alert("Please enter a valid amount");
       return;
     }
+
     if (!addPaymentDate) {
       alert("Please select a date");
       return;
     }
 
-    // Validate that the date is in 2026
+    const employee = employees.find(e => e.id === addPaymentEmployeeId);
+    if (!employee) return;
+
+    // Parse the date to get components
     const parts = addPaymentDate.split('-');
-    const paymentYear = parseInt(parts[0], 10);
-    if (paymentYear !== 2026) {
-      alert("Payment dates must be in 2026. Please select a date within 2026.");
-      return;
-    }
-
-    const employee = employees.find(emp => emp.id === addPaymentEmployeeId);
-    if (!employee) {
-      alert("Employee not found");
-      return;
-    }
-
-    // Calculate week start date (Sunday) from the payment date
     const paymentDateObj = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
-    const weekStartDate = new Date(paymentDateObj);
-    weekStartDate.setDate(paymentDateObj.getDate() - paymentDateObj.getDay()); // Go to Sunday
-    const weekStartYear = weekStartDate.getFullYear();
-    const month = String(weekStartDate.getMonth() + 1).padStart(2, '0');
-    const day = String(weekStartDate.getDate()).padStart(2, '0');
+    
+    // Calculate week start date (Sunday) from the payment date
+    const week_start_date_obj = new Date(paymentDateObj);
+    week_start_date_obj.setDate(paymentDateObj.getDate() - paymentDateObj.getDay()); // Go to Sunday
+    const weekStartYear = week_start_date_obj.getFullYear();
+    const month = String(week_start_date_obj.getMonth() + 1).padStart(2, '0');
+    const day = String(week_start_date_obj.getDate()).padStart(2, '0');
     const weekStartStr = `${weekStartYear}-${month}-${day}`;
 
     // Calculate week end date (Saturday)
-    const weekEndDate = new Date(weekStartDate);
-    weekEndDate.setDate(weekStartDate.getDate() + 6);
-    const weekEndYear = weekEndDate.getFullYear();
-    const weekEndMonth = String(weekEndDate.getMonth() + 1).padStart(2, '0');
-    const weekEndDay = String(weekEndDate.getDate()).padStart(2, '0');
-    const weekEndStr = `${weekEndYear}-${weekEndMonth}-${weekEndDay}`;
+    const week_end_date_obj = new Date(week_start_date_obj);
+    week_end_date_obj.setDate(week_start_date_obj.getDate() + 6);
+    const weekEndStr = formatDateToString(week_end_date_obj);
 
-    // Calculate dueDate as the day after weekEndDate
-    const dueDateObj = new Date(weekEndDate);
-    dueDateObj.setDate(weekEndDate.getDate() + 1);
-    const dueDateYear = dueDateObj.getFullYear();
-    const dueDateMonth = String(dueDateObj.getMonth() + 1).padStart(2, '0');
-    const dueDateDay = String(dueDateObj.getDate()).padStart(2, '0');
-    const dueDateStr = `${dueDateYear}-${dueDateMonth}-${dueDateDay}`;
+    // Calculate due_date as the day after week_end_date
+    const due_date_obj = new Date(week_end_date_obj);
+    due_date_obj.setDate(week_end_date_obj.getDate() + 1);
+    const due_date_str = formatDateToString(due_date_obj);
 
-    // Create the payment
-    const newPayment: PaymentObligation = {
-      id: `MANUAL-${employee.id}-${weekStartStr}-${Date.now()}`,
-      employeeId: employee.id,
-      employeeName: employee.name,
-      employeePosition: employee.position,
-      amount: addPaymentAmount,
-      weekStartDate: weekStartStr,
-      weekEndDate: weekEndStr,
-      dueDate: dueDateStr,
-      status: "pending",
-      paymentMethod: employee.paymentMethod,
-      bankName: employee.bankName,
-      routingNumber: employee.routingNumber,
-      accountNumber: employee.accountNumber,
-      accountType: employee.accountType,
-      daysWorked: 5,
-      isAdjustedForAbsence: false,
-      fullWeeklySalary: employee.weeklyRate,
-      deductionAmount: 0,
-      notes: addPaymentReason,
-    };
+    try {
+      await paymentsService.create({
+        employee_id: employee.id,
+        amount: addPaymentAmount,
+        week_start_date: weekStartStr,
+        week_end_date: weekEndStr,
+        due_date: due_date_str,
+        status: "pending",
+        payment_method: employee.payment_method,
+        bank_name: employee.bank_details?.bank_name || null,
+        routing_number: employee.bank_details?.routing_number || null,
+        account_number: employee.bank_details?.account_number || null,
+        account_type: employee.bank_details?.account_type || null,
+        account_last_four: employee.bank_details?.account_number ? (employee.bank_details.account_number.slice(-4)) : null,
+        days_worked: 5,
+        deduction_amount: 0,
+        notes: addPaymentReason,
+        gross_amount: addPaymentAmount,
+        bonus_amount: 0,
+        check_number: null,
+        paid_date: null,
+        down_payment: 0,
+      });
+      await loadFreshData();
 
-    // Add payment to list and save
-    const updatedPayments = [...payments, newPayment];
-    setPayments(updatedPayments);
+      // Reset form and close modal
+      setIsAddPaymentModalOpen(false);
+      setAddPaymentEmployeeId("");
+      setAddPaymentReason("");
+      setAddPaymentAmount(0);
+      setAddPaymentDate("");
 
-    // Explicitly save to localStorage immediately
-    saveYearData("payments", selectedYear, updatedPayments);
-
-    // Reset form and close modal
-    setIsAddPaymentModalOpen(false);
-    setAddPaymentEmployeeId("");
-    setAddPaymentReason("");
-    setAddPaymentAmount(0);
-    setAddPaymentDate("");
-
-    // Show success notification
-    toast({
-      title: "✓ Payment Added",
-      description: `$${addPaymentAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} payment for ${employee.name} has been added to pending payments.`,
-    });
+      toast({
+        title: "✓ Payment Added",
+        description: `$${addPaymentAmount.toLocaleString()} payment for ${employee.name} has been added.`,
+      });
+    } catch (error) {
+      console.error("Error adding payment:", error);
+      toast({
+        title: "Error",
+        description: "Failed to add payment.",
+        variant: "destructive",
+      });
+    }
   };
 
   // Handler for adding weekly payments
-  const handleAddWeekPayments = () => {
-    if (!weekStartDate) {
+  const handleAddWeekPayments = async () => {
+    if (!week_start_date) {
       alert("Please select a week start date");
       return;
     }
@@ -1902,7 +1097,7 @@ export default function Payments() {
     }
 
     // Parse the week start date
-    const parts = weekStartDate.split('-');
+    const parts = week_start_date.split('-');
     const year = parseInt(parts[0], 10);
 
     if (year !== 2026) {
@@ -1918,8 +1113,8 @@ export default function Payments() {
     weekEnd.setDate(weekStart.getDate() + 6);
 
     // Calculate due date (day after Saturday)
-    const dueDate = new Date(weekEnd);
-    dueDate.setDate(weekEnd.getDate() + 1);
+    const due_date = new Date(weekEnd);
+    due_date.setDate(weekEnd.getDate() + 1);
 
     // Helper to format dates
     const formatDateStr = (date: Date): string => {
@@ -1931,13 +1126,13 @@ export default function Payments() {
 
     const weekStartStr = formatDateStr(weekStart);
     const weekEndStr = formatDateStr(weekEnd);
-    const dueDateStr = formatDateStr(dueDate);
+    const due_dateStr = formatDateStr(due_date);
 
     // Check if payments for this week already exist
     const existingPaymentIds = new Set<string>();
     payments.forEach(p => {
-      if (p.weekStartDate === weekStartStr) {
-        existingPaymentIds.add(p.employeeId);
+      if (p.week_start_date === weekStartStr) {
+        existingPaymentIds.add(p.employee_id);
       }
     });
 
@@ -1955,53 +1150,58 @@ export default function Payments() {
     }
 
     // Create payments for selected employees
-    const newPayments: PaymentObligation[] = [];
-    selectedEmployeesForWeek.forEach(empId => {
-      const employee = employees.find(e => e.id === empId);
-      if (employee) {
-        // Calculate amount based on days worked
-        const dailyRate = employee.weeklyRate / 5;
-        const amount = dailyRate * weekDaysWorked;
+    try {
+      await Promise.all(Array.from(selectedEmployeesForWeek).map(async (empId) => {
+        const employee = employees.find(e => e.id === empId);
+        if (employee) {
+          const dailyRate = employee.weekly_rate / 5;
+          const amount = dailyRate * weekDaysWorked;
 
-        newPayments.push({
-          id: `PAY-${employee.id}-${weekStartStr}`,
-          employeeId: employee.id,
-          employeeName: employee.name,
-          employeePosition: employee.position,
-          amount: amount,
-          weekStartDate: weekStartStr,
-          weekEndDate: weekEndStr,
-          dueDate: dueDateStr,
-          status: "pending",
-          paymentMethod: employee.paymentMethod,
-          bankName: employee.bankName,
-          routingNumber: employee.routingNumber,
-          accountNumber: employee.accountNumber,
-          accountType: employee.accountType,
-          daysWorked: weekDaysWorked,
-          isAdjustedForAbsence: false,
-          fullWeeklySalary: employee.weeklyRate,
-          deductionAmount: 0,
-        });
-      }
-    });
+          await paymentsService.create({
+            employee_id: employee.id,
+            amount: amount,
+            week_start_date: weekStartStr,
+            week_end_date: weekEndStr,
+            due_date: due_dateStr,
+            status: "pending",
+            payment_method: employee.payment_method,
+            bank_name: employee.bank_details?.bank_name || null,
+            routing_number: employee.bank_details?.routing_number || null,
+            account_number: employee.bank_details?.account_number || null,
+            account_type: employee.bank_details?.account_type || null,
+            account_last_four: employee.bank_details?.account_number ? (employee.bank_details.account_number.slice(-4)) : null,
+            days_worked: weekDaysWorked,
+            deduction_amount: 0,
+            gross_amount: amount,
+            bonus_amount: 0,
+            check_number: null,
+            paid_date: null,
+            down_payment: 0,
+            notes: null,
+          });
+        }
+      }));
 
-    // Add all new payments and save
-    const updatedPayments = [...payments, ...newPayments];
-    setPayments(updatedPayments);
-    saveYearData("payments", selectedYear, updatedPayments);
+      await loadFreshData();
 
-    // Reset form and close modal
-    setIsAddWeekModalOpen(false);
-    setWeekStartDate("");
-    setSelectedEmployeesForWeek(new Set());
-    setWeekDaysWorked(5);
+      // Reset form and close modal
+      setIsAddWeekModalOpen(false);
+      setWeekStartDate("");
+      setSelectedEmployeesForWeek(new Set());
+      setWeekDaysWorked(5);
 
-    // Show success notification
-    toast({
-      title: "✓ Week Added",
-      description: `Added payments for ${newPayments.length} employee(s) for the week of ${weekStartStr}`,
-    });
+      toast({
+        title: "✓ Week Added",
+        description: `Added payments for ${selectedEmployeesForWeek.size} employee(s) for the week of ${weekStartStr}`,
+      });
+    } catch (error) {
+      console.error("Error adding week payments:", error);
+      toast({
+        title: "Error",
+        description: "Failed to add weekly payments.",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleAddWeeklyPayments = () => {
@@ -2069,7 +1269,8 @@ export default function Payments() {
       );
 
       setPayments(updatedPayments);
-      saveYearData("payments", selectedYear, updatedPayments);
+      // Local storage save removed
+
       setIsCheckAttachmentModalOpen(false);
       setSelectedPaymentForAttachment(null);
       toast({
@@ -2093,7 +1294,8 @@ export default function Payments() {
       );
 
       setPayments(updatedPayments);
-      saveYearData("payments", selectedYear, updatedPayments);
+      // Local storage save removed
+
       toast({
         title: "Success",
         description: "Attachment removed successfully!",
@@ -2187,48 +1389,42 @@ export default function Payments() {
     const payment = payments.find(p => p.id === paymentId);
     if (payment && payment.status === "paid") {
       setCheckDetailsPaymentId(paymentId);
-      setCheckDetailsNumber(payment.paidCheckNumber || "");
-      setCheckDetailsBankName(payment.paidBankName || "");
-      setCheckDetailsAccountLast4(payment.paidAccountLast4 || "");
+      setCheckDetailsNumber(payment.check_number || "");
+      setCheckDetailsBankName(payment.bank_name || "");
+      setCheckDetailsAccountLast4(payment.account_last_four || "");
       setIsCheckDetailsModalOpen(true);
     }
   };
 
-  const handleConfirmCheckDetailsEdit = () => {
+  const handleConfirmCheckDetailsEdit = async () => {
     if (!checkDetailsPaymentId) return;
 
-    const updatedPayments = payments.map((p) =>
-      p.id === checkDetailsPaymentId
-        ? {
-            ...p,
-            paidCheckNumber: checkDetailsNumber,
-            paidBankName: checkDetailsBankName,
-            paidAccountLast4: checkDetailsAccountLast4,
-          }
-        : p
-    );
+    try {
+      await paymentsService.update(checkDetailsPaymentId, {
+        check_number: checkDetailsNumber,
+        bank_name: checkDetailsBankName,
+        account_last_four: checkDetailsAccountLast4,
+      });
+      await loadFreshData();
+      
+      setIsCheckDetailsModalOpen(false);
+      setCheckDetailsPaymentId(null);
+      setCheckDetailsNumber("");
+      setCheckDetailsBankName("");
+      setCheckDetailsAccountLast4("");
 
-    console.log("💾 handleConfirmCheckDetailsEdit - Updating check details");
-    console.log("🔑 Payment ID:", checkDetailsPaymentId);
-    console.log("🔢 Check Number:", checkDetailsNumber);
-    console.log("🏦 Bank Name:", checkDetailsBankName);
-    console.log("💳 Account Last 4:", checkDetailsAccountLast4);
-
-    setPayments(updatedPayments);
-    saveYearData("payments", selectedYear, updatedPayments);
-
-    console.log("✅ Check details saved to localStorage");
-
-    setIsCheckDetailsModalOpen(false);
-    setCheckDetailsPaymentId(null);
-    setCheckDetailsNumber("");
-    setCheckDetailsBankName("");
-    setCheckDetailsAccountLast4("");
-
-    toast({
-      title: "Success",
-      description: "Check details updated successfully",
-    });
+      toast({
+        title: "Success",
+        description: "Check details updated successfully",
+      });
+    } catch (error) {
+      console.error("Error updating check details:", error);
+      toast({
+        title: "Error",
+        description: "Failed to update check details.",
+        variant: "destructive",
+      });
+    }
   };
 
   const getPaymentMethodDisplay = (method?: string, payment?: PaymentObligation) => {
@@ -2240,7 +1436,7 @@ export default function Payments() {
         case "direct_deposit":
           return "Direct Deposit";
         case "check":
-          return payment?.paidCheckNumber ? `Check #${payment.paidCheckNumber}` : "Check";
+          return payment?.check_number ? `Check #${payment.check_number}` : "Check";
         case "ach":
           return "ACH Transfer";
         case "wire":
@@ -2255,13 +1451,13 @@ export default function Payments() {
       case "cash":
         return "Cash";
       case "direct_deposit":
-        return `Direct Deposit (${payment.paidBankName || ""} ••••${payment.paidAccountLast4 || ""})`;
+        return `Direct Deposit (${payment.bank_name || ""} ••••${payment.account_last_four || ""})`;
       case "check":
-        return `Check #${payment.paidCheckNumber || "N/A"}`;
+        return `Check #${payment.check_number || "N/A"}`;
       case "ach":
-        return `ACH Transfer (••••${payment.paidAccountLast4 || ""})`;
+        return `ACH Transfer (••••${payment.account_last_four || ""})`;
       case "wire":
-        return `Wire Transfer (${payment.paidBankName || ""})`;
+        return `Wire Transfer (${payment.bank_name || ""})`;
       default:
         return "Not Set";
     }
@@ -2311,8 +1507,8 @@ export default function Payments() {
           </CardHeader>
           <CardContent>
             {(() => {
-              const overdueAmount = pendingPayments.filter((p) => isOverdue(p.dueDate)).reduce((sum, p) => sum + (p.amount || 0), 0) || 0;
-              const overdueCount = pendingPayments.filter((p) => isOverdue(p.dueDate)).length;
+              const overdueAmount = pendingPayments.filter((p) => isOverdue(p.due_date)).reduce((sum, p) => sum + (p.amount || 0), 0) || 0;
+              const overdueCount = pendingPayments.filter((p) => isOverdue(p.due_date)).length;
               return (
                 <div className="flex items-baseline gap-2 whitespace-nowrap">
                   <p className="text-3xl font-bold text-red-600">${overdueAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
@@ -2421,7 +1617,7 @@ export default function Payments() {
                 <Button
                   onClick={() => setIsBatchCheckModalOpen(true)}
                   className="gap-2 bg-teal-600 hover:bg-teal-700"
-                  disabled={filteredPayments.filter(p => p.status === "paid" && p.paymentMethod === "check").length === 0}
+                  disabled={filteredPayments.filter(p => p.status === "paid" && p.payment_method === "check").length === 0}
                   title="Generate and export multiple checks as batch PDF"
                 >
                   <Download className="w-4 h-4" />
@@ -2456,25 +1652,25 @@ export default function Payments() {
                   filteredPayments.map((payment, idx) => (
                     <tr key={payment.id} className={idx % 2 === 0 ? "bg-white" : "bg-slate-50"}>
                       <td className="p-3 text-slate-700 font-medium whitespace-nowrap">
-                        <p className="font-semibold">{payment.employeeId} - {payment.employeeName}</p>
+                        <p className="font-semibold">{payment.employee_id} - {payment.employee_name}</p>
                       </td>
                       <td className="p-3 text-slate-700 text-xs whitespace-nowrap">
-                        <span>{new Date(payment.weekStartDate).toLocaleDateString()} to {new Date(payment.weekEndDate).toLocaleDateString()}</span>
-                        {payment.daysWorked !== 5 && (
-                          <span className="text-yellow-700 font-semibold ml-2">({payment.daysWorked}/5 days)</span>
+                        <span>{new Date(payment.week_start_date).toLocaleDateString()} to {new Date(payment.week_end_date).toLocaleDateString()}</span>
+                        {payment.days_worked !== 5 && (
+                          <span className="text-yellow-700 font-semibold ml-2">({payment.days_worked}/5 days)</span>
                         )}
                       </td>
                       <td className="p-3 text-slate-700 whitespace-nowrap">
                         <div className="space-y-1">
-                          {payment.isAdjustedForAbsence ? (
+                          {payment.is_adjusted_for_absence ? (
                             <div className="bg-orange-50 p-2 rounded border border-orange-200 text-xs space-y-1">
                               <div className="flex justify-between text-orange-900">
                                 <span>Full Salary:</span>
-                                <span className="line-through whitespace-nowrap">${(payment.fullWeeklySalary || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                <span className="line-through whitespace-nowrap">${(payment.full_weekly_salary || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                               </div>
                               <div className="flex justify-between text-red-700 font-semibold">
                                 <span>Deduction:</span>
-                                <span className="whitespace-nowrap">-${(payment.deductionAmount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                <span className="whitespace-nowrap">-${(payment.deduction_amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                               </div>
                               <div className="flex justify-between text-green-700 font-bold border-t border-orange-200 pt-1">
                                 <span>Pay:</span>
@@ -2486,15 +1682,15 @@ export default function Payments() {
                               ${(payment.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </div>
                           )}
-                          {payment.downPayment && payment.downPayment > 0 && (
+                          {payment.down_payment && payment.down_payment > 0 && (
                             <div className="bg-cyan-50 p-2 rounded border border-cyan-200 text-xs space-y-1">
                               <div className="flex justify-between text-cyan-900">
                                 <span>Down Payment:</span>
-                                <span className="whitespace-nowrap">-${(payment.downPayment || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                <span className="whitespace-nowrap">-${(payment.down_payment || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                               </div>
                               <div className="flex justify-between text-cyan-700 font-semibold border-t border-cyan-200 pt-1">
                                 <span>Net Payment:</span>
-                                <span className="whitespace-nowrap">${((payment.amount || 0) - (payment.downPayment || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                <span className="whitespace-nowrap">${((payment.amount || 0) - (payment.down_payment || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                               </div>
                             </div>
                           )}
@@ -2502,38 +1698,31 @@ export default function Payments() {
                       </td>
                       <td className="p-3 text-slate-700 whitespace-nowrap">
                         <div className="flex items-center gap-2">
-                          {isOverdue(payment.dueDate) && payment.status === "pending" && (
+                          {isOverdue(payment.due_date) && payment.status === "pending" && (
                             <AlertCircle className="w-4 h-4 text-red-600" />
                           )}
-                          {formatDateString(payment.dueDate)}
+                          {formatDateString(payment.due_date)}
                         </div>
                       </td>
                       <td className="p-3 text-slate-700 whitespace-nowrap">
-                        {payment.status === "paid" && payment.paymentMethod === "check" ? (
+                        {payment.status === "paid" && payment.payment_method === "check" ? (
                           <button
                             onClick={() => handleEditCheckDetails(payment.id)}
-                            className={`px-3 py-1.5 rounded-full inline-block text-sm font-medium whitespace-nowrap cursor-pointer hover:opacity-80 transition-opacity ${
-                              payment.paymentMethod === 'direct_deposit' ? 'bg-blue-100 text-blue-700' :
-                              payment.paymentMethod === 'check' ? 'bg-purple-100 text-purple-700' :
-                              payment.paymentMethod === 'cash' ? 'bg-green-100 text-green-700' :
-                              payment.paymentMethod === 'ach' ? 'bg-teal-100 text-teal-700' :
-                              payment.paymentMethod === 'wire' ? 'bg-orange-100 text-orange-700' :
-                              'bg-slate-100 text-slate-700'
-                            }`}
+                            className="px-3 py-1.5 rounded-full inline-block text-sm font-medium whitespace-nowrap cursor-pointer hover:opacity-80 transition-opacity bg-purple-100 text-purple-700"
                             title="Click to edit check details"
                           >
-                            <span>{getPaymentMethodDisplay(payment.paymentMethod, payment)}</span>
+                            <span>{getPaymentMethodDisplay(payment.payment_method, payment)}</span>
                           </button>
                         ) : (
                           <div className={`px-3 py-1.5 rounded-full inline-block text-sm font-medium whitespace-nowrap ${
-                            payment.paymentMethod === 'direct_deposit' ? 'bg-blue-100 text-blue-700' :
-                            payment.paymentMethod === 'check' ? 'bg-purple-100 text-purple-700' :
-                            payment.paymentMethod === 'cash' ? 'bg-green-100 text-green-700' :
-                            payment.paymentMethod === 'ach' ? 'bg-teal-100 text-teal-700' :
-                            payment.paymentMethod === 'wire' ? 'bg-orange-100 text-orange-700' :
+                            payment.payment_method === 'direct_deposit' ? 'bg-blue-100 text-blue-700' :
+                            payment.payment_method === 'check' ? 'bg-purple-100 text-purple-700' :
+                            payment.payment_method === 'cash' ? 'bg-green-100 text-green-700' :
+                            payment.payment_method === 'ach' ? 'bg-teal-100 text-teal-700' :
+                            payment.payment_method === 'wire' ? 'bg-orange-100 text-orange-700' :
                             'bg-slate-100 text-slate-700'
                           }`}>
-                            <span>{getPaymentMethodDisplay(payment.paymentMethod, payment)}</span>
+                            <span>{getPaymentMethodDisplay(payment.payment_method, payment)}</span>
                           </div>
                         )}
                       </td>
@@ -2542,7 +1731,7 @@ export default function Payments() {
                           {payment.status === "paid" ? (
                             <>
                               <CheckCircle className="w-4 h-4 text-green-600" />
-                              <span className="text-xs font-medium text-green-700">Paid {new Date(payment.paidDate!).toLocaleDateString()}</span>
+                              <span className="text-xs font-medium text-green-700">Paid {new Date(payment.paid_date!).toLocaleDateString()}</span>
                             </>
                           ) : payment.status === "canceled" ? (
                             <>
@@ -2556,13 +1745,13 @@ export default function Payments() {
                             </>
                           )}
                         </div>
-                        {payment.status === "paid" && payment.deductionAmount && payment.deductionAmount > 0 && (
+                        {payment.status === "paid" && payment.deduction_amount && payment.deduction_amount > 0 && (
                           <div className="bg-red-50 p-2 rounded border border-red-200 text-xs mt-2">
                             <div className="text-red-700 font-medium">
-                              Deduction: ${(payment.deductionAmount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              Deduction: ${(payment.deduction_amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </div>
                             <div className="text-green-700 font-bold mt-1">
-                              Paid Amount: ${((payment.amount || 0) - (payment.deductionAmount || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              Paid Amount: ${((payment.amount || 0) - (payment.deduction_amount || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </div>
                           </div>
                         )}
@@ -2711,28 +1900,28 @@ export default function Payments() {
                 {selectedPayment && (
                   <div className="bg-slate-50 p-3 rounded border border-slate-200">
                     <p className="text-sm text-slate-600">
-                      <span className="font-medium">Employee:</span> {selectedPayment.employeeName}
+                      <span className="font-medium">Employee:</span> {selectedPayment.employee_name}
                     </p>
                     <p className="text-sm text-slate-600 mt-1 whitespace-nowrap">
                       <span className="font-medium">Original Amount:</span> ${(selectedPayment.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </p>
                     <p className="text-sm text-slate-600 mt-1">
-                      <span className="font-medium">Payment Method:</span> {getPaymentMethodDisplay(selectedPayment.paymentMethod)}
+                      <span className="font-medium">Payment Method:</span> {getPaymentMethodDisplay(selectedPayment.payment_method)}
                     </p>
                   </div>
                 )}
                 <div className="space-y-2">
-                  <Label htmlFor="paidDate">Payment Date *</Label>
+                  <Label htmlFor="paid_date">Payment Date *</Label>
                   <Input
-                    id="paidDate"
+                    id="paid_date"
                     type="date"
-                    value={paidDate}
+                    value={paid_date}
                     onChange={(e) => setPaidDate(e.target.value)}
                     className="border-slate-300"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="paymentMethod">Payment Method *</Label>
+                  <Label htmlFor="payment_method">Payment Method *</Label>
                   <Select value={selectedPaymentMethod} onValueChange={handlePaymentMethodChange}>
                     <SelectTrigger className="border-slate-300">
                       <SelectValue placeholder="Select payment method" />
@@ -2750,11 +1939,11 @@ export default function Payments() {
                 </div>
                 {selectedPaymentMethod === "check" && (
                   <div className="space-y-2">
-                    <Label htmlFor="paidCheckNumber">Check Number</Label>
+                    <Label htmlFor="check_number">Check Number</Label>
                     <Input
-                      id="paidCheckNumber"
+                      id="check_number"
                       type="text"
-                      value={paidCheckNumber}
+                      value={check_number}
                       onChange={(e) => setPaidCheckNumber(e.target.value)}
                       placeholder="e.g., 1001"
                       className="border-slate-300 font-semibold text-blue-600"
@@ -2767,33 +1956,33 @@ export default function Payments() {
                   <div className="border-t pt-4 space-y-2">
                     <p className="text-sm font-semibold text-slate-700 mb-3">Bank Transfer Details</p>
                     <div className="space-y-2">
-                      <Label htmlFor="bankName">Bank Name</Label>
+                      <Label htmlFor="bank_name">Bank Name</Label>
                       <Input
-                        id="bankName"
+                        id="bank_name"
                         type="text"
-                        value={bankName}
+                        value={bank_name}
                         onChange={(e) => setBankName(e.target.value)}
                         placeholder="e.g., Wells Fargo, Chase Bank"
                         className="border-slate-300"
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="routingNumber">Routing Number</Label>
+                      <Label htmlFor="routing_number">Routing Number</Label>
                       <Input
-                        id="routingNumber"
+                        id="routing_number"
                         type="text"
-                        value={routingNumber}
+                        value={routing_number}
                         onChange={(e) => setRoutingNumber(e.target.value)}
                         placeholder="9-digit routing number"
                         className="border-slate-300"
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="accountNumber">Account Number</Label>
+                      <Label htmlFor="account_number">Account Number</Label>
                       <Input
-                        id="accountNumber"
+                        id="account_number"
                         type="password"
-                        value={accountNumber}
+                        value={account_number}
                         onChange={(e) => setAccountNumber(e.target.value)}
                         placeholder="Account number (masked for security)"
                         className="border-slate-300"
@@ -2810,7 +1999,7 @@ export default function Payments() {
                         id="cardLastFour"
                         type="text"
                         maxLength={4}
-                        value={paidCheckNumber}
+                        value={check_number}
                         onChange={(e) => setPaidCheckNumber(e.target.value.replace(/\D/g, ""))}
                         placeholder="e.g., 4242"
                         className="border-slate-300"
@@ -2881,7 +2070,7 @@ export default function Payments() {
               <DialogHeader>
                 <DialogTitle>Edit Payment Amount</DialogTitle>
                 <DialogDescription>
-                  {payment && `Adjust amount for ${payment.employeeName}`}
+                  {payment && `Adjust amount for ${payment.employee_name}`}
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-4 py-4">
@@ -2889,13 +2078,13 @@ export default function Payments() {
                   <>
                     <div className="bg-slate-50 p-3 rounded border border-slate-200">
                       <p className="text-sm text-slate-600">
-                        <span className="font-medium">Employee:</span> {payment.employeeName}
+                        <span className="font-medium">Employee:</span> {payment.employee_name}
                       </p>
                       <p className="text-sm text-slate-600 mt-1">
-                        <span className="font-medium">Week:</span> {new Date(payment.weekStartDate).toLocaleDateString()} - {new Date(payment.weekEndDate).toLocaleDateString()}
+                        <span className="font-medium">Week:</span> {new Date(payment.week_start_date).toLocaleDateString()} - {new Date(payment.week_end_date).toLocaleDateString()}
                       </p>
                       <p className="text-sm text-slate-600 mt-1">
-                        <span className="font-medium">Days Worked:</span> {payment.daysWorked}/5
+                        <span className="font-medium">Days Worked:</span> {payment.days_worked}/5
                       </p>
                     </div>
                     <div className="space-y-2">
@@ -2946,15 +2135,15 @@ export default function Payments() {
         if (!payment) return null;
 
         // Calculate weekly rate safely
-        let weeklyRate = payment.fullWeeklySalary || 0;
-        if (!weeklyRate && payment.amount && payment.daysWorked) {
-          weeklyRate = (payment.amount / payment.daysWorked) * 5;
+        let weekly_rate = payment.full_weekly_salary || 0;
+        if (!weekly_rate && payment.amount && payment.days_worked) {
+          weekly_rate = (payment.amount / payment.days_worked) * 5;
         }
-        if (!weeklyRate && payment.amount) {
-          weeklyRate = payment.amount / 5 * 5;
+        if (!weekly_rate && payment.amount) {
+          weekly_rate = payment.amount / 5 * 5;
         }
 
-        const dailyRate = weeklyRate > 0 ? weeklyRate / 5 : 0;
+        const dailyRate = weekly_rate > 0 ? weekly_rate / 5 : 0;
         const newAmount = dailyRate * editingDaysWorked;
 
         return (
@@ -2963,7 +2152,7 @@ export default function Payments() {
               <DialogHeader>
                 <DialogTitle>Edit Days Worked</DialogTitle>
                 <DialogDescription>
-                  {payment && `Adjust days worked for ${payment.employeeName}`}
+                  {payment && `Adjust days worked for ${payment.employee_name}`}
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-4 py-4">
@@ -2971,13 +2160,13 @@ export default function Payments() {
                   <>
                     <div className="bg-slate-50 p-3 rounded border border-slate-200">
                       <p className="text-sm text-slate-600">
-                        <span className="font-medium">Employee:</span> {payment.employeeName}
+                        <span className="font-medium">Employee:</span> {payment.employee_name}
                       </p>
                       <p className="text-sm text-slate-600 mt-1">
-                        <span className="font-medium">Week:</span> {new Date(payment.weekStartDate).toLocaleDateString()} - {new Date(payment.weekEndDate).toLocaleDateString()}
+                        <span className="font-medium">Week:</span> {new Date(payment.week_start_date).toLocaleDateString()} - {new Date(payment.week_end_date).toLocaleDateString()}
                       </p>
                       <p className="text-sm text-slate-600 mt-1">
-                        <span className="font-medium">Weekly Rate:</span> ${(weeklyRate || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        <span className="font-medium">Weekly Rate:</span> ${(weekly_rate || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </p>
                       <p className="text-sm text-slate-600 mt-1">
                         <span className="font-medium">Daily Rate:</span> ${(dailyRate || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -3046,7 +2235,7 @@ export default function Payments() {
               <DialogHeader>
                 <DialogTitle>Edit Down Payment</DialogTitle>
                 <DialogDescription>
-                  {payment && `Adjust down payment for ${payment.employeeName}`}
+                  {payment && `Adjust down payment for ${payment.employee_name}`}
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-4 py-4">
@@ -3054,10 +2243,10 @@ export default function Payments() {
                   <>
                     <div className="bg-slate-50 p-3 rounded border border-slate-200">
                       <p className="text-sm text-slate-600">
-                        <span className="font-medium">Employee:</span> {payment.employeeName}
+                        <span className="font-medium">Employee:</span> {payment.employee_name}
                       </p>
                       <p className="text-sm text-slate-600 mt-1">
-                        <span className="font-medium">Week:</span> {new Date(payment.weekStartDate).toLocaleDateString()} - {new Date(payment.weekEndDate).toLocaleDateString()}
+                        <span className="font-medium">Week:</span> {new Date(payment.week_start_date).toLocaleDateString()} - {new Date(payment.week_end_date).toLocaleDateString()}
                       </p>
                       <p className="text-sm text-slate-600 mt-1">
                         <span className="font-medium">Total Amount:</span> ${(payment.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -3152,20 +2341,20 @@ export default function Payments() {
                     <div className="max-h-96 overflow-y-auto space-y-1 border border-slate-300 rounded p-2 bg-white">
                       {pendingPaymentsList.map((payment) => {
                         // Calculate weekly rate safely
-                        let weeklyRate = payment.fullWeeklySalary || 0;
-                        if (!weeklyRate && payment.amount && payment.daysWorked) {
-                          weeklyRate = (payment.amount / payment.daysWorked) * 5;
+                        let weekly_rate = payment.full_weekly_salary || 0;
+                        if (!weekly_rate && payment.amount && payment.days_worked) {
+                          weekly_rate = (payment.amount / payment.days_worked) * 5;
                         }
-                        if (!weeklyRate && payment.amount) {
-                          weeklyRate = payment.amount / 5 * 5;
+                        if (!weekly_rate && payment.amount) {
+                          weekly_rate = payment.amount / 5 * 5;
                         }
 
-                        const dailyRate = weeklyRate > 0 ? weeklyRate / 5 : 0;
+                        const dailyRate = weekly_rate > 0 ? weekly_rate / 5 : 0;
                         const newAmount = dailyRate * bulkDaysValue;
                         return (
                           <div key={payment.id} className="text-xs text-slate-700 flex justify-between items-center py-1 px-2 hover:bg-slate-100 rounded">
-                            <span className="flex-1">{payment.employeeName}</span>
-                            <span className="text-slate-500 text-xs mx-2">{new Date(payment.weekStartDate).toLocaleDateString()}</span>
+                            <span className="flex-1">{payment.employee_name}</span>
+                            <span className="text-slate-500 text-xs mx-2">{new Date(payment.week_start_date).toLocaleDateString()}</span>
                             <span className="font-medium whitespace-nowrap">
                               ${(newAmount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </span>
@@ -3202,11 +2391,11 @@ export default function Payments() {
 
       {isCheckPrintModalOpen && selectedCheckPaymentId && (() => {
         const payment = payments.find((p) => p.id === selectedCheckPaymentId);
-        const settings = getCompanySettings();
+        // settings inherited from component state
 
         if (!payment) return null;
 
-        const checkNumber = settings?.checkStartNumber ? settings.checkStartNumber + payments.filter((p) => new Date(p.weekStartDate) <= new Date(payment.weekStartDate)).length : 1001;
+        const check_number = settings?.check_start_number ? settings.check_start_number + payments.filter((p) => new Date(p.week_start_date) <= new Date(payment.week_start_date)).length : 1001;
 
         return (
           <Dialog open={isCheckPrintModalOpen} onOpenChange={setIsCheckPrintModalOpen}>
@@ -3214,7 +2403,7 @@ export default function Payments() {
               <DialogHeader>
                 <DialogTitle>Print Check</DialogTitle>
                 <DialogDescription>
-                  Check for {payment.employeeName}
+                  Check for {payment.employee_name}
                 </DialogDescription>
               </DialogHeader>
 
@@ -3223,18 +2412,17 @@ export default function Payments() {
                 <div className="p-8 bg-white border-4 border-slate-800 rounded-lg" style={{ width: '100%', minHeight: '450px', fontFamily: '"Courier New", monospace', backgroundColor: '#fafafa', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
                   {/* Bank routing box (top right) */}
                   <div style={{ float: 'right', textAlign: 'right', marginBottom: '10px', fontSize: '10px', color: '#666' }}>
-                    <div style={{ fontSize: '11px', fontWeight: 'bold' }}>{checkNumber.toString().padStart(4, '0')}</div>
+                    <div style={{ fontSize: '11px', fontWeight: 'bold' }}>{check_number.toString().padStart(4, '0')}</div>
                     <div style={{ fontSize: '9px' }}>Check #</div>
                   </div>
 
                   {/* Company Header */}
                   <div style={{ marginBottom: '15px', borderBottom: '3px solid #1f2937', paddingBottom: '10px' }}>
-                    {settings?.companyName && (
+                    {settings?.company_name && (
                       <>
-                        <div style={{ fontSize: '22px', fontWeight: 'bold', color: '#1f2937' }}>{settings.companyName}</div>
-                        <div style={{ fontSize: '11px', color: '#4b5563', marginTop: '2px' }}>{settings.companyAddress}</div>
-                        <div style={{ fontSize: '11px', color: '#4b5563' }}>{settings.companyCity}, {settings.companyState} {settings.companyZip}</div>
-                        <div style={{ fontSize: '11px', color: '#4b5563' }}>{settings.companyPhone}</div>
+                        <div style={{ fontSize: '22px', fontWeight: 'bold', color: '#1f2937' }}>{settings.company_name}</div>
+                        <div style={{ fontSize: '11px', color: '#4b5563', marginTop: '2px' }}>{settings.company_address}</div>
+                        <div style={{ fontSize: '11px', color: '#4b5563' }}>{settings.company_phone}</div>
                       </>
                     )}
                   </div>
@@ -3251,7 +2439,7 @@ export default function Payments() {
                   <div style={{ marginBottom: '15px' }}>
                     <div style={{ fontSize: '10px', fontWeight: 'bold', color: '#666', textTransform: 'uppercase', marginBottom: '4px' }}>Pay to the Order of</div>
                     <div style={{ fontSize: '18px', fontWeight: 'bold', borderBottom: '3px solid #000', paddingBottom: '6px', minHeight: '30px', color: '#1f2937' }}>
-                      {payment.employeeName}
+                      {payment.employee_name}
                     </div>
                   </div>
 
@@ -3275,7 +2463,7 @@ export default function Payments() {
                   <div style={{ marginBottom: '30px' }}>
                     <div style={{ fontSize: '10px', fontWeight: 'bold', color: '#666', textTransform: 'uppercase', marginBottom: '4px' }}>For/Memo</div>
                     <div style={{ fontSize: '13px', borderBottom: '2px solid #000', paddingBottom: '4px', minHeight: '20px', color: '#1f2937' }}>
-                      {payment.isSeverance ? 'Severance Payment' : `Week of ${new Date(payment.weekStartDate).toLocaleDateString()}`}
+                      {payment.is_severance ? 'Severance Payment' : `Week of ${new Date(payment.week_start_date).toLocaleDateString()}`}
                     </div>
                   </div>
 
@@ -3293,13 +2481,13 @@ export default function Payments() {
 
                   {/* MICR Line (magnetic encoding) */}
                   <div style={{ marginTop: '20px', fontSize: '18px', letterSpacing: '4px', fontFamily: '"MICR Encoding", "Courier New", monospace', textAlign: 'center', color: '#333', fontWeight: 'bold' }}>
-                    |{settings?.routingNumber?.padEnd(9, '0') || '000000000'}|{payment.employeeId.padEnd(12, ' ')}|{checkNumber.toString().padStart(8, '0')}|
+                    |{settings?.routing_number?.padEnd(9, '0') || '000000000'}|{payment.employee_id.padEnd(12, ' ')}|{check_number.toString().padStart(8, '0')}|
                   </div>
 
                   {/* Bank Info Footer */}
                   {settings && (
                     <div style={{ marginTop: '15px', fontSize: '9px', color: '#666', textAlign: 'center', borderTop: '2px dashed #ccc', paddingTop: '8px' }}>
-                      <div>{settings.bankName} • Routing #: {settings.routingNumber} • Account: ••••{settings.accountNumber?.slice(-4)}</div>
+                      <div>{settings.bank_name} • Routing #: {settings.routing_number} • Account: ••••{settings.account_number?.slice(-4)}</div>
                     </div>
                   )}
                 </div>
@@ -3317,7 +2505,7 @@ export default function Payments() {
                     Cancel
                   </Button>
                   <Button
-                    onClick={() => generateCheckPDF(payment, checkNumber, settings)}
+                    onClick={() => generateCheckPDF(payment, check_number, settings)}
                     className="bg-green-600 hover:bg-green-700 gap-2"
                   >
                     <Download className="w-4 h-4" />
@@ -3352,10 +2540,10 @@ export default function Payments() {
               {paymentToDelete && (
                 <div className="bg-slate-50 p-3 rounded border border-slate-200 space-y-2">
                   <p className="text-sm text-slate-600">
-                    <span className="font-medium">Employee:</span> {paymentToDelete.employeeName}
+                    <span className="font-medium">Employee:</span> {paymentToDelete.employee_name}
                   </p>
                   <p className="text-sm text-slate-600">
-                    <span className="font-medium">Week:</span> {new Date(paymentToDelete.weekStartDate).toLocaleDateString()} to {new Date(paymentToDelete.weekEndDate).toLocaleDateString()}
+                    <span className="font-medium">Week:</span> {new Date(paymentToDelete.week_start_date).toLocaleDateString()} to {new Date(paymentToDelete.week_end_date).toLocaleDateString()}
                   </p>
                   <p className="text-sm text-slate-600">
                     <span className="font-medium">Amount:</span> ${(paymentToDelete.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -3402,20 +2590,20 @@ export default function Payments() {
               <DialogHeader>
                 <DialogTitle>Attach Check</DialogTitle>
                 <DialogDescription>
-                  {payment && `Upload check image for ${payment.employeeName}`}
+                  {payment && `Upload check image for ${payment.employee_name}`}
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-4 py-4">
                 {payment && (
                   <div className="bg-slate-50 p-3 rounded border border-slate-200">
                     <p className="text-sm text-slate-600">
-                      <span className="font-medium">Employee:</span> {payment.employeeName}
+                      <span className="font-medium">Employee:</span> {payment.employee_name}
                     </p>
                     <p className="text-sm text-slate-600 mt-1">
                       <span className="font-medium">Amount:</span> ${(payment.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </p>
                     <p className="text-sm text-slate-600 mt-1">
-                      <span className="font-medium">Week:</span> {new Date(payment.weekStartDate).toLocaleDateString()} - {new Date(payment.weekEndDate).toLocaleDateString()}
+                      <span className="font-medium">Week:</span> {new Date(payment.week_start_date).toLocaleDateString()} - {new Date(payment.week_end_date).toLocaleDateString()}
                     </p>
                     {payment.attachments && payment.attachments.length > 0 && (
                       <div className="mt-3 pt-3 border-t border-slate-200">
@@ -3565,23 +2753,23 @@ export default function Payments() {
               <DialogHeader>
                 <DialogTitle>Edit Check Details</DialogTitle>
                 <DialogDescription>
-                  {payment && `Update check information for ${payment.employeeName}`}
+                  {payment && `Update check information for ${payment.employee_name}`}
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-4 py-4">
                 {payment && (
                   <div className="bg-slate-50 p-3 rounded border border-slate-200 space-y-2">
                     <p className="text-sm text-slate-600">
-                      <span className="font-medium">Employee:</span> {payment.employeeName}
+                      <span className="font-medium">Employee:</span> {payment.employee_name}
                     </p>
                     <p className="text-sm text-slate-600">
                       <span className="font-medium">Amount:</span> ${(payment.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </p>
                     <p className="text-sm text-slate-600">
-                      <span className="font-medium">Week:</span> {new Date(payment.weekStartDate).toLocaleDateString()} - {new Date(payment.weekEndDate).toLocaleDateString()}
+                      <span className="font-medium">Week:</span> {new Date(payment.week_start_date).toLocaleDateString()} - {new Date(payment.week_end_date).toLocaleDateString()}
                     </p>
                     <p className="text-sm text-slate-600">
-                      <span className="font-medium">Paid Date:</span> {payment.paidDate ? new Date(payment.paidDate).toLocaleDateString() : "N/A"}
+                      <span className="font-medium">Paid Date:</span> {payment.paid_date ? new Date(payment.paid_date).toLocaleDateString() : "N/A"}
                     </p>
                   </div>
                 )}
@@ -3661,7 +2849,7 @@ export default function Payments() {
           </DialogHeader>
 
           <div className="space-y-4 py-4">
-            {filteredPayments.filter(p => p.status === "paid" && p.paymentMethod === "check").length === 0 ? (
+            {filteredPayments.filter(p => p.status === "paid" && p.payment_method === "check").length === 0 ? (
               <div className="text-center py-8">
                 <p className="text-slate-600 mb-2">No paid check payments available</p>
                 <p className="text-sm text-slate-500">Mark payments as paid with "Check" method to generate them</p>
@@ -3676,7 +2864,7 @@ export default function Payments() {
 
                 <div className="space-y-2 border rounded p-3 max-h-96 overflow-y-auto">
                   {filteredPayments
-                    .filter(p => p.status === "paid" && p.paymentMethod === "check")
+                    .filter(p => p.status === "paid" && p.payment_method === "check")
                     .map((payment) => (
                       <label key={payment.id} className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded cursor-pointer">
                         <input
@@ -3694,9 +2882,9 @@ export default function Payments() {
                           className="w-4 h-4 rounded"
                         />
                         <div className="flex-1">
-                          <p className="font-medium text-slate-900">{payment.employeeName}</p>
+                          <p className="font-medium text-slate-900">{payment.employee_name}</p>
                           <p className="text-sm text-slate-600">
-                            Check #{payment.paidCheckNumber} • {new Date(payment.weekStartDate).toLocaleDateString()} • ${(payment.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            Check #{payment.check_number} • {new Date(payment.week_start_date).toLocaleDateString()} • ${(payment.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </p>
                         </div>
                       </label>
@@ -3708,7 +2896,7 @@ export default function Payments() {
                     onClick={() => {
                       const allCheckIds = new Set(
                         filteredPayments
-                          .filter(p => p.status === "paid" && p.paymentMethod === "check")
+                          .filter(p => p.status === "paid" && p.payment_method === "check")
                           .map(p => p.id)
                       );
                       setSelectedChecksForBatch(allCheckIds);
@@ -3848,11 +3036,11 @@ export default function Payments() {
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="weekStartDate">Week Start Date (Sunday) *</Label>
+              <Label htmlFor="week_start_date">Week Start Date (Sunday) *</Label>
               <Input
-                id="weekStartDate"
+                id="week_start_date"
                 type="date"
-                value={weekStartDate}
+                value={week_start_date}
                 onChange={(e) => setWeekStartDate(e.target.value)}
                 className="border-slate-300"
                 min="2026-01-01"
@@ -3899,7 +3087,7 @@ export default function Payments() {
                         className="rounded"
                       />
                       <label htmlFor={`emp-${emp.id}`} className="text-sm cursor-pointer">
-                        {emp.name} ({emp.id}) - ${(emp.weeklyRate || 0).toLocaleString()}
+                        {emp.name} ({emp.id}) - ${(emp.weekly_rate || 0).toLocaleString()}
                       </label>
                     </div>
                   ))

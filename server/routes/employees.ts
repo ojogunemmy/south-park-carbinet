@@ -88,7 +88,6 @@ router.post('/upsert-public', async (req, res) => {
         .from('employees')
         .select('id')
         .eq('name', employee.name)
-        .is('user_id', null)
         .maybeSingle();
 
       if (existingByName) {
@@ -101,10 +100,35 @@ router.post('/upsert-public', async (req, res) => {
       }
     }
 
-    // 3. Create new
-    const { error } = await supabase.from('employees').insert(employee);
+    // 3. Generate new employee ID
+    const { data: allEmployees } = await supabase
+      .from('employees')
+      .select('id')
+      .order('created_at', { ascending: false });
+
+    let nextId = 1;
+    if (allEmployees && allEmployees.length > 0) {
+      // Extract numeric IDs and find the max
+      const numericIds = allEmployees
+        .map(emp => {
+          const match = emp.id.match(/EMP-(\d+)/);
+          return match ? parseInt(match[1], 10) : 0;
+        })
+        .filter(num => num > 0);
+      
+      if (numericIds.length > 0) {
+        nextId = Math.max(...numericIds) + 1;
+      }
+    }
+
+    const newEmployeeId = `EMP-${String(nextId).padStart(3, '0')}`;
+
+    // 4. Create new employee with generated ID
+    const { error } = await supabase
+      .from('employees')
+      .insert({ ...employee, id: newEmployeeId });
     if (error) throw error;
-    res.json({ message: 'Created new record' });
+    res.json({ message: 'Created new record', id: newEmployeeId });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

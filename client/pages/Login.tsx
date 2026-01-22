@@ -89,8 +89,8 @@ export default function Login() {
             
             <div className="text-center text-sm text-slate-500 mt-4">
               New employee?{' '}
-              <a href="/signup" className="text-blue-600 hover:underline font-medium">
-                Create Account
+              <a href="/onboarding" className="text-blue-600 hover:underline font-medium">
+                Add your Details
               </a>
             </div>
           </form>

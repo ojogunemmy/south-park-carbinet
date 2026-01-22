@@ -19,6 +19,7 @@ export const createSharedSupabaseClient = (url?: string, key?: string) => {
 // Database types
 export type Employee = {
   id: string;
+  user_id: string | null;
   name: string;
   email: string | null;
   position: string | null;
@@ -41,21 +42,27 @@ export type Employee = {
 export type Payment = {
   id: string;
   employee_id: string;
+  amount: number;
+  status: "pending" | "paid" | "canceled";
   week_start_date: string;
   week_end_date: string;
-  amount: number;
+  due_date: string;
+  paid_date: string | null;
+  payment_method: string | null;
+  bank_name: string | null;
+  routing_number: string | null;
+  account_number: string | null;
+  account_type: string | null;
+  account_last_four: string | null;
+  days_worked: number;
+  deduction_amount: number;
+  check_number: string | null;
+  down_payment: number | null;
+  notes: string | null;
   gross_amount: number | null;
   bonus_amount: number | null;
-  status: 'pending' | 'paid' | 'canceled';
-  payment_method: string | null;
-  check_number: string | null;
-  bank_name: string | null;
-  account_last_four: string | null;
-  deduction_amount: number;
-  days_worked: number;
-  paid_date: string | null;
-  created_at: string;
-  updated_at: string;
+  created_at?: string;
+  updated_at?: string;
 };
 
 export type EmployeeAbsence = {
@@ -141,6 +148,7 @@ export type Settings = {
   bank_name: string | null;
   routing_number: string | null;
   account_number: string | null;
+  check_start_number: number | null;
   check_template: any;
   created_at: string;
   updated_at: string;
