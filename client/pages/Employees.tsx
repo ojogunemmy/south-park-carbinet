@@ -532,19 +532,18 @@ export default function Employees() {
     try {
       if (isEditMode && editingEmployeeId) {
         await employeesService.update(editingEmployeeId, employeeData);
-        alert("Employee updated successfully!");
       } else {
         await employeesService.create(employeeData);
-        alert("Employee added successfully!");
       }
-      fetchData();
+      await fetchData(); // ← Added await to ensure data is refreshed before closing modal
       resetEmployeeFormFields();
       setIsModalOpen(false);
       setIsEditMode(false);
       setEditingEmployeeId(null);
+      alert(isEditMode ? "Employee updated successfully!" : "Employee added successfully!");
     } catch (e) {
       console.error("Error saving employee:", e);
-      alert("Failed to save employee.");
+      alert("Failed to save employee. Please try again.");
     }
   };
 

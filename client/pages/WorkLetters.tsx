@@ -1,4 +1,10 @@
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { FileText, Download } from "lucide-react";
 import jsPDF from "jspdf";
@@ -6,6 +12,7 @@ import { useState, useEffect } from "react";
 import { useYear } from "@/contexts/YearContext";
 import { getYearData, shouldUseExampleData } from "@/utils/yearStorage";
 import { Badge } from "@/components/ui/badge";
+import { employeesService, settingsService } from "@/lib/supabase-service";
 import {
   Dialog,
   DialogContent,
@@ -103,44 +110,88 @@ const defaultSettings: CompanySettings = {
 export default function WorkLetters() {
   const { selectedYear } = useYear();
 
-  const getEmployees = () => {
-    const saved = getYearData<Employee[]>("employees", selectedYear, null);
-    if (saved) {
-      try {
-        return saved;
-      } catch {
-        return shouldUseExampleData(selectedYear) ? exampleEmployees : [];
-      }
-    }
-    return shouldUseExampleData(selectedYear) ? exampleEmployees : [];
-  };
-
-  const getCompanySettings = () => {
-    const saved = getYearData<CompanySettings>("companySettings", selectedYear, null);
-    if (saved) {
-      try {
-        return saved;
-      } catch {
-        return defaultSettings;
-      }
-    }
-    return defaultSettings;
-  };
-
-  const [employees, setEmployees] = useState<Employee[]>(getEmployees());
-  const [companySettings, setCompanySettings] = useState<CompanySettings>(getCompanySettings());
-  const [filterStatus, setFilterStatus] = useState<"all" | "active" | "paused" | "leaving">("active");
+  const [employees, setEmployees] = useState<Employee[]>(() =>
+    shouldUseExampleData(selectedYear) ? exampleEmployees : [],
+  );
+  const [companySettings, setCompanySettings] =
+    useState<CompanySettings>(defaultSettings);
+  const [filterStatus, setFilterStatus] = useState<
+    "all" | "active" | "paused" | "leaving"
+  >("active");
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
-  const [selectedEmployeeForPreview, setSelectedEmployeeForPreview] = useState<Employee | null>(null);
+  const [selectedEmployeeForPreview, setSelectedEmployeeForPreview] =
+    useState<Employee | null>(null);
+
+  // Map DB employee shape to UI Employee
+  const mapDbEmployee = (dbEmp: any): Employee => {
+    return {
+      id: dbEmp.id,
+      name: dbEmp.name || dbEmp.full_name || dbEmp.client_name || "",
+      position: dbEmp.position || dbEmp.project_name || "",
+      weeklyRate: (dbEmp.weekly_rate ?? dbEmp.weeklyRate ?? 0) as number,
+      startDate:
+        dbEmp.hire_date || dbEmp.payment_start_date || dbEmp.start_date || "",
+      ssn: dbEmp.ssn ?? undefined,
+      address: dbEmp.address ?? dbEmp.client_address ?? undefined,
+      telephone: dbEmp.telephone ?? dbEmp.client_phone ?? undefined,
+      email: dbEmp.email ?? undefined,
+      paymentStatus: (dbEmp.payment_status as any) ?? undefined,
+    };
+  };
 
   useEffect(() => {
-    const savedEmployees = getEmployees();
-    setEmployees(savedEmployees);
-  }, [selectedYear]);
+    let mounted = true;
 
-  useEffect(() => {
-    const savedSettings = getCompanySettings();
-    setCompanySettings(savedSettings);
+    const load = async () => {
+      try {
+        const dbEmployees = await employeesService.getAll();
+        if (!mounted) return;
+        if (Array.isArray(dbEmployees) && dbEmployees.length > 0) {
+          setEmployees(dbEmployees.map(mapDbEmployee));
+        } else if (shouldUseExampleData(selectedYear)) {
+          setEmployees(exampleEmployees);
+        } else {
+          setEmployees([]);
+        }
+      } catch (e) {
+        console.error("Failed to load employees:", e);
+        if (shouldUseExampleData(selectedYear)) {
+          setEmployees(exampleEmployees);
+        }
+      }
+
+      try {
+        const dbSettings = await settingsService.get();
+        if (!mounted) return;
+        if (dbSettings) {
+          setCompanySettings({
+            companyName: dbSettings.company_name ?? defaultSettings.companyName,
+            companyAddress:
+              dbSettings.company_address ?? defaultSettings.companyAddress,
+            companyCity: "",
+            companyState: "",
+            companyZip: "",
+            companyPhone:
+              dbSettings.company_phone ?? defaultSettings.companyPhone,
+            bankName: dbSettings.bank_name ?? defaultSettings.bankName,
+            routingNumber:
+              dbSettings.routing_number ?? defaultSettings.routingNumber,
+            accountNumber:
+              dbSettings.account_number ?? defaultSettings.accountNumber,
+            checkStartNumber:
+              dbSettings.check_start_number ?? defaultSettings.checkStartNumber,
+          });
+        }
+      } catch (e) {
+        console.error("Failed to load company settings:", e);
+      }
+    };
+
+    load();
+
+    return () => {
+      mounted = false;
+    };
   }, [selectedYear]);
 
   const filteredEmployees = employees.filter((emp) => {
@@ -149,7 +200,7 @@ export default function WorkLetters() {
 
   const formatDateLocal = (dateString: string): string => {
     // Parse the date string manually to avoid timezone shifts
-    const [year, month, day] = dateString.split('-').map(Number);
+    const [year, month, day] = dateString.split("-").map(Number);
     const date = new Date(year, month - 1, day);
     return date.toLocaleDateString("en-US", {
       year: "numeric",
@@ -171,7 +222,8 @@ export default function WorkLetters() {
     let currentY = marginY;
 
     // Company header with logo
-    const logoUrl = "https://cdn.builder.io/api/v1/image/assets%2F3547a9037a984aba998732807b68708a%2F7f430a7dbbc44354874eceaa0ea0936c?format=webp&width=200";
+    const logoUrl =
+      "https://cdn.builder.io/api/v1/image/assets%2F3547a9037a984aba998732807b68708a%2F7f430a7dbbc44354874eceaa0ea0936c?format=webp&width=200";
     try {
       doc.addImage(logoUrl, "WEBP", pageWidth / 2 - 25, currentY, 50, 25);
       currentY += 30;
@@ -184,14 +236,18 @@ export default function WorkLetters() {
     doc.setFontSize(11);
     doc.setTextColor(30, 30, 30);
     doc.setFont(undefined, "bold");
-    doc.text("South Park Cabinets INC", pageWidth / 2, currentY, { align: "center" });
+    doc.text("South Park Cabinets INC", pageWidth / 2, currentY, {
+      align: "center",
+    });
     currentY += 6;
 
     // Address and phone
     doc.setFontSize(9);
     doc.setTextColor(80, 80, 80);
     doc.setFont(undefined, "normal");
-    doc.text("511 Scholtz Road, Charlotte NC 28217", pageWidth / 2, currentY, { align: "center" });
+    doc.text("511 Scholtz Road, Charlotte NC 28217", pageWidth / 2, currentY, {
+      align: "center",
+    });
     currentY += 4;
     doc.text("Tel: 704 649 8265", pageWidth / 2, currentY, { align: "center" });
     currentY += 8;
@@ -286,7 +342,9 @@ export default function WorkLetters() {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold text-slate-900">Work Letters</h1>
-        <p className="text-slate-600 mt-1">Generate and download employment verification letters for employees</p>
+        <p className="text-slate-600 mt-1">
+          Generate and download employment verification letters for employees
+        </p>
       </div>
 
       {/* Filter Section */}
@@ -300,7 +358,10 @@ export default function WorkLetters() {
               <label className="text-sm font-medium text-slate-700 block mb-2">
                 Employment Status
               </label>
-              <Select value={filterStatus} onValueChange={(value: any) => setFilterStatus(value)}>
+              <Select
+                value={filterStatus}
+                onValueChange={(value: any) => setFilterStatus(value)}
+              >
                 <SelectTrigger className="border-slate-300">
                   <SelectValue />
                 </SelectTrigger>
@@ -321,34 +382,47 @@ export default function WorkLetters() {
         <CardHeader>
           <CardTitle className="text-lg">Available Employees</CardTitle>
           <CardDescription>
-            {filteredEmployees.length} employee{filteredEmployees.length !== 1 ? "s" : ""} found
+            {filteredEmployees.length} employee
+            {filteredEmployees.length !== 1 ? "s" : ""} found
           </CardDescription>
         </CardHeader>
         <CardContent>
           {filteredEmployees.length === 0 ? (
             <div className="text-center py-12">
               <FileText className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-              <p className="text-slate-600">No employees found matching the selected filters.</p>
+              <p className="text-slate-600">
+                No employees found matching the selected filters.
+              </p>
             </div>
           ) : (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {filteredEmployees.map((employee) => (
-                <Card key={employee.id} className="border-slate-200 hover:border-slate-300 transition-colors">
+                <Card
+                  key={employee.id}
+                  className="border-slate-200 hover:border-slate-300 transition-colors"
+                >
                   <CardContent className="pt-6">
                     <div className="space-y-3">
                       <div>
-                        <h3 className="font-semibold text-slate-900">{employee.name}</h3>
-                        <p className="text-sm text-slate-600">{employee.position}</p>
+                        <h3 className="font-semibold text-slate-900">
+                          {employee.name}
+                        </h3>
+                        <p className="text-sm text-slate-600">
+                          {employee.position}
+                        </p>
                       </div>
 
                       <div className="text-sm text-slate-600 space-y-1">
                         <p>
-                          <span className="font-medium">Employee ID:</span> {employee.id}
+                          <span className="font-medium">Employee ID:</span>{" "}
+                          {employee.id}
                         </p>
                         <p>
                           <span className="font-medium">Start Date:</span>{" "}
                           {(() => {
-                            const [year, month, day] = employee.startDate.split('-').map(Number);
+                            const [year, month, day] = employee.startDate
+                              .split("-")
+                              .map(Number);
                             const date = new Date(year, month - 1, day);
                             return date.toLocaleDateString("en-US", {
                               year: "numeric",
@@ -359,7 +433,8 @@ export default function WorkLetters() {
                         </p>
                         {employee.email && (
                           <p>
-                            <span className="font-medium">Email:</span> {employee.email}
+                            <span className="font-medium">Email:</span>{" "}
+                            {employee.email}
                           </p>
                         )}
                       </div>
@@ -412,7 +487,8 @@ export default function WorkLetters() {
           <DialogHeader>
             <DialogTitle>Work Letter Preview</DialogTitle>
             <DialogDescription>
-              {selectedEmployeeForPreview && `Preview for ${selectedEmployeeForPreview.name}`}
+              {selectedEmployeeForPreview &&
+                `Preview for ${selectedEmployeeForPreview.name}`}
             </DialogDescription>
           </DialogHeader>
 
@@ -426,8 +502,12 @@ export default function WorkLetters() {
                     className="h-24 object-contain"
                   />
                 </div>
-                <h2 className="text-xl font-bold text-slate-900 mb-2">South Park Cabinets INC</h2>
-                <p className="text-slate-600 text-sm font-semibold">511 Scholtz Road, Charlotte NC 28217</p>
+                <h2 className="text-xl font-bold text-slate-900 mb-2">
+                  South Park Cabinets INC
+                </h2>
+                <p className="text-slate-600 text-sm font-semibold">
+                  511 Scholtz Road, Charlotte NC 28217
+                </p>
                 <p className="text-slate-600 text-sm">Tel: 704 649 8265</p>
               </div>
 
@@ -443,9 +523,13 @@ export default function WorkLetters() {
               </div>
 
               <div className="mb-8">
-                <p className="font-semibold">{selectedEmployeeForPreview.name}</p>
+                <p className="font-semibold">
+                  {selectedEmployeeForPreview.name}
+                </p>
                 {selectedEmployeeForPreview.address && (
-                  <p className="text-sm text-slate-600">{selectedEmployeeForPreview.address}</p>
+                  <p className="text-sm text-slate-600">
+                    {selectedEmployeeForPreview.address}
+                  </p>
                 )}
               </div>
 
@@ -453,37 +537,46 @@ export default function WorkLetters() {
 
               <div className="space-y-4 text-sm leading-relaxed">
                 <p>
-                  This letter is to certify that {selectedEmployeeForPreview.name} has been employed as a{" "}
+                  This letter is to certify that{" "}
+                  {selectedEmployeeForPreview.name} has been employed as a{" "}
                   {selectedEmployeeForPreview.position}.
                 </p>
 
                 <div className="bg-slate-50 p-4 rounded">
                   <p>
-                    <span className="font-semibold">Employment Status:</span> Full-time Employee
+                    <span className="font-semibold">Employment Status:</span>{" "}
+                    Full-time Employee
                   </p>
                   <p>
                     <span className="font-semibold">Start Date:</span>{" "}
                     {formatDateLocal(selectedEmployeeForPreview.startDate)}
                   </p>
                   <p>
-                    <span className="font-semibold">Current Position:</span> {selectedEmployeeForPreview.position}
+                    <span className="font-semibold">Current Position:</span>{" "}
+                    {selectedEmployeeForPreview.position}
                   </p>
                   <p>
-                    <span className="font-semibold">Annual Compensation:</span> $
-                    {(selectedEmployeeForPreview.weeklyRate * 52).toLocaleString("en-US", {
+                    <span className="font-semibold">Annual Compensation:</span>{" "}
+                    $
+                    {(
+                      selectedEmployeeForPreview.weeklyRate * 52
+                    ).toLocaleString("en-US", {
                       maximumFractionDigits: 2,
                     })}
                   </p>
                 </div>
 
                 <p>
-                  {selectedEmployeeForPreview.name} has been a valuable and responsible member of our team. The
-                  information provided in this letter is accurate to the best of our knowledge.
+                  {selectedEmployeeForPreview.name} has been a valuable and
+                  responsible member of our team. The information provided in
+                  this letter is accurate to the best of our knowledge.
                 </p>
 
                 <p>
-                  This letter is issued for {selectedEmployeeForPreview.name}'s use in personal matters and is valid
-                  for official purposes. Please feel free to contact us should you require any additional information.
+                  This letter is issued for {selectedEmployeeForPreview.name}'s
+                  use in personal matters and is valid for official purposes.
+                  Please feel free to contact us should you require any
+                  additional information.
                 </p>
               </div>
 
