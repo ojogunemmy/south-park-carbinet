@@ -86,6 +86,7 @@ interface Employee {
   checkAttachment?: string;
   checkNumber?: string;
   directDeposit?: boolean;
+  itin?: string;
   paymentDay?: string;
   paymentStatus?: "active" | "paused" | "leaving" | "laid_off";
   defaultDaysWorkedPerWeek?: number;
@@ -225,6 +226,7 @@ export default function Employees() {
     checkAttachment: "", 
     checkNumber: "",
     directDeposit: emp.direct_deposit,
+    itin: emp.itin || "",
     paymentDay: emp.payment_day || "",
     paymentStatus: emp.payment_status,
     defaultDaysWorkedPerWeek: emp.default_days_worked || 5,
@@ -760,7 +762,8 @@ export default function Employees() {
           hire_date: formData.startDate,
           payment_start_date: formData.paymentStartDate,
           address: formData.address,
-          ssn: formData.ssn || formData.itin,
+          ssn: formData.ssn,
+          itin: formData.itin,
           weekly_rate: parseFloat(formData.weeklyRate),
           payment_method: formData.paymentMethod as any, // 'direct_deposit' | 'check' | 'cash' ...
           bank_details: {
@@ -804,7 +807,8 @@ export default function Employees() {
           hire_date: formData.startDate,
           payment_start_date: formData.paymentStartDate,
           address: formData.address,
-          ssn: formData.ssn || formData.itin,
+          ssn: formData.ssn,
+          itin: formData.itin,
           weekly_rate: parseFloat(formData.weeklyRate),
           payment_method: formData.paymentMethod as any,
           bank_details: {
@@ -865,7 +869,7 @@ export default function Employees() {
       paymentStartDate: employee.paymentStartDate || "",
       address: employee.address || "",
       ssn: employee.ssn || "",
-      itin: "",
+      itin: employee.itin || "",
       weeklyRate: employee.weeklyRate.toString(),
       paymentMethod: employee.paymentMethod || "cash",
       bankName: employee.bankName || "",
@@ -1634,9 +1638,15 @@ export default function Employees() {
       yPosition += 5;
 
       doc.setFont(undefined, "bold");
-      doc.text("Social/TIN:", col1X, yPosition);
+      doc.text("Social Security (SSN):", col1X, yPosition);
       doc.setFont(undefined, "normal");
       doc.text(emp.ssn || "-", col2X, yPosition);
+      yPosition += 5;
+
+      doc.setFont(undefined, "bold");
+      doc.text("ITIN (W-7):", col1X, yPosition);
+      doc.setFont(undefined, "normal");
+      doc.text(emp.itin || "-", col2X, yPosition);
       yPosition += 10;
     });
 
@@ -2277,6 +2287,12 @@ export default function Employees() {
                 {viewingEmployee.address && (
                   <p className="text-sm text-slate-700"><span className="font-medium">Address:</span> {viewingEmployee.address}</p>
                 )}
+              </div>
+
+              <div className="border-t pt-4 space-y-2">
+                <h3 className="font-semibold text-slate-900">Tax Information</h3>
+                <p className="text-sm text-slate-700"><span className="font-medium">SSN:</span> {viewingEmployee.ssn || "-"}</p>
+                <p className="text-sm text-slate-700"><span className="font-medium">ITIN:</span> {viewingEmployee.itin || "-"}</p>
               </div>
 
               <div className="border-t pt-4">

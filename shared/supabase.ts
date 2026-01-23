@@ -29,6 +29,7 @@ export type Employee = {
   ssn: string | null;
   address: string | null;
   telephone: string | null;
+  itin: string | null;
   payment_method: 'direct_deposit' | 'check' | 'cash' | 'ach' | 'wire' | null;
   payment_day: string | null;
   payment_status: 'active' | 'paused' | 'leaving' | 'laid_off';
