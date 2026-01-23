@@ -29,6 +29,6 @@
       "@shared/*": ["./shared/*"]
     }
   },
-  "include": ["client", "server", "shared", "api"],
+  "include": ["client", "server", "shared"],
   "exclude": ["node_modules"]
 }

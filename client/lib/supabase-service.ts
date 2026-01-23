@@ -12,7 +12,7 @@ import {
 } from "./supabase";
 export type { Employee, Payment, Contract, Bill, Material, Settings, Profile, EmployeeAbsence, SalaryHistory };
 
-const API_BASE = "/api";
+const API_BASE = import.meta.env.VITE_API_URL || "/api";
 
 export async function remoteLog(
   message: string,
