@@ -799,7 +799,6 @@ export default function Employees() {
 
         const newEmployee: Omit<SupabaseEmployee, "created_at" | "updated_at"> = {
           id: newId, 
-          user_id: null, // explicit null if required or omitted
           name: formData.name,
           position: formData.position,
           telephone: formData.telephone,

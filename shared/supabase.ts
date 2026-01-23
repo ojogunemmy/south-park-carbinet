@@ -19,7 +19,6 @@ export const createSharedSupabaseClient = (url?: string, key?: string) => {
 // Database types
 export type Employee = {
   id: string;
-  user_id: string | null;
   name: string;
   email: string | null;
   position: string | null;
