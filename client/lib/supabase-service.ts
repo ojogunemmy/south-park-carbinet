@@ -199,6 +199,13 @@ export const profilesService = {
   async getById(id: string) {
     return apiFetch<Profile>(`/profiles/${id}`);
   },
+
+  async create(user: any) {
+    return apiFetch<Profile>("/profiles", {
+      method: "POST",
+      body: JSON.stringify(user),
+    });
+  },
 };
 
 // ============================================

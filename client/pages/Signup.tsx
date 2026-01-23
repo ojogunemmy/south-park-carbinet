@@ -11,6 +11,7 @@ export default function Signup() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [fullName, setFullName] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
@@ -37,6 +38,8 @@ export default function Signup() {
         password,
         options: {
           data: {
+            name: fullName,
+            full_name: fullName,
             role: 'employee',
           }
         }
@@ -72,6 +75,18 @@ export default function Signup() {
                 <AlertDescription>{error}</AlertDescription>
               </Alert>
             )}
+            
+            <div className="space-y-2">
+              <Label htmlFor="name">Full Name</Label>
+              <Input
+                id="name"
+                placeholder="John Doe"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                required
+                disabled={loading}
+              />
+            </div>
             
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>

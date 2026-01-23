@@ -100,21 +100,15 @@ export default function Index() {
     }
 
     try {
-      // For demo migration, we handle auth via Supabase
-      const { data, error } = await supabase.auth.signUp({
+      // Create user via backend Admin API to prevent session switching
+      await profilesService.create({
         email: newUserEmail,
         password: newUserPassword,
-        options: {
-          data: {
-            name: newUserName,
-            role: newUserRole,
-          }
-        }
+        name: newUserName,
+        role: newUserRole,
       });
 
-      if (error) throw error;
-      
-      alert("User account created. Please note: Creating a user via SignUp may log out the current admin session in some Supabase configurations unless Auth Admin API is used.");
+      alert("User account created successfully!");
       
       // Refresh profiles
       const updatedProfiles = await profilesService.getAll();
