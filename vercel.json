@@ -1,5 +1,8 @@
 {
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/" }
+  "framework": "vite",
+  "buildCommand": "pnpm build",
+  "outputDirectory": "dist/spa",
+  "routes": [
+    { "src": "/(.*)", "dest": "/index.html" }
   ]
 }
