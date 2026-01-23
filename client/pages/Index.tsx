@@ -106,7 +106,7 @@ export default function Index() {
         password: newUserPassword,
         options: {
           data: {
-            full_name: newUserName,
+            name: newUserName,
             role: newUserRole,
           }
         }
@@ -137,7 +137,7 @@ export default function Index() {
 
   const handleEditUser = (user: Profile) => {
     setEditingUserId(user.id);
-    setEditName(user.full_name || "");
+    setEditName(user.name || "");
     setEditEmail(user.email || "");
     setEditRole(user.role || "worker");
     setIsEditUserOpen(true);
@@ -153,7 +153,7 @@ export default function Index() {
 
     try {
       await profilesService.update(editingUserId, {
-        full_name: editName,
+        name: editName,
         email: editEmail,
         role: editRole as any,
       });
@@ -851,7 +851,7 @@ export default function Index() {
               <tbody>
                 {profiles.map((profile, idx) => (
                   <tr key={profile.id} className={idx % 2 === 0 ? "bg-white" : "bg-slate-50"}>
-                    <td className="p-3 text-slate-700 font-medium">{profile.full_name || "N/A"}</td>
+                    <td className="p-3 text-slate-700 font-medium">{profile.name || "N/A"}</td>
                     <td className="p-3 text-slate-700">{profile.email}</td>
                     <td className="p-3 text-slate-700 font-mono text-sm">••••••••</td>
                     <td className="p-3">

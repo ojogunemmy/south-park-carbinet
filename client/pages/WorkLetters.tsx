@@ -126,7 +126,7 @@ export default function WorkLetters() {
   const mapDbEmployee = (dbEmp: any): Employee => {
     return {
       id: dbEmp.id,
-      name: dbEmp.name || dbEmp.full_name || dbEmp.client_name || "",
+      name: dbEmp.name || dbEmp.client_name || "",
       position: dbEmp.position || dbEmp.project_name || "",
       weeklyRate: (dbEmp.weekly_rate ?? dbEmp.weeklyRate ?? 0) as number,
       startDate:

@@ -157,7 +157,7 @@ export type Settings = {
 export type Profile = {
   id: string;
   email: string;
-  full_name: string | null;
+  name: string | null;
   role: 'admin' | 'manager' | 'worker' | 'employee';
   is_verified: boolean | null;
   created_at: string;

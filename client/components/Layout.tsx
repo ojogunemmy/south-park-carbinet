@@ -152,11 +152,11 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
       <div className="border-t border-slate-200 p-4 space-y-4">
         <div className="flex items-center gap-3 px-3 py-2">
           <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-xs">
-            {profile?.full_name?.charAt(0) || profile?.email?.charAt(0) || "U"}
+            {profile?.name?.charAt(0) || profile?.email?.charAt(0) || "U"}
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-xs font-semibold text-slate-900 truncate">
-              {profile?.full_name || "User"}
+              {profile?.name || "User"}
             </p>
             <p className="text-[10px] text-slate-500 capitalize">{role}</p>
           </div>
