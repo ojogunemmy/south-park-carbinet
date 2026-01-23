@@ -7,9 +7,10 @@ import {
   type Material,
   type Settings,
   type Profile,
-  type EmployeeAbsence
+  type EmployeeAbsence,
+  type SalaryHistory
 } from "./supabase";
-export type { Employee, Payment, Contract, Bill, Material, Settings, Profile, EmployeeAbsence };
+export type { Employee, Payment, Contract, Bill, Material, Settings, Profile, EmployeeAbsence, SalaryHistory };
 
 const API_BASE = "/api";
 
@@ -377,3 +378,30 @@ export const settingsService = {
     });
   },
 };
+
+// ============================================
+// SALARY HISTORY SERVICE
+// ============================================
+export const salaryHistoryService = {
+  async getAll() {
+    return apiFetch<SalaryHistory[]>("/salary-history");
+  },
+
+  async getByEmployee(employeeId: string) {
+    return apiFetch<SalaryHistory[]>(`/salary-history/employee/${employeeId}`);
+  },
+
+  async create(record: Partial<SalaryHistory>) {
+    return apiFetch<SalaryHistory>("/salary-history", {
+      method: "POST",
+      body: JSON.stringify(record),
+    });
+  },
+
+  async delete(id: string) {
+    return apiFetch<{ message: string }>(`/salary-history/${id}`, {
+      method: "DELETE",
+    });
+  },
+};
+

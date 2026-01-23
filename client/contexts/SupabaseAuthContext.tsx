@@ -12,7 +12,7 @@ import type { User } from "@supabase/supabase-js";
 interface AuthContextType {
   user: User | null;
   profile: Profile | null;
-  role: "admin" | "employee" | null;
+  role: "admin" | "manager" | "worker" | "employee" | null;
   isVerified: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;

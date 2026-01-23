@@ -163,3 +163,15 @@ export type Profile = {
   created_at: string;
   updated_at: string;
 };
+
+export type SalaryHistory = {
+  id: string;
+  employee_id: string;
+  effective_date: string;
+  previous_salary: number;
+  new_salary: number;
+  reason: string | null;
+  is_retroactive: boolean;
+  created_at: string;
+  updated_at: string;
+};

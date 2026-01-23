@@ -39,22 +39,22 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
       ],
     },
     {
-      title: "Team Management",
+      title: "Payroll",
       items: [
         {
           label: "Employees",
           path: "/employees",
           icon: Users,
         },
+         {
+          label: "Payments",
+          path: "/payments",
+          icon: CreditCard,
+        },
         {
           label: "Work Letters",
           path: "/work-letters",
           icon: FileCheck,
-        },
-        {
-          label: "Workers",
-          path: "/workers",
-          icon: Users,
         },
       ],
       adminOnly: true,
@@ -66,11 +66,6 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
           label: "Contracts",
           path: "/contracts",
           icon: Briefcase,
-        },
-        {
-          label: "Payments",
-          path: "/payments",
-          icon: CreditCard,
         },
         {
           label: "Bills",

@@ -216,7 +216,7 @@ export default function WorkLetters() {
       format: "a4",
     });
 
-    const pageWidth = doc.getPageWidth();
+    const pageWidth = doc.internal.pageSize.getWidth();
     const marginX = 20;
     const marginY = 20;
     let currentY = marginY;

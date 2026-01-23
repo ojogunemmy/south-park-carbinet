@@ -11,6 +11,7 @@ import profileRoutes from "./routes/profiles";
 import materialRoutes from "./routes/materials";
 import settingsRoutes from "./routes/settings";
 import absenceRoutes from "./routes/absences";
+import salaryHistoryRoutes from "./routes/salary-history";
 import { authMiddleware } from "./middleware/auth";
 
 export function createServer() {
@@ -30,6 +31,7 @@ export function createServer() {
   app.use("/api/materials", authMiddleware, materialRoutes);
   app.use("/api/settings", authMiddleware, settingsRoutes);
   app.use("/api/absences", authMiddleware, absenceRoutes);
+  app.use("/api/salary-history", authMiddleware, salaryHistoryRoutes);
 
   // Ping route
   app.get("/api/ping", (_req, res) => {
