@@ -95,9 +95,19 @@ export default function Payments() {
 
     let words = '';
     if (dollars > 0) {
-      words += convertHundreds(Math.floor(dollars / 1000000)) + ' Million ';
-      words += convertHundreds(Math.floor((dollars % 1000000) / 1000)) + ' Thousand ';
-      words += convertHundreds(dollars % 1000);
+      const millions = Math.floor(dollars / 1000000);
+      const thousands = Math.floor((dollars % 1000000) / 1000);
+      const rest = dollars % 1000;
+
+      if (millions > 0) {
+        words += convertHundreds(millions) + ' Million ';
+      }
+      if (thousands > 0) {
+        words += convertHundreds(thousands) + ' Thousand ';
+      }
+      if (rest > 0) {
+        words += convertHundreds(rest);
+      }
       words = words.replace(/\s+/g, ' ').trim() + ' Dollars';
     }
 
@@ -428,7 +438,11 @@ export default function Payments() {
         settingsService.get(),
       ]);
       setEmployees(empData || []);
-      setPayments(payData || []);
+      setPayments((payData || []).map((p: any) => ({
+        ...p,
+        employee_name: p.employees?.name || "Unknown Employee",
+        employee_position: p.employees?.position,
+      })));
       setAbsences(absData || []);
       setSettings(settingsData || null);
     } catch (error) {

@@ -39,14 +39,23 @@ type PaymentMethod = "credit_card" | "debit_card" | "cash" | "bank_transfer" | "
 
 const BILL_CATEGORIES = [
   "Materials",
+  "Office Supplies",
   "Energy",
+  "Gas",
   "Water",
-  "Cleaning",
-  "Landscape",
+  "Landscaping",
+  "Waste",
   "Insurance",
-  "Rent",
-  "Uniform",
-  "Other",
+  "Rent & Lease Payments",
+  "Accounting",
+  "Contadora",
+  "Advertising & Marketing",
+  "Staff & Technology Services",
+  "Uniforms & Staff Apparel",
+  "IT Services & Internet",
+  "Multiple / Miscellaneous Services",
+  "Taxes",
+  "Others",
 ];
 
 interface FormData {
@@ -89,6 +98,7 @@ export default function Bills() {
   const [filterStatus, setFilterStatus] = useState<"all" | "paid" | "pending" | "overdue">("all");
   const [filterFromDate, setFilterFromDate] = useState<string>("");
   const [filterToDate, setFilterToDate] = useState<string>("");
+  const [filterCategory, setFilterCategory] = useState<string>("all");
   const [paymentDetails, setPaymentDetails] = useState({
     creditCardNumber: "",
     creditCardHolder: "",
@@ -163,6 +173,7 @@ export default function Bills() {
   const filteredBills = bills
     .filter((bill) => {
       const statusMatch = filterStatus === "all" || bill.status === filterStatus;
+      const categoryMatch = filterCategory === "all" || bill.category === filterCategory;
 
       let dateMatch = true;
       if ((filterFromDate || filterToDate) && bill.due_date) {
@@ -182,7 +193,7 @@ export default function Bills() {
         }
       }
 
-      return statusMatch && dateMatch;
+      return statusMatch && dateMatch && categoryMatch;
     })
     .sort((a, b) => {
       // Sort by due_date in descending order (most recent first)
@@ -247,7 +258,7 @@ export default function Bills() {
         toast({ title: "Success", description: "Bill updated successfully" });
       } else {
         await billsService.create({
-          id: `BILL-${Date.now()}`,
+          id: `BILL-${Math.floor(10000 + Math.random() * 90000)}-${Math.floor(1 + Math.random() * 9)}`,
           vendor: formData.vendor,
           description: formData.description,
           category: formData.category,
@@ -1487,7 +1498,21 @@ export default function Bills() {
                 >
                   Overdue ({bills.filter(b => b.status === "overdue").length})
                 </Button>
+
                 <div className="border-l border-slate-200 mx-2 h-6"></div>
+                <Select value={filterCategory} onValueChange={setFilterCategory}>
+                  <SelectTrigger className="w-[180px] border-slate-300">
+                    <SelectValue placeholder="Category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Categories</SelectItem>
+                    {BILL_CATEGORIES.map((category) => (
+                      <SelectItem key={category} value={category}>
+                        {category}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <Input
                   type="date"
                   placeholder="From"
@@ -1522,6 +1547,7 @@ export default function Bills() {
                   <thead className="border-b border-slate-200 bg-slate-50">
                     <tr>
                       <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">ID</th>
+                      <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Category</th>
                       <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Vendor</th>
                       <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Description</th>
                       <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Amount</th>
@@ -1533,6 +1559,11 @@ export default function Bills() {
                     {filteredBills.map((bill, idx) => (
                       <tr key={bill.id} className={idx % 2 === 0 ? "bg-white" : "bg-slate-50"}>
                         <td className="p-3 text-slate-700 font-medium whitespace-nowrap">{bill.id}</td>
+                        <td className="p-3 text-slate-700 text-xs whitespace-nowrap">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-800">
+                            {bill.category}
+                          </span>
+                        </td>
                         <td className="p-3 text-slate-700 text-xs whitespace-nowrap">{bill.vendor}</td>
                         <td className="p-3 text-slate-700 text-xs whitespace-nowrap">{bill.description}</td>
                         <td className="p-3 text-slate-700 font-semibold whitespace-nowrap">${bill.amount.toLocaleString()}</td>
