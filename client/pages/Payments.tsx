@@ -963,10 +963,11 @@ export default function Payments() {
   }, 0);
 
   const handleMarkAllAsPaid = async () => {
-    const confirmed = window.confirm("Are you sure you want to mark ALL pending payments as paid?");
+    const confirmed = window.confirm("Are you sure you want to mark ALL pending payments in the CURRENT VIEW as paid?");
     if (confirmed) {
       const today = getTodayDate();
-      const pendingIds = payments.filter(p => p.status === "pending").map(p => p.id);
+      // Only mark the payments currently visible/filtered as paid
+      const pendingIds = filteredPayments.filter(p => p.status === "pending").map(p => p.id);
       
       try {
         await Promise.all(pendingIds.map(id => 
