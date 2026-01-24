@@ -61,6 +61,9 @@ export type Payment = {
   notes: string | null;
   gross_amount: number | null;
   bonus_amount: number | null;
+  is_severance: boolean | null;
+  severance_reason: string | null;
+  severance_date: string | null;
   created_at?: string;
   updated_at?: string;
 };
