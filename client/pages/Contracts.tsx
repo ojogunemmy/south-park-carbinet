@@ -502,7 +502,10 @@ export default function Contracts() {
       additional_notes: "",
     });
     setContractAttachments([]);
-    setCostTracking(initializeCostTracking());
+    setCostTracking({
+      ...initializeCostTracking(),
+      materials: availableMaterials.map(m => ({ ...m, quantity: 0 }))
+    });
   };
 
   const handleAddContract = async () => {
@@ -626,7 +629,33 @@ export default function Contracts() {
       installation_included: contract.installation_included || false,
       additional_notes: contract.additional_notes || "",
     });
-    setCostTracking(initializeCostTracking(contract.cost_tracking));
+    
+    // Merge saved materials with currently available materials to ensure new standard items appear
+    const savedMaterials = contract.cost_tracking?.materials || [];
+    const mergedMaterials = availableMaterials.map(am => {
+      const existing = savedMaterials.find(m => m.id === am.id);
+      if (existing) {
+        return {
+          ...am,
+          quantity: existing.quantity,
+          unit_price: existing.unit_price || (existing as any).unitPrice || am.unit_price
+        };
+      }
+      return { ...am, quantity: 0 };
+    });
+
+    // Also include any custom materials that might have been saved but aren't in availableMaterials
+    savedMaterials.forEach(sm => {
+      if (!availableMaterials.find(am => am.id === sm.id)) {
+        mergedMaterials.push(sm);
+      }
+    });
+
+    setCostTracking({
+      ...initializeCostTracking(contract.cost_tracking),
+      materials: mergedMaterials
+    });
+    
     setContractAttachments(contract.attachments || []);
     setIsModalOpen(true);
   };
@@ -2504,7 +2533,8 @@ export default function Contracts() {
                     {!costTracking.materials || costTracking.materials.length === 0 ? (
                       <p className="text-sm text-slate-600 italic">Loading materials...</p>
                     ) : costTracking.materials.map((material) => {
-                      const total = material.quantity * material.unit_price;
+                      const price = material.unit_price || (material as any).unitPrice || 0;
+                      const total = (material.quantity || 0) * price;
                       const predefinedMaterial = availableMaterials.find(m => m.id === material.id);
                       const supplier = material.supplier || predefinedMaterial?.supplier;
                       return (
@@ -2512,7 +2542,7 @@ export default function Contracts() {
                           <div className="flex-1">
                             <p className="text-sm font-medium text-slate-900">{material.name}</p>
                             <div className="flex items-center gap-2 mt-1">
-                              <span className="text-xs text-slate-600">${material.unit_price.toLocaleString(undefined, { maximumFractionDigits: 2 })}/{material.unit}</span>
+                              <span className="text-xs text-slate-600">${price.toLocaleString(undefined, { maximumFractionDigits: 2 })}/{material.unit}</span>
                               {supplier && (
                                 <span className="text-xs text-slate-500 italic">• {supplier}</span>
                               )}
@@ -2546,7 +2576,7 @@ export default function Contracts() {
                     <p className="text-sm font-semibold text-slate-900">
                       Standard Materials Subtotal:{" "}
                       <span className="text-blue-600">
-                        ${((costTracking.materials || []).reduce((sum, m) => sum + m.quantity * m.unit_price, 0)).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                        ${((costTracking.materials || []).reduce((sum, m) => sum + (m.quantity || 0) * (m.unit_price || (m as any).unitPrice || 0), 0)).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                       </span>
                     </p>
                   </div>
@@ -2584,7 +2614,7 @@ export default function Contracts() {
                         {costTracking.materials
                           .filter((m) => m.id.startsWith("CUSTOM"))
                           .map((material) => {
-                            const total = material.quantity * material.unit_price;
+                            const total = (material.quantity || 0) * (material.unit_price || (material as any).unitPrice || 0);
                             return (
                               <div key={material.id} className="flex items-center gap-2 p-3 bg-white rounded border border-slate-200">
                                 <Input
@@ -2653,7 +2683,7 @@ export default function Contracts() {
                     <p className="text-sm font-bold text-slate-900">
                       Total Material Cost (1 section):{" "}
                       <span className="text-green-600">
-                        ${costTracking.materials.reduce((sum, m) => sum + m.quantity * m.unit_price, 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                        ${costTracking.materials.reduce((sum, m) => sum + (m.quantity || 0) * (m.unit_price || (m as any).unitPrice || 0), 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                       </span>
                     </p>
                   </div>
@@ -2758,7 +2788,7 @@ export default function Contracts() {
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
                     <span className="text-slate-700">Material Costs:</span>
-                    <span className="font-semibold">${(costTracking.materials || []).reduce((sum, m) => sum + m.quantity * m.unit_price, 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                    <span className="font-semibold">${(costTracking.materials || []).reduce((sum, m) => sum + (m.quantity || 0) * (m.unit_price || (m as any).unitPrice || 0), 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-700">Labor Costs:</span>
@@ -2772,7 +2802,7 @@ export default function Contracts() {
                     <span className="text-slate-900 font-bold">Total Project Costs:</span>
                     <span className="text-lg font-bold text-blue-600">
                       ${(
-                        ((costTracking?.materials) || []).reduce((sum, m) => sum + m.quantity * m.unit_price, 0) +
+                        ((costTracking?.materials) || []).reduce((sum, m) => sum + (m.quantity || 0) * (m.unit_price || (m as any).unitPrice || 0), 0) +
                         ((costTracking?.labor_cost?.amount) || 0) +
                         ((costTracking?.miscellaneous) || []).reduce((sum, m) => sum + m.amount, 0)
                       ).toLocaleString(undefined, { maximumFractionDigits: 2 })}
