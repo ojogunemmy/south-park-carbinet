@@ -101,6 +101,15 @@ interface Expense {
   file_name?: string;
 }
 
+export interface Attachment {
+  id: string;
+  fileName: string;
+  fileType: string;
+  fileSize: number;
+  fileData: string;
+  uploadDate?: string;
+}
+
 interface ContractAttachment {
   id: string;
   file_name: string;
@@ -607,6 +616,7 @@ export default function Contracts() {
   const handleEditContract = (contract: Contract) => {
     setIsEditMode(true);
     setEditingContractId(contract.id);
+    setTempPdfAttachments(contract.attachments || []);
     setFormData({
       client_name: contract.client_name,
       client_address: contract.client_address || "",
@@ -1061,7 +1071,7 @@ export default function Contracts() {
     return yPos + headerHeight + 2;
   };
 
-  const generateCabinetInstallationPDF = (contract: Contract) => {
+  const generateCabinetInstallationPDF = (contract: Contract, attachments: Attachment[] = []) => {
     const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
     const pageWidth = pdf.internal.pageSize.getWidth();
     const pageHeight = pdf.internal.pageSize.getHeight();
@@ -1097,11 +1107,11 @@ export default function Contracts() {
     pdf.setFont(undefined, "normal");
     pdf.text(`Name: ${contract.client_name}`, margin, yPosition);
     yPosition += lineHeight;
-    pdf.text(`Address: ${contract.client_address}, ${contract.client_city}, ${contract.client_state} ${contract.client_zip}`, margin, yPosition, { maxWidth: contentWidth });
+    pdf.text(`Address: ${contract.client_address ? `${contract.client_address}, ` : ""}${contract.client_city ? `${contract.client_city}, ` : ""}${contract.client_state || ""} ${contract.client_zip || ""}`, margin, yPosition, { maxWidth: contentWidth });
     yPosition += lineHeight + 2;
-    pdf.text(`Phone: ${contract.client_phone}`, margin, yPosition);
+    pdf.text(`Phone: ${contract.client_phone || ""}`, margin, yPosition);
     yPosition += lineHeight;
-    pdf.text(`Email: ${contract.client_email}`, margin, yPosition);
+    pdf.text(`Email: ${contract.client_email || ""}`, margin, yPosition);
     yPosition += 15;
 
     // Project Information
@@ -1111,7 +1121,7 @@ export default function Contracts() {
     pdf.setFont(undefined, "normal");
     pdf.text(`Project: ${contract.project_name}`, margin, yPosition);
     yPosition += lineHeight;
-    pdf.text(`Description: ${contract.project_description}`, margin, yPosition, { maxWidth: contentWidth });
+    pdf.text(`Description: ${contract.project_description || ""}`, margin, yPosition, { maxWidth: contentWidth });
     yPosition += lineHeight + 2;
     pdf.text(`Location: ${contract.project_location}`, margin, yPosition, { maxWidth: contentWidth });
     yPosition += 15;
@@ -1134,48 +1144,46 @@ export default function Contracts() {
     yPosition += 10;
 
     // Material Costs (Internal)
-    const cost_tracking = contract.cost_tracking as CostTracking;
-    const materialCost = cost_tracking.materials.reduce((sum, m) => sum + m.quantity * m.unit_price, 0);
-    const miscCost = cost_tracking.miscellaneous.reduce((sum, m) => sum + m.amount, 0);
+    const cost_tracking = contract.cost_tracking || {} as any;
+    const materials = cost_tracking.materials || [];
+    const labor_cost = cost_tracking.labor_cost || { calculation_method: "manual", amount: 0, description: "" };
+    const miscellaneous = cost_tracking.miscellaneous || [];
+
+    const materialCost = materials.reduce((sum: number, m: any) => sum + (m.quantity || 0) * (m.unit_price || 0), 0);
+    const miscCost = miscellaneous.reduce((sum: number, m: any) => sum + (m.amount || 0), 0);
 
     pdf.setFont(undefined, "bold");
     pdf.text("MATERIAL LIST", margin, yPosition);
     yPosition += lineHeight;
     pdf.setFont(undefined, "normal");
 
-    if (cost_tracking.materials.length > 0) {
-      cost_tracking.materials.forEach((material) => {
+    if (materials.length > 0) {
+      materials.forEach((material: any) => {
         if (material.quantity > 0) {
-          const cost = material.quantity * material.unit_price;
+          const cost = material.quantity * (material.unit_price || 0);
           const predefinedMaterial = availableMaterials.find(m => m.id === material.id);
           const supplier = material.supplier || predefinedMaterial?.supplier;
-
-          // Material name on first line
-          pdf.setFontSize(8);
-          const nameLines = pdf.splitTextToSize(`${material.name}`, contentWidth - 5);
-          nameLines.forEach((line: string) => {
+          
+          // Format: Name: Qty Unit @ Price = Total [Supplier]
+          // Indent slightly for visibility
+           pdf.setFontSize(9);
+          const lineText = `${material.name}: ${material.quantity} ${material.unit} @ $${(material.unit_price || 0).toFixed(2)} = $${cost.toFixed(2)}${supplier ? ` [${supplier}]` : ""}`;
+          
+          const lines = pdf.splitTextToSize(lineText, contentWidth - 5);
+          lines.forEach((line: string) => {
             pdf.text(line, margin + 5, yPosition);
             yPosition += lineHeight - 1;
           });
-
-          // Quantity, price, and supplier on next line
-          const detailsLine = `${material.quantity} ${material.unit} @ $${material.unit_price.toLocaleString(undefined, { maximumFractionDigits: 2 })} = $${cost.toLocaleString(undefined, { maximumFractionDigits: 2 })}${supplier ? ` [${supplier}]` : ""}`;
-          const detailsLines = pdf.splitTextToSize(detailsLine, contentWidth - 10);
-          detailsLines.forEach((line: string) => {
-            pdf.text(line, margin + 10, yPosition);
-            yPosition += lineHeight - 1;
-          });
-
           yPosition += 2;
         }
       });
     }
 
-    yPosition += 8;
+    yPosition += 5;
     pdf.setFont(undefined, "bold");
     pdf.setFontSize(10);
     pdf.text(`Total Material Cost: $${materialCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, margin, yPosition);
-    yPosition += lineHeight + 4;
+    yPosition += lineHeight + 8;
 
     // Labor Cost
     pdf.setFont(undefined, "bold");
@@ -1183,69 +1191,51 @@ export default function Contracts() {
     yPosition += lineHeight;
     pdf.setFont(undefined, "normal");
     pdf.setFontSize(9);
-    pdf.text(`Method: ${cost_tracking.labor_cost.calculation_method}`, margin + 3, yPosition);
+
+    const laborMethod = labor_cost.calculation_method || "manual";
+    const laborDesc = labor_cost.description || "N/A";
+    const laborAmount = labor_cost.amount || 0;
+
+    pdf.text(`Method: ${laborMethod}`, margin + 5, yPosition);
     yPosition += lineHeight;
-    const descLines = pdf.splitTextToSize(`Description: ${cost_tracking.labor_cost.description}`, contentWidth - 5);
+    const descLines = pdf.splitTextToSize(`Description: ${laborDesc}`, contentWidth - 5);
     descLines.forEach((line: string) => {
-      pdf.text(line, margin + 3, yPosition);
+      pdf.text(line, margin + 5, yPosition);
       yPosition += lineHeight;
     });
-    pdf.setFont(undefined, "bold");
-    pdf.text(`Amount: $${cost_tracking.labor_cost.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, margin + 3, yPosition);
-    yPosition += lineHeight + 5;
-
-    // Misc Costs
-    if (miscCost > 0) {
-      pdf.setFont(undefined, "bold");
-      pdf.text("MISCELLANEOUS COSTS", margin, yPosition);
-      yPosition += lineHeight;
-      pdf.setFont(undefined, "normal");
-
-      cost_tracking.miscellaneous.forEach((item) => {
-        const line = `${item.description}: $${item.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
-        pdf.text(line, margin + 5, yPosition);
-        yPosition += lineHeight;
-      });
-      yPosition += 5;
-    }
+    pdf.text(`Amount: $${laborAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, margin + 5, yPosition);
+    yPosition += lineHeight + 8;
 
     // Cost Summary
-    const totalCosts = materialCost + cost_tracking.labor_cost.amount + miscCost;
-    const profit = contract.total_value - totalCosts;
-    const profitMargin = contract.total_value > 0 ? (profit / contract.total_value) * 100 : 0;
-
-    // Add separator line
-    pdf.setDrawColor(0, 0, 0);
-    pdf.setLineWidth(0.5);
-    pdf.line(margin, yPosition, margin + contentWidth, yPosition);
-    yPosition += lineHeight + 2;
+    // Cost Summary
+    const totalCosts = materialCost + laborAmount + miscCost;
+    const profit = (contract.total_value || 0) - totalCosts;
+    const profitMargin = (contract.total_value || 0) > 0 ? (profit / contract.total_value) * 100 : 0;
 
     pdf.setFont(undefined, "bold");
-    pdf.setFontSize(11);
-    pdf.text("COST SUMMARY", margin, yPosition);
-    yPosition += lineHeight + 2;
-
     pdf.setFontSize(10);
-    pdf.setFont(undefined, "normal");
-    pdf.text(`Contract Value: $${(contract.total_value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`, margin + 3, yPosition);
+    pdf.text("COST SUMMARY", margin, yPosition);
     yPosition += lineHeight;
 
-    pdf.text(`Total Costs: $${totalCosts.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, margin + 3, yPosition);
-    yPosition += lineHeight + 2;
+    pdf.setFont(undefined, "normal");
+    pdf.text(`Contract Value: $${(contract.total_value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`, margin + 5, yPosition);
+    yPosition += lineHeight;
+    pdf.text(`Total Costs: $${totalCosts.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, margin + 5, yPosition);
+    yPosition += lineHeight;
 
     pdf.setFont(undefined, "bold");
-    pdf.setFontSize(11);
-    // Green for profit, red for loss
     if (profit >= 0) {
       pdf.setTextColor(34, 139, 34); // Dark green
     } else {
       pdf.setTextColor(220, 20, 60); // Crimson red
     }
-    pdf.text(`Profit: $${profit.toLocaleString(undefined, { maximumFractionDigits: 2 })} (${profitMargin.toFixed(1)}%)`, margin + 3, yPosition);
+    pdf.text(`Profit: $${profit.toLocaleString(undefined, { maximumFractionDigits: 2 })} (${profitMargin.toFixed(1)}%)`, margin + 5, yPosition);
     pdf.setTextColor(0, 0, 0); // Reset color
+    yPosition += 15;
 
-    // Add all attachments (images, maps, PDFs, documents, etc.)
-    if (contract.attachments && contract.attachments.length > 0) {
+    // Add Attachments (2 per page)
+    const allAttachments = [...(contract.attachments || []), ...attachments];
+    if (allAttachments.length > 0) {
       // Start new page for attachments
       pdf.addPage();
       addLogoToPageTop(pdf, pageWidth);
@@ -1256,67 +1246,68 @@ export default function Contracts() {
       pdf.text("DESIGN & CONTRACT ATTACHMENTS", margin, yPosition);
       yPosition += 15;
 
-      pdf.setFont(undefined, "normal");
-      pdf.setFontSize(10);
+      // Grid logic: 2 images per page
+      // Page usable height: (pageHeight - 30 (top) - 15 (bottom)) = ~250mm
+      // Slot 1: Y=45, Height=100
+      // Slot 2: Y=160, Height=100
+      
+      let itemsOnPage = 0;
+      
+      allAttachments.forEach((attachment, index) => {
+         // Determine position
+         if (itemsOnPage >= 2) {
+           pdf.addPage();
+           addLogoToPageTop(pdf, pageWidth);
+           yPosition = 30;
+           itemsOnPage = 0;
+           // Redraw header on new pages? Maybe not necessary, but consistent
+         }
 
-      // Add each attachment
-      contract.attachments.forEach((attachment, index) => {
-        // Check if we need a new page
-        if (yPosition > pageHeight - 80) {
-          pdf.addPage();
-          addLogoToPageTop(pdf, pageWidth);
-          yPosition = 30;
-        }
+         const currentY = itemsOnPage === 0 ? 45 : 160;
+         
+         // Title
+         pdf.setFont(undefined, "bold");
+         pdf.setFontSize(10);
+         pdf.setTextColor(0, 0, 0);
+         pdf.text(`${index + 1}. ${attachment.fileName}`, margin, currentY);
+         
+         const imageY = currentY + 5;
+         const availableHeight = 100;
+         const availableWidth = pageWidth - 2 * margin;
 
-        // Add attachment title
-        pdf.setFont(undefined, "bold");
-        pdf.setFontSize(10);
-        pdf.text(`${index + 1}. ${attachment.fileName}`, margin, yPosition);
-        yPosition += 8;
-
-        // Check if it's an image and try to embed it
-        const isImage = attachment.fileData.startsWith('data:image/');
-
-        if (isImage) {
-          const imageFormat = getImageFormatFromDataURI(attachment.fileData);
-
-          if (imageFormat === null) {
-            // SVG is not supported by jsPDF - show placeholder
-            pdf.setFont(undefined, "normal");
-            pdf.setFontSize(9);
-            pdf.text(`[SVG Image: ${attachment.fileName} - Not supported in PDF]`, margin, yPosition);
-            yPosition += 8;
-          } else {
-            try {
-              const imgWidth = pageWidth - 2 * margin;
-              const imgHeight = 100; // Fixed height for images
-              pdf.addImage(attachment.fileData, imageFormat, margin, yPosition, imgWidth, imgHeight);
-              yPosition += imgHeight + 10;
-            } catch (error) {
-              console.error(`Failed to add image ${attachment.fileName}:`, error);
-              pdf.setFont(undefined, "normal");
-              pdf.setFontSize(9);
-              pdf.text(`[Image: ${attachment.fileName} - Unable to display]`, margin, yPosition);
-              yPosition += 10;
-            }
-          }
-        } else {
-          // For non-image files, show file info
-          pdf.setFont(undefined, "normal");
-          pdf.setFontSize(9);
-          const ext = attachment.fileName.split('.').pop()?.toUpperCase() || 'FILE';
-          pdf.text(`[${ext} Document: ${attachment.fileName}]`, margin, yPosition);
-          yPosition += 8;
-        }
-
-        yPosition += 5;
+         // Content
+         const isImage = attachment.fileData.startsWith('data:image/');
+         if (isImage) {
+           const imageFormat = getImageFormatFromDataURI(attachment.fileData);
+           if (imageFormat) {
+             try {
+                // We fit image within the box (availableWidth x availableHeight)
+                // maintaining aspect ratio is handled by jsPDF if we give dim?
+                // Actually jsPDF stretches if we give w/h. We should calculate ratio if possible,
+                // but for now let's just use fixed width and max height.
+                pdf.addImage(attachment.fileData, imageFormat, margin, imageY, availableWidth, availableHeight, undefined, 'FAST');
+             } catch (e) {
+               console.error("Image add failed", e);
+               pdf.text("[Image Error]", margin, imageY + 10);
+             }
+           } else {
+             pdf.text("[Unsupported Image Format]", margin, imageY + 10);
+           }
+         } else {
+           // Document placeholder
+           pdf.setFont(undefined, "normal");
+           pdf.rect(margin, imageY, availableWidth, availableHeight);
+           pdf.text(`[Document: ${attachment.fileName}]`, margin + 10, imageY + 20);
+         }
+         
+         itemsOnPage++;
       });
     }
 
     pdf.save(`${contract.id}-Cabinet-Installation.pdf`);
   };
 
-  const generateClientAgreementPDF = (contract: Contract) => {
+  const generateClientAgreementPDF = (contract: Contract, attachments: Attachment[] = []) => {
     const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
     const pageWidth = pdf.internal.pageSize.getWidth();
     const pageHeight = pdf.internal.pageSize.getHeight();
@@ -1557,7 +1548,8 @@ export default function Contracts() {
     pdf.text("Contractor Signature: ______________________________ Date: _______________", margin, yPosition);
 
     // Add all attachments (images, maps, PDFs, documents, etc.)
-    if (contract.attachments && contract.attachments.length > 0) {
+    const allAttachments = [...(contract.attachments || []), ...attachments];
+    if (allAttachments.length > 0) {
       // Start new page for attachments
       pdf.addPage();
       addLogoToPageTop(pdf, pageWidth);
@@ -1568,71 +1560,99 @@ export default function Contracts() {
       pdf.text("DESIGN & CONTRACT ATTACHMENTS", margin, yPosition);
       yPosition += 15;
 
-      pdf.setFont(undefined, "normal");
-      pdf.setFontSize(10);
+      // Grid logic: 2 images per page
+      // Page usable height: (pageHeight - 30 (top) - 15 (bottom)) = ~250mm
+      // Slot 1: Y=45, Height=100
+      // Slot 2: Y=160, Height=100
+      
+      let itemsOnPage = 0;
+      
+      allAttachments.forEach((attachment, index) => {
+         // Determine position
+         if (itemsOnPage >= 2) {
+           pdf.addPage();
+           addLogoToPageTop(pdf, pageWidth);
+           yPosition = 30;
+           itemsOnPage = 0;
+         }
 
-      // Add each attachment
-      contract.attachments.forEach((attachment, index) => {
-        // Check if we need a new page
-        if (yPosition > pageHeight - 80) {
-          pdf.addPage();
-          addLogoToPageTop(pdf, pageWidth);
-          yPosition = 30;
-        }
+         const currentY = itemsOnPage === 0 ? 45 : 160;
+         
+         // Title
+         pdf.setFont(undefined, "bold");
+         pdf.setFontSize(10);
+         pdf.setTextColor(0, 0, 0);
+         pdf.text(`${index + 1}. ${attachment.fileName}`, margin, currentY);
+         
+         const imageY = currentY + 5;
+         const availableHeight = 100;
+         const availableWidth = pageWidth - 2 * margin;
 
-        // Add attachment title
-        pdf.setFont(undefined, "bold");
-        pdf.setFontSize(10);
-        pdf.text(`${index + 1}. ${attachment.fileName}`, margin, yPosition);
-        yPosition += 8;
-
-        // Check if it's an image and try to embed it
-        const isImage = attachment.fileData.startsWith('data:image/');
-
-        if (isImage) {
-          const imageFormat = getImageFormatFromDataURI(attachment.fileData);
-
-          if (imageFormat === null) {
-            // SVG is not supported by jsPDF - show placeholder
-            pdf.setFont(undefined, "normal");
-            pdf.setFontSize(9);
-            pdf.text(`[SVG Image: ${attachment.fileName} - Not supported in PDF]`, margin, yPosition);
-            yPosition += 8;
-          } else {
-            try {
-              const imgWidth = pageWidth - 2 * margin;
-              const imgHeight = 100; // Fixed height for images
-              pdf.addImage(attachment.fileData, imageFormat, margin, yPosition, imgWidth, imgHeight);
-              yPosition += imgHeight + 10;
-            } catch (error) {
-              console.error(`Failed to add image ${attachment.fileName}:`, error);
-              pdf.setFont(undefined, "normal");
-              pdf.setFontSize(9);
-              pdf.text(`[Image: ${attachment.fileName} - Unable to display]`, margin, yPosition);
-              yPosition += 10;
-            }
-          }
-        } else {
-          // For non-image files, show file info
-          pdf.setFont(undefined, "normal");
-          pdf.setFontSize(9);
-          const ext = attachment.fileName.split('.').pop()?.toUpperCase() || 'FILE';
-          pdf.text(`[${ext} Document: ${attachment.fileName}]`, margin, yPosition);
-          yPosition += 8;
-        }
-
-        yPosition += 5;
+         // Content
+         const isImage = attachment.fileData.startsWith('data:image/');
+         if (isImage) {
+           const imageFormat = getImageFormatFromDataURI(attachment.fileData);
+           if (imageFormat) {
+             try {
+                pdf.addImage(attachment.fileData, imageFormat, margin, imageY, availableWidth, availableHeight, undefined, 'FAST');
+             } catch (e) {
+               console.error("Image add failed", e);
+               pdf.text("[Image Error]", margin, imageY + 10);
+             }
+           } else {
+             pdf.text("[Unsupported Image Format]", margin, imageY + 10);
+           }
+         } else {
+           // Document placeholder
+           pdf.setFont(undefined, "normal");
+           pdf.rect(margin, imageY, availableWidth, availableHeight);
+           pdf.text(`[Document: ${attachment.fileName}]`, margin + 10, imageY + 20);
+         }
+         
+         itemsOnPage++;
       });
     }
 
     pdf.save(`${contract.id}-Client-Agreement.pdf`);
   };
 
-  const generatePDF = (contract: Contract, type: "cabinet" | "client") => {
+  // PDF Generation State
+  const [pdfGenerationStep, setPdfGenerationStep] = useState<"type-selection" | "attachments">("type-selection");
+  const [pdfAttachmentType, setPdfAttachmentType] = useState<"cabinet" | "client">("cabinet");
+  const [tempPdfAttachments, setTempPdfAttachments] = useState<Attachment[]>([]);
+  // pdfSelectContractId is defined below with other state
+
+  const handlePdfAttachmentUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+
+    Array.from(files).forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const base64 = event.target?.result as string;
+        setTempPdfAttachments(prev => [...prev, {
+          id: `TEMP-${Date.now()}-${Math.random()}`,
+          fileName: file.name,
+          fileType: file.type,
+          fileSize: file.size,
+          uploadDate: new Date().toISOString(),
+          fileData: base64
+        }]);
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const generatePDF = (contract: Contract, type: "cabinet" | "client", attachments?: Attachment[]) => {
+    const contractWithAttachments = { 
+      ...contract, 
+      attachments: attachments !== undefined ? attachments : contract.attachments 
+    };
+    
     if (type === "cabinet") {
-      generateCabinetInstallationPDF(contract);
+      generateCabinetInstallationPDF(contractWithAttachments);
     } else {
-      generateClientAgreementPDF(contract);
+      generateClientAgreementPDF(contractWithAttachments);
     }
   };
 
@@ -4192,44 +4212,166 @@ export default function Contracts() {
       </div>
 
       {pdfSelectContractId && (
-        <Dialog open={!!pdfSelectContractId} onOpenChange={(open) => !open && setPdfSelectContractId(null)}>
-          <DialogContent className="sm:max-w-md">
+        <Dialog 
+          open={!!pdfSelectContractId} 
+          onOpenChange={(open) => {
+            if (!open) {
+              setPdfSelectContractId(null);
+              setPdfGenerationStep("type-selection");
+              setTempPdfAttachments([]);
+            }
+          }}
+        >
+          <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>Select PDF to Download</DialogTitle>
+              <DialogTitle>
+                {pdfGenerationStep === "type-selection" ? "Select PDF Document" : "Design & Contract Attachments"}
+              </DialogTitle>
               <DialogDescription>
-                Choose which document you want to download
+                {pdfGenerationStep === "type-selection" 
+                  ? "Choose which document you want to download" 
+                  : "Add images or documents to be included in the PDF (2 per page)"}
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-3">
-              <Button
-                onClick={() => {
-                  const contract = contracts.find((c) => c.id === pdfSelectContractId);
-                  if (contract) {
-                    generatePDF(contract, "cabinet");
-                  }
-                  setPdfSelectContractId(null);
-                }}
-                variant="outline"
-                className="w-full justify-start border-slate-300"
-              >
-                <Download className="w-4 h-4 mr-2" />
-                Cabinet Installation
-              </Button>
-              <Button
-                onClick={() => {
-                  const contract = contracts.find((c) => c.id === pdfSelectContractId);
-                  if (contract) {
-                    generatePDF(contract, "client");
-                  }
-                  setPdfSelectContractId(null);
-                }}
-                variant="outline"
-                className="w-full justify-start border-slate-300"
-              >
-                <Download className="w-4 h-4 mr-2" />
-                Client Agreement
-              </Button>
-            </div>
+
+            {pdfGenerationStep === "type-selection" ? (
+              <div className="space-y-3 py-2">
+                <Button
+                  onClick={() => {
+                    const contract = contracts.find((c) => c.id === pdfSelectContractId);
+                    if (contract) {
+                      setTempPdfAttachments(contract.attachments || []);
+                      setPdfAttachmentType("cabinet");
+                      setPdfGenerationStep("attachments");
+                    }
+                  }}
+                  variant="outline"
+                  className="w-full justify-start border-slate-300 h-16 text-lg px-6 hover:bg-slate-50 hover:border-blue-300 transition-all"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="bg-blue-100 p-2 rounded text-blue-600">
+                      <Download className="w-6 h-6" />
+                    </div>
+                    <div className="text-left">
+                      <div className="font-semibold text-slate-900">Cabinet Installation</div>
+                      <div className="text-sm text-slate-500 font-normal">Technical specs, material list & shop drawings</div>
+                    </div>
+                  </div>
+                </Button>
+                
+                <Button
+                  onClick={() => {
+                    const contract = contracts.find((c) => c.id === pdfSelectContractId);
+                    if (contract) {
+                      setTempPdfAttachments(contract.attachments || []);
+                      setPdfAttachmentType("client");
+                      setPdfGenerationStep("attachments");
+                    }
+                  }}
+                  variant="outline"
+                  className="w-full justify-start border-slate-300 h-16 text-lg px-6 hover:bg-slate-50 hover:border-blue-300 transition-all"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="bg-green-100 p-2 rounded text-green-600">
+                      <Download className="w-6 h-6" />
+                    </div>
+                    <div className="text-left">
+                      <div className="font-semibold text-slate-900">Client Agreement</div>
+                      <div className="text-sm text-slate-500 font-normal">Formal contract with terms & conditions</div>
+                    </div>
+                  </div>
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                <div className="space-y-4">
+                  <div className="bg-slate-50 border-2 border-dashed border-slate-300 rounded-lg p-6 text-center hover:bg-slate-100 transition-colors">
+                    <Input
+                      type="file"
+                      id="pdf-attachment-upload"
+                      multiple
+                      accept="image/*,.pdf"
+                      className="hidden"
+                      onChange={handlePdfAttachmentUpload}
+                    />
+                    <label htmlFor="pdf-attachment-upload" className="cursor-pointer block">
+                      <div className="mx-auto bg-white p-3 rounded-full shadow-sm w-12 h-12 flex items-center justify-center mb-3">
+                        <Plus className="w-6 h-6 text-blue-600" />
+                      </div>
+                      <p className="font-medium text-slate-900">Click to upload images</p>
+                      <p className="text-sm text-slate-500 mt-1">Supports JPG, PNG (2 images per page grid)</p>
+                    </label>
+                  </div>
+
+                  {tempPdfAttachments.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center">
+                        <h4 className="font-semibold text-sm text-slate-700">Selected Attachments ({tempPdfAttachments.length})</h4>
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          className="text-red-600 h-8 text-xs"
+                          onClick={() => setTempPdfAttachments([])}
+                        >
+                          Clear All
+                        </Button>
+                      </div>
+                      <div className="grid grid-cols-1 gap-2 max-h-[300px] overflow-y-auto pr-2">
+                        {tempPdfAttachments.map((att, idx) => (
+                          <div key={att.id || idx} className="flex items-center gap-3 p-2 bg-white rounded border border-slate-200 group">
+                            <div className="w-10 h-10 bg-slate-100 rounded flex items-center justify-center flex-shrink-0 overflow-hidden">
+                              {att.fileData?.startsWith('data:image') ? (
+                                <img src={att.fileData} alt="thumb" className="w-full h-full object-cover" />
+                              ) : (
+                                <Paperclip className="w-5 h-5 text-slate-400" />
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-slate-900 truncate">{att.fileName}</p>
+                              <p className="text-xs text-slate-500">{(att.fileSize / 1024).toFixed(0)} KB</p>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="w-8 h-8 text-slate-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                              onClick={() => {
+                                setTempPdfAttachments(prev => prev.filter(p => p.id !== att.id));
+                              }}
+                            >
+                              <X className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex gap-3 justify-end pt-2 border-t">
+                  <Button
+                    variant="outline"
+                    onClick={() => setPdfGenerationStep("type-selection")}
+                    className="border-slate-300"
+                  >
+                    Back
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      const contract = contracts.find((c) => c.id === pdfSelectContractId);
+                      if (contract) {
+                        generatePDF(contract, pdfAttachmentType, tempPdfAttachments);
+                      }
+                      setPdfSelectContractId(null);
+                      setPdfGenerationStep("type-selection");
+                    }}
+                    className="bg-blue-600 hover:bg-blue-700 gap-2"
+                  >
+                    <Download className="w-4 h-4" />
+                    Generate PDF
+                  </Button>
+                </div>
+              </div>
+            )}
           </DialogContent>
         </Dialog>
       )}
