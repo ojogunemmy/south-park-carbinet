@@ -1812,7 +1812,7 @@ export default function Payments() {
                             >
                               <span>Days</span>
                             </Button>
-                            <Button
+                            {/* <Button
                               variant="ghost"
                               size="sm"
                               className="text-cyan-600 hover:bg-cyan-50 gap-1"
@@ -1820,7 +1820,7 @@ export default function Payments() {
                               title="Edit down payment"
                             >
                               <span>Down Pmt</span>
-                            </Button>
+                            </Button> */}
                             {payment.status === "pending" ? (
                               <Button
                                 variant="ghost"
