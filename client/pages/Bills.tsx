@@ -144,7 +144,7 @@ export default function Bills() {
       const data = await billsService.getAll();
       // Filter by year if necessary (assuming dueDate contains year)
       const yearBills = data.filter(bill => {
-        if (!bill.due_date) return true;
+        if (!bill.due_date) return false; // Hide bills without date when filtering by year
         return bill.due_date.startsWith(selectedYear.toString());
       });
       setBills(yearBills);

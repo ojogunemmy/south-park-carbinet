@@ -9,14 +9,15 @@ interface YearContextType {
 const YearContext = createContext<YearContextType | undefined>(undefined);
 
 export const YearProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // System locked to 2026 only
+  const currentYear = new Date().getFullYear();
+  
   const [selectedYear, setSelectedYear] = useState<number>(() => {
-    // Always default to 2026
-    return 2026;
+    const saved = localStorage.getItem('selectedYear');
+    return saved ? parseInt(saved, 10) : currentYear;
   });
 
-  // Available years: 2026 only
-  const availableYears = [2026];
+  // Generate available years: Current year + 5 years ahead
+  const availableYears = Array.from({ length: 6 }, (_, i) => currentYear + i);
 
   // Save selected year to localStorage
   useEffect(() => {

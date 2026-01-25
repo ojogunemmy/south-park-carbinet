@@ -96,6 +96,12 @@ export default function Costs() {
 
   const filteredContracts = contracts
     .filter((contract) => {
+      // Filter by Year
+      const contractYear = contract.due_date ? new Date(contract.due_date).getFullYear() : (contract.start_date ? new Date(contract.start_date).getFullYear() : null);
+      if (contractYear && contractYear !== selectedYear) {
+         return false;
+      }
+
       const statusMatch = filterStatus === "all" || contract.status === filterStatus;
 
       let dateMatch = true;

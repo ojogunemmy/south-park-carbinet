@@ -322,12 +322,22 @@ export default function Contracts() {
   }, []);
 
 
-  const totalValue = contracts.reduce((sum, c) => sum + (c.total_value || 0), 0);
-  const totalDeposits = contracts.reduce((sum, c) => sum + (c.deposit_amount || 0), 0);
-  const pendingPayments = totalValue - totalDeposits;
+
 
   const filteredContracts = contracts
     .filter((contract) => {
+      // Filter by Year using string parsing to avoid timezone issues
+      let contractYear = 0;
+      if (contract.due_date) {
+        contractYear = parseInt(contract.due_date.split('-')[0]);
+      } else if (contract.start_date) {
+        contractYear = parseInt(contract.start_date.split('-')[0]);
+      }
+
+      if (contractYear && contractYear !== selectedYear) {
+         return false;
+      }
+
       const statusMatch = filterStatus === "all" || contract.status === filterStatus;
 
       let dateMatch = true;
@@ -364,6 +374,11 @@ export default function Contracts() {
       const bDate = new Date(parseInt(bParts[0]), parseInt(bParts[1]) - 1, parseInt(bParts[2]));
       return bDate.getTime() - aDate.getTime();
     });
+
+  /* Summary Cards based on FILTERED data */
+  const totalValue = filteredContracts.reduce((sum, c) => sum + (c.total_value || 0), 0);
+  const totalDeposits = filteredContracts.reduce((sum, c) => sum + (c.deposit_amount || 0), 0);
+  const pendingPayments = totalValue - totalDeposits;
 
 
   const generateDefaultPaymentSchedule = (total_value: number, start_date: string, due_date: string, contract_id?: string): Payment[] => {
@@ -1901,9 +1916,9 @@ export default function Contracts() {
 
   const printAllContracts = () => {
     try {
-      console.log("Print function called, contracts count:", contracts.length);
+      console.log("Print function called, contracts count:", filteredContracts.length);
 
-      if (contracts.length === 0) {
+      if (filteredContracts.length === 0) {
         alert("No contracts to print");
         return;
       }
@@ -1929,14 +1944,14 @@ export default function Contracts() {
       pdf.setFont(undefined, "normal");
       pdf.text(`Generated: ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`, margin, yPosition);
       yPosition += 8;
-      pdf.text(`Total Contracts: ${contracts.length}`, margin, yPosition);
+      pdf.text(`Total Contracts: ${filteredContracts.length}`, margin, yPosition);
       yPosition += 10;
 
       // Contracts list
       pdf.setFont(undefined, "bold");
       pdf.setFontSize(10);
 
-      contracts.forEach((contract, idx) => {
+      filteredContracts.forEach((contract, idx) => {
         if (yPosition > pageHeight - 20) {
           pdf.addPage();
           addLogoToPageTop(pdf, pageWidth);
@@ -3116,7 +3131,7 @@ export default function Contracts() {
         <Card className="border-slate-200">
           <CardContent className="pt-6">
             <p className="text-sm font-medium text-slate-500">Total Contracts</p>
-            <h3 className="text-2xl font-bold text-slate-900 mt-2">{contracts.length}</h3>
+            <h3 className="text-2xl font-bold text-slate-900 mt-2">{filteredContracts.length}</h3>
             <p className="text-xs text-slate-500 mt-1">All projects</p>
           </CardContent>
         </Card>
@@ -3138,10 +3153,10 @@ export default function Contracts() {
         </Card>
       </div>
 
-      {contracts.length > 0 && (
+      {filteredContracts.length > 0 && (
         <>
           {(() => {
-            const overdueContracts = contracts.filter((c) => isOverdue(c.due_date));
+            const overdueContracts = filteredContracts.filter((c) => isOverdue(c.due_date));
             if (overdueContracts.length > 0) {
               return (
                 <Card className="border-red-200 bg-red-50">
@@ -3215,7 +3230,7 @@ export default function Contracts() {
                     </tr>
                   </thead>
                   <tbody>
-                    {contracts.map((contract, idx) => (
+                    {filteredContracts.map((contract, idx) => (
                       <tr key={contract.id} className={idx % 2 === 0 ? "bg-white" : "bg-slate-50"}>
                         <td className={`p-3 text-slate-700 font-medium whitespace-nowrap border-l-4 ${
                           (contract.payment_schedule?.filter(p => p.status === 'paid').length || 0) === 0

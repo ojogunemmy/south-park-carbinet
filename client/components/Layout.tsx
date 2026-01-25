@@ -20,11 +20,20 @@ import { SouthParkLogo } from "@/components/SouthParkLogo";
 import { cn } from "@/lib/utils";
 import { HiMenuAlt1 } from "react-icons/hi";
 import { useSupabaseAuth } from "@/contexts/SupabaseAuthContext";
+import { useYear } from "@/contexts/YearContext";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 const Layout = ({ children }: { children: React.ReactNode }) => {
   const location = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const { role, profile, signOut } = useSupabaseAuth();
+  const { selectedYear, setSelectedYear, availableYears } = useYear();
   const isAdmin = role === "admin";
 
   const isActive = (path: string) => location.pathname === path;
@@ -228,6 +237,27 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
             <h2 className="text-lg font-semibold text-slate-900 truncate">
               South Park Cabinet Management
             </h2>
+          </div>
+          
+          <div className="flex items-center gap-4">
+             <div className="flex items-center gap-2">
+              <span className="text-sm text-slate-500 hidden sm:inline">Year:</span>
+              <Select
+                value={String(selectedYear)}
+                onValueChange={(value) => setSelectedYear(parseInt(value))}
+              >
+                <SelectTrigger className="w-[100px] h-9">
+                  <SelectValue placeholder="Year" />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableYears.map((year) => (
+                    <SelectItem key={year} value={String(year)}>
+                      {year}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </header>
 

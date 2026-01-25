@@ -593,14 +593,26 @@ export default function Payments() {
       ]);
       setEmployees(empData || []);
       
-      const mappedPayments = (payData || []).map((p: any) => ({
-        ...p,
-        employee_name: p.employees?.name || "Unknown Employee",
-        employee_position: p.employees?.position,
-      }));
+      setEmployees(empData || []);
+      
+      const mappedPayments = (payData || [])
+        .filter((p: any) => {
+          const date = new Date(p.week_start_date);
+          return date.getFullYear() === selectedYear;
+        })
+        .map((p: any) => ({
+          ...p,
+          employee_name: p.employees?.name || "Unknown Employee",
+          employee_position: p.employees?.position,
+        }));
       
       setPayments(mappedPayments);
-      setAbsences(absData || []);
+      
+      const filteredAbsences = (absData || []).filter((a: any) => {
+        const date = new Date(a.date);
+        return date.getFullYear() === selectedYear;
+      });
+      setAbsences(filteredAbsences);
       setSettings(settingsData || null);
 
       // Sync to Ledger (LocalStorage)

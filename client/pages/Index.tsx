@@ -167,13 +167,24 @@ export default function Index() {
   };
 
   const dashboardStats = useMemo(() => {
-    // Filter by selected year if needed (backend returns all for now, but we can filter here for UI context)
-    // Note: payments already filtered by date in a real app, here we check against selectedYear
-    
-    // Calculate costs from contracts
+    // Filter contracts by selected year (using due_date or start_date)
+    const yearContracts = contracts.filter(c => {
+      const date = c.due_date || c.start_date;
+      if (!date) return false;
+      return new Date(date).getFullYear() === selectedYear;
+    });
+
+    // Filter bills by selected year (using due_date or created_at)
+    const yearBills = bills.filter(b => {
+      const date = b.due_date || b.created_at;
+      if (!date) return false;
+      return new Date(date).getFullYear() === selectedYear;
+    });
+
+    // Calculate costs from year-filtered contracts
     let totalMaterialCosts = 0;
     let totalMiscCosts = 0;
-    contracts.forEach((contract: any) => {
+    yearContracts.forEach((contract: any) => {
       // cost_tracking is JSONB in Supabase
       if (contract.cost_tracking) {
         const materialCost = contract.cost_tracking.materials?.reduce((sum: number, m: any) => sum + (m.unitPrice * m.quantity), 0) || 0;
@@ -183,15 +194,12 @@ export default function Index() {
       }
     });
 
-    const totalBillsAmount = bills.reduce((sum: number, b: any) => sum + (Number(b.amount) || 0), 0);
-    const pendingBills = bills.filter((b: any) => b.status !== "paid").reduce((sum: number, b: any) => sum + (Number(b.amount) || 0), 0);
+    const totalBillsAmount = yearBills.reduce((sum: number, b: any) => sum + (Number(b.amount) || 0), 0);
+    const pendingBills = yearBills.filter((b: any) => b.status !== "paid").reduce((sum: number, b: any) => sum + (Number(b.amount) || 0), 0);
 
-    const totalContractValue = contracts.reduce((sum: number, c: any) => sum + (c.total_value || 0), 0);
+    const totalContractValue = yearContracts.reduce((sum: number, c: any) => sum + (c.total_value || 0), 0);
     
     // Total Costs = Project Costs (Materials + Misc) + Operating Costs (Bills)
-    // Note: Payroll is usually separate or part of Operating, but for this view "Project + Operating" usually implies external costs.
-    // If user wants Payroll included, they would usually say "Labor".
-    // given the "Project + Operating" subtitle, I'll sum Project (from contracts) and Operating (Bills).
     const totalCosts = totalMaterialCosts + totalMiscCosts + totalBillsAmount;
     
     const totalProfit = totalContractValue - totalCosts;
@@ -220,17 +228,24 @@ export default function Index() {
 
     const totalPayroll = Object.values(monthlyPayroll).reduce((sum: number, val: any) => sum + val, 0);
 
+    // Filter employees by hire_date for the selected year
+    // We include employees hired on or before the selected year
+    const yearEmployees = employees.filter(e => {
+      if (!e.hire_date) return true; // Include if no hire date is set (legacy/safety)
+      return new Date(e.hire_date).getFullYear() <= selectedYear;
+    });
+
     return {
-      totalEmployees: employees.length,
-      totalWeeklyPayments: employees.reduce((sum: number, e: any) => sum + (Number(e.weekly_rate) || 0), 0),
-      totalContracts: contracts.length,
+      totalEmployees: yearEmployees.length,
+      totalWeeklyPayments: yearEmployees.reduce((sum: number, e: any) => sum + (Number(e.weekly_rate) || 0), 0),
+      totalContracts: yearContracts.length,
       totalContractValue,
       totalMaterialCosts,
       totalMiscCosts,
       totalCosts,
       totalProfit,
       profitMargin,
-      totalBills: bills.length,
+      totalBills: yearBills.length,
       pendingBills,
       revenue: totalContractValue,
       monthlyPayroll,
@@ -437,13 +452,12 @@ export default function Index() {
       </div>
 
       {/* Payroll History Section */}
-      {selectedYear === 2026 && (
-        <Card className="border-slate-200">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <TrendingUp className="w-5 h-5 text-green-600" />
-              2026 Payroll History
-            </CardTitle>
+      <Card className="border-slate-200">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <TrendingUp className="w-5 h-5 text-green-600" />
+            {selectedYear} Payroll History
+          </CardTitle>
             <CardDescription>Monthly payment summary and annual total</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -510,8 +524,7 @@ export default function Index() {
               </Button>
             </Link>
           </CardContent>
-        </Card>
-      )}
+      </Card>
 
       {/* Main Sections */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 auto-rows-fr">
