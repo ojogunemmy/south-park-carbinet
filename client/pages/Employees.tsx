@@ -495,7 +495,10 @@ export default function Employees() {
           account_type: paymentFormData.accountType || null,
           account_last_four: paymentFormData.creditCardLast4 || null,
           notes: null,
-          paid_date: null
+          paid_date: null,
+          is_severance: false,
+          severance_reason: null,
+          severance_date: null
         };
         await paymentsService.create(newPayment as SupabasePayment);
       }
@@ -548,7 +551,10 @@ export default function Employees() {
              account_type: payment.accountType || null,
              account_last_four: payment.creditCardLast4 || null,
              notes: null,
-             paid_date: null
+             paid_date: null,
+             is_severance: false,
+             severance_reason: null,
+             severance_date: null
            };
            return newPayment;
         });
@@ -1119,7 +1125,7 @@ export default function Employees() {
     const dueDateStr = formatDateToString(dueDateObj);
 
     try {
-        const newPayment: Omit<SupabasePayment, "created_at" | "updated_at"> = {
+        const newPayment = {
           id: `SEVER-${employee.id}-${weekStartStr}-${Date.now()}`, // Added timestamp to ensure uniqueness
           employee_id: employee.id,
           week_start_date: weekStartStr,
@@ -1132,6 +1138,9 @@ export default function Employees() {
           deduction_amount: 0,
           down_payment: 0,
           status: "pending",
+          is_severance: true,
+          severance_reason: finalReason,
+          severance_date: severanceDate || getTodayDate(),
           payment_method: employee.paymentMethod as any,
           check_number: null,
           bank_name: employee.bankName || null,
