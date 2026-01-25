@@ -262,6 +262,156 @@ export default function Payments() {
     });
   };
 
+  // Generate Weekly Report PDF
+  const generateWeeklyReportPDF = () => {
+    try {
+      if (filteredPayments.length === 0) {
+        alert("No payments to generate report for.");
+        return;
+      }
+
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const width = doc.internal.pageSize.getWidth();
+      
+      let y = 15;
+      const margin = 15;
+
+      // Header
+      doc.setFontSize(18);
+      doc.setFont(undefined, 'bold');
+      doc.text("WEEKLY PAYMENTS REPORT", margin, y);
+      y += 8;
+
+      doc.setFontSize(10);
+      doc.setFont(undefined, 'normal');
+      doc.text(`Generated: ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`, margin, y);
+      y += 6;
+      
+      if (filterFromDate && filterToDate) {
+        doc.text(`Period: ${new Date(filterFromDate).toLocaleDateString()} - ${new Date(filterToDate).toLocaleDateString()}`, margin, y);
+        y += 6;
+      }
+
+      y += 10;
+
+      // Table Headers
+      doc.setFont(undefined, 'bold');
+      doc.setFontSize(9);
+      doc.setFillColor(240, 240, 240);
+      doc.rect(margin, y - 5, width - 2 * margin, 8, 'F');
+      
+      doc.text("DATE", margin, y);
+      doc.text("RECIPIENT", margin + 25, y);
+      doc.text("DESCRIPTION", margin + 65, y); // Adjusted X
+      doc.text("METHOD", margin + 115, y);      // Adjusted X
+      doc.text("STATUS", margin + 145, y);      // New Column
+      doc.text("AMOUNT", width - margin, y, { align: "right" });
+      
+      y += 8;
+
+      // Table Content
+      doc.setFont(undefined, 'normal');
+      let totalPaid = 0;
+      let totalPending = 0;
+
+      filteredPayments.forEach((payment, index) => {
+        if (y > 270) {
+          doc.addPage();
+          y = 20;
+          // Re-print headers on new page
+          doc.setFont(undefined, 'bold');
+          doc.setFillColor(240, 240, 240);
+          doc.rect(margin, y - 5, width - 2 * margin, 8, 'F');
+          
+          doc.text("DATE", margin, y);
+          doc.text("RECIPIENT", margin + 25, y);
+          doc.text("DESCRIPTION", margin + 65, y);
+          doc.text("METHOD", margin + 115, y);
+          doc.text("STATUS", margin + 145, y);
+          doc.text("AMOUNT", width - margin, y, { align: "right" });
+          doc.setFont(undefined, 'normal');
+          y += 8;
+        }
+
+        const dateStr = new Date(payment.week_start_date).toLocaleDateString();
+        const methodStr = (payment.payment_method || "N/A").replace("_", " ");
+        let descStr = payment.is_severance ? "Severance" : "Weekly Salary";
+        if (payment.check_number) descStr += ` (Chk #${payment.check_number})`;
+        
+        // Status formatting
+        const statusStr = payment.status.charAt(0).toUpperCase() + payment.status.slice(1);
+        
+        // Calculate Totals based on status
+        if (payment.status === "paid") {
+          totalPaid += payment.amount;
+        } else if (payment.status === "pending") {
+          totalPending += payment.amount;
+        }
+
+        doc.text(dateStr, margin, y);
+        
+        // Truncate long names
+        const name = payment.employee_name.length > 20 ? payment.employee_name.substring(0, 18) + "..." : payment.employee_name;
+        doc.text(name, margin + 25, y);
+
+        // Truncate long descriptions
+        const desc = descStr.length > 25 ? descStr.substring(0, 23) + "..." : descStr;
+        doc.text(desc, margin + 65, y);
+
+        doc.text(methodStr, margin + 115, y);
+        
+        // Status with color indication (simple caps for now)
+        doc.text(statusStr, margin + 145, y);
+
+        doc.text(`$${payment.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, width - margin, y, { align: "right" });
+
+        y += 6;
+      });
+
+      // Totals Section
+      y += 4;
+      doc.setDrawColor(0, 0, 0);
+      doc.line(margin, y, width - margin, y);
+      y += 8;
+      
+      // Totals breakdown
+      const totalColX = margin + 130;
+      
+      doc.setFont(undefined, 'normal');
+      doc.text("Total Paid:", totalColX, y);
+      doc.text(`$${totalPaid.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, width - margin, y, { align: "right" });
+      y += 6;
+
+      doc.text("Total Pending:", totalColX, y);
+      doc.text(`$${totalPending.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, width - margin, y, { align: "right" });
+      y += 8;
+
+      // Grand Total line
+      doc.setDrawColor(200, 200, 200);
+      doc.line(totalColX, y - 2, width - margin, y - 2);
+      
+      doc.setFont(undefined, 'bold');
+      doc.setFontSize(11);
+      doc.text("TOTAL:", totalColX, y);
+      const grandTotal = totalPaid + totalPending;
+      doc.text(`$${grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, width - margin, y, { align: "right" });
+
+      doc.save(`Weekly-Payments-Report-${formatDateToString(new Date())}.pdf`);
+      toast({
+        title: "✓ Report Generated",
+        description: `Weekly payments report saved with totals breakdown.`,
+      });
+
+    } catch (error) {
+      console.error("Error generating report:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to generate PDF report.",
+      });
+    }
+  };
+
   // Generate PDF check
   const generateCheckPDF = (payment: PaymentObligation, checkNum: number, settings: any) => {
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
@@ -1637,6 +1787,14 @@ export default function Payments() {
                 >
                   <Download className="w-4 h-4" />
                   Batch Print Checks
+                </Button>
+                <Button
+                  onClick={generateWeeklyReportPDF}
+                  className="gap-2 bg-slate-600 hover:bg-slate-700"
+                  title="Print all visible payments as a weekly report"
+                >
+                  <Printer className="w-4 h-4" />
+                  Print Weekly Report
                 </Button>
               </div>
             </div>
