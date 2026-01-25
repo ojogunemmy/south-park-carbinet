@@ -584,6 +584,7 @@ export default function Contracts() {
       } else {
         const total_value = parseFloat(formData.total_value);
         const newContract: Partial<Contract> = {
+          id: `CNT-${Date.now()}`,
           client_name: formData.client_name,
           client_address: formData.client_address,
           client_city: formData.client_city,
@@ -2036,7 +2037,7 @@ export default function Contracts() {
                 installation_included: false,
                 additional_notes: "",
               });
-              setCostTracking(initializeCostTracking());
+              setCostTracking(initializeCostTracking({ materials: availableMaterials }));
               setContractAttachments([]);
               setTermsAccepted(false);
               setIsModalOpen(true);
