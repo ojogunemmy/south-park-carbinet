@@ -1,5 +1,6 @@
 import { Navigate } from "react-router-dom";
 import { useSupabaseAuth } from "@/contexts/SupabaseAuthContext";
+import { SouthParkLogo } from "@/components/SouthParkLogo";
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -13,8 +14,8 @@ export const ProtectedRoute = ({ children, requiredRole }: ProtectedRouteProps) 
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
-          <div className="inline-flex items-center justify-center w-12 h-12 bg-blue-600 rounded-lg mb-4">
-            <span className="text-white font-bold text-lg">C</span>
+          <div className="inline-flex items-center justify-center mb-4">
+            <SouthParkLogo size={128} />
           </div>
           <p className="text-slate-600">Loading...</p>
         </div>
