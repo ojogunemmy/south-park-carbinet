@@ -69,15 +69,15 @@ export default function Costs() {
   }, [selectedYear]);
 
   const calculateMaterialCost = (materials: MaterialItem[]) => {
-    return materials.reduce((sum, m) => sum + m.quantity * m.unitPrice, 0);
+    return materials.reduce((sum, m) => sum + (Number(m.quantity) || 0) * (Number(m.unitPrice) || 0), 0);
   };
 
   const calculateMiscCost = (misc: MiscellaneousItem[]) => {
-    return misc.reduce((sum, m) => sum + m.amount, 0);
+    return misc.reduce((sum, m) => sum + (Number(m.amount) || 0), 0);
   };
 
   const calculateLaborCost = (laborCost: any) => {
-    return laborCost?.amount || 0;
+    return Number(laborCost?.amount) || 0;
   };
 
   const calculateProfit = (contract: Contract) => {
