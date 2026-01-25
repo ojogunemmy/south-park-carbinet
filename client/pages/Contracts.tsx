@@ -1,6 +1,6 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Plus, AlertCircle, Edit2, Trash2, Download, Printer, ChevronRight, ChevronLeft, Paperclip, FileIcon, X } from "lucide-react";
+import { Plus, AlertCircle, Edit2, Trash2, Download, Printer, ChevronRight, ChevronLeft, Paperclip, FileIcon, X, CircleDollarSign } from "lucide-react";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import JSZip from "jszip";
@@ -1987,20 +1987,12 @@ export default function Contracts() {
           <p className="text-slate-600 mt-1">Handle client contracts, deposits, payment schedules, and project details</p>
         </div>
         <div className="flex gap-2">
-          <Button
+          {/* <Button
             onClick={() => setIsCalculatorOpen(true)}
             className="gap-2 bg-amber-600 hover:bg-amber-700"
           >
             💡 Material Calculator
-          </Button>
-          <Button
-            onClick={printAllContracts}
-            className="gap-2 bg-slate-600 hover:bg-slate-700"
-            disabled={contracts.length === 0}
-          >
-            <Printer className="w-4 h-4" />
-            Print
-          </Button>
+          </Button> */}
           <Button
             onClick={() => {
               // Clear any saved draft to start fresh
@@ -2038,6 +2030,14 @@ export default function Contracts() {
           >
             <Plus className="w-4 h-4" />
             New Contract
+          </Button>
+          <Button
+            onClick={printAllContracts}
+            className="gap-2 bg-slate-600 hover:bg-slate-700"
+            disabled={contracts.length === 0}
+          >
+            <Printer className="w-4 h-4" />
+            Print
           </Button>
         </div>
         <Dialog open={isModalOpen} onOpenChange={handleCloseModal}>
@@ -3111,6 +3111,32 @@ export default function Contracts() {
           </DialogContent>
         </Dialog>
       </div>
+      
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <Card className="border-slate-200">
+          <CardContent className="pt-6">
+            <p className="text-sm font-medium text-slate-500">Total Contracts</p>
+            <h3 className="text-2xl font-bold text-slate-900 mt-2">{contracts.length}</h3>
+            <p className="text-xs text-slate-500 mt-1">All projects</p>
+          </CardContent>
+        </Card>
+        
+        <Card className="border-slate-200">
+          <CardContent className="pt-6">
+            <p className="text-sm font-medium text-slate-500">Total Contract Value</p>
+            <h3 className="text-2xl font-bold text-slate-900 mt-2">${totalValue.toLocaleString()}</h3>
+            <p className="text-xs text-slate-500 mt-1">Total revenue</p>
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-200">
+          <CardContent className="pt-6">
+            <p className="text-sm font-medium text-slate-500">Pending Payments</p>
+            <h3 className="text-2xl font-bold text-orange-600 mt-2">${pendingPayments.toLocaleString()}</h3>
+            <p className="text-xs text-slate-500 mt-1">Awaiting payment</p>
+          </CardContent>
+        </Card>
+      </div>
 
       {contracts.length > 0 && (
         <>
@@ -3191,10 +3217,14 @@ export default function Contracts() {
                   <tbody>
                     {contracts.map((contract, idx) => (
                       <tr key={contract.id} className={idx % 2 === 0 ? "bg-white" : "bg-slate-50"}>
-                        <td className="p-3 text-slate-700 font-medium whitespace-nowrap">
+                        <td className={`p-3 text-slate-700 font-medium whitespace-nowrap border-l-4 ${
+                          (contract.payment_schedule?.filter(p => p.status === 'paid').length || 0) === 0
+                            ? "border-l-red-500"
+                            : "border-l-yellow-500"
+                        }`}>
                           <button
                             onClick={() => setDetailsContractId(contract.id)}
-                            className="text-blue-600 hover:text-blue-800 hover:underline transition-colors cursor-pointer font-semibold"
+                            className="text-blue-600 hover:text-blue-800 hover:underline transition-colors cursor-pointer font-semibold pl-2"
                             title="View contract details"
                           >
                             {contract.id}
@@ -3209,37 +3239,50 @@ export default function Contracts() {
                           {isOverdue(contract.due_date) && " ⚠️"}
                         </td>
                         <td className="p-3 whitespace-nowrap">
-                          <span className={`inline-block px-2 py-1 rounded text-xs font-medium ${getStatusBadge(contract.status)}`}>
-                            {contract.status.replace("-", " ")}
-                          </span>
+                          <div className="flex flex-col items-start gap-1">
+                            <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${getStatusBadge(contract.status)}`}>
+                              {contract.status.replace("-", " ")}
+                            </span>
+                            {(() => {
+                              const totalPayments = contract.payment_schedule?.length || 0;
+                              const paidPayments = contract.payment_schedule?.filter(p => p.status === 'paid').length || 0;
+                              const badgeColor = paidPayments === 0 
+                                ? "bg-red-100 text-red-700 border-red-200" 
+                                : "bg-yellow-100 text-yellow-700 border-yellow-200";
+                              
+                              return (
+                                <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium border ${badgeColor}`}>
+                                  {paidPayments}/{totalPayments} payments
+                                </span>
+                              );
+                            })()}
+                          </div>
                         </td>
                         <td className="p-3 flex gap-2">
                           <button
                             onClick={() => setSelectedContractId(contract.id)}
-                            className="text-green-600 hover:text-green-800 hover:bg-green-50 p-2 rounded transition-colors"
+                            className="text-green-600 hover:text-green-800 p-1.5 hover:bg-green-50 rounded transition-colors"
                             title="View payment schedule"
                           >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
+                            <CircleDollarSign className="w-4 h-4" />
                           </button>
                           <button
                             onClick={() => setPdfSelectContractId(contract.id)}
-                            className="text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 p-2 rounded transition-colors"
+                            className="text-indigo-600 hover:text-indigo-800 p-1.5 hover:bg-indigo-50 rounded transition-colors"
                             title="Download PDF"
                           >
                             <Download className="w-4 h-4" />
                           </button>
                           <button
                             onClick={() => handleEditContract(contract)}
-                            className="text-blue-600 hover:text-blue-800 hover:bg-blue-50 p-2 rounded transition-colors"
+                            className="text-blue-600 hover:text-blue-800 p-1.5 hover:bg-blue-50 rounded transition-colors"
                             title="Edit contract"
                           >
                             <Edit2 className="w-4 h-4" />
                           </button>
                           <button
                             onClick={() => handleDeleteContract(contract.id)}
-                            className="text-red-600 hover:text-red-800 hover:bg-red-50 p-2 rounded transition-colors"
+                            className="text-red-600 hover:text-red-800 p-1.5 hover:bg-red-50 rounded transition-colors"
                             title="Delete contract"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -4184,32 +4227,7 @@ export default function Contracts() {
         </Dialog>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card className="border-slate-200">
-          <CardHeader>
-            <CardTitle className="text-lg">Total Contracts</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-bold text-slate-900">{contracts.length}</p>
-          </CardContent>
-        </Card>
-        <Card className="border-slate-200">
-          <CardHeader>
-            <CardTitle className="text-lg">Total Contract Value</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-bold text-slate-900">${totalValue.toLocaleString()}</p>
-          </CardContent>
-        </Card>
-        <Card className="border-slate-200">
-          <CardHeader>
-            <CardTitle className="text-lg">Pending Payments</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-bold text-orange-600">${(totalValue - totalDeposits).toLocaleString()}</p>
-          </CardContent>
-        </Card>
-      </div>
+
 
       {pdfSelectContractId && (
         <Dialog 

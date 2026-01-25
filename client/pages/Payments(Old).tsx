@@ -1,10 +1,10 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { CheckCircle, Clock, AlertCircle, Printer, Trash2, Paperclip, Download, Eye, X, Plus, Calendar, Edit2 } from "lucide-react";
+import { CheckCircle, Clock, AlertCircle, Printer, Trash2, Paperclip, Download, Eye, X, Plus } from "lucide-react";
 import jsPDF from "jspdf";
 import { useState, useEffect } from "react";
 import { useYear } from "@/contexts/YearContext";
-import { getTodayDate, formatDateString, formatDateToString, saveYearData } from "@/utils/yearStorage";
+import { getTodayDate, formatDateString, formatDateToString } from "@/utils/yearStorage";
 import { useAutoSave } from "@/hooks/useAutoSave";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -592,44 +592,13 @@ export default function Payments() {
         settingsService.get(),
       ]);
       setEmployees(empData || []);
-      
-      const mappedPayments = (payData || []).map((p: any) => ({
+      setPayments((payData || []).map((p: any) => ({
         ...p,
         employee_name: p.employees?.name || "Unknown Employee",
         employee_position: p.employees?.position,
-      }));
-      
-      setPayments(mappedPayments);
+      })));
       setAbsences(absData || []);
       setSettings(settingsData || null);
-
-      // Sync to Ledger (LocalStorage)
-      const ledgerPayments = mappedPayments.map((p: any) => ({
-        id: p.id,
-        employeeId: p.employee_id,
-        employeeName: p.employee_name,
-        employeePosition: p.employee_position,
-        amount: p.amount,
-        weekStartDate: p.week_start_date,
-        weekEndDate: p.week_end_date,
-        dueDate: p.due_date,
-        status: p.status,
-        paymentMethod: p.payment_method,
-        paidDate: p.paid_date,
-        paidCheckNumber: p.check_number,
-        paidBankName: p.bank_name,
-        paidAccountLast4: p.account_last_four,
-        daysWorked: p.days_worked,
-        isAdjustedForAbsence: p.is_adjusted_for_absence,
-        fullWeeklySalary: p.full_weekly_salary,
-        deductionAmount: p.deduction_amount,
-        reason: p.notes || (p.is_severance ? "Severance" : undefined),
-        notes: p.notes
-      }));
-      
-      // Save for current year
-      saveYearData("payments", selectedYear, ledgerPayments);
-      window.dispatchEvent(new Event("paymentsUpdated"));
     } catch (error) {
       console.error("Error loading data:", error);
       toast({
@@ -1188,64 +1157,6 @@ export default function Payments() {
     }
   };
 
-  const handleMarkAllAsUnpaid = async () => {
-    // Only target paid payments currently displayed/filtered
-    const paidPaymentsToUnpay = filteredPayments.filter(p => p.status === "paid");
-
-    if (paidPaymentsToUnpay.length === 0) {
-      toast({ description: "No paid payments to mark as unpaid in current view." });
-      return;
-    }
-
-    if (window.confirm(`Are you sure you want to mark ${paidPaymentsToUnpay.length} paid payments as UNPAID (pending)?`)) {
-      try {
-        await Promise.all(paidPaymentsToUnpay.map(p => 
-          paymentsService.update(p.id, { status: "pending", paid_date: null, check_number: null })
-        ));
-        await loadFreshData();
-        toast({
-          title: "Marked as Unpaid",
-          description: `Successfully marked ${paidPaymentsToUnpay.length} payments as pending.`,
-        });
-      } catch (error) {
-         console.error("Error marking as unpaid:", error);
-         toast({
-          title: "Error",
-          description: "Failed to mark payments as unpaid.",
-          variant: "destructive"
-         });
-      }
-    }
-  };
-  
-  const handleDeleteAllPending = async () => {
-    // Only target pending payments currently displayed/filtered
-    const pendingPaymentsToDelete = filteredPayments.filter(p => p.status === "pending");
-    
-    if (pendingPaymentsToDelete.length === 0) {
-      toast({ description: "No pending payments to delete in current view." });
-      return;
-    }
-    
-    if (window.confirm(`Are you sure you want to clear (delete) ${pendingPaymentsToDelete.length} pending payments? This cannot be undone.`)) {
-      try {
-        await Promise.all(pendingPaymentsToDelete.map(p => paymentsService.delete(p.id)));
-        await loadFreshData();
-        toast({
-          title: "Cleared All Pending",
-          description: `Successfully deleted ${pendingPaymentsToDelete.length} pending payments.`,
-        });
-      } catch (error) {
-         console.error("Error deleting all pending:", error);
-         toast({
-          title: "Error",
-          description: "Failed to clear pending payments.",
-          variant: "destructive"
-         });
-      }
-    }
-  };
-
   const isOverdue = (due_date: string) => {
     return new Date(due_date) < new Date() && new Date().toDateString() !== new Date(due_date).toDateString();
   };
@@ -1725,32 +1636,24 @@ export default function Payments() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900">Payroll</h1>
-          <p className="text-slate-600 mt-1">Process and manage employee payments</p>
+          <h1 className="text-3xl font-bold text-slate-900">Employee Payments</h1>
+          <p className="text-slate-600 mt-1">Manage and track employee payment obligations</p>
         </div>
         <div className="flex gap-3">
-         <Button
+          <Button
             onClick={() => setIsAddPaymentModalOpen(true)}
-            className="gap-2 bg-indigo-600 hover:bg-indigo-700"
+            className="gap-2 bg-green-600 hover:bg-green-700"
           >
             <Plus className="w-4 h-4" />
             Add Payment
           </Button>
           <Button
             onClick={handleAddWeeklyPayments}
-            className="gap-2 bg-slate-700 hover:bg-slate-800"
+            className="gap-2 bg-blue-600 hover:bg-blue-700"
             title="Add weekly payments - upcoming week and all employees pre-selected"
           >
-            <Calendar className="w-4 h-4" />
+            <Plus className="w-4 h-4" />
             Add Weekly Payments
-          </Button>
-          <Button
-            onClick={() => window.print()}
-            className="gap-2 bg-slate-700 hover:bg-slate-800"
-            title="Print payroll information"
-          >
-            <Printer className="w-4 h-4" />
-            Print
           </Button>
         </div>
       </div>
@@ -1799,10 +1702,9 @@ export default function Payments() {
 
       <Card className="border-slate-200">
         <CardHeader>
-          <CardTitle>Generate Payements</CardTitle>
-          <CardDescription>Calculate and process payments</CardDescription>
+          <CardTitle>Payment List</CardTitle>
+          <CardDescription>All employee payment obligations</CardDescription>
           <div className="space-y-4 mt-4">
-            {/* 
             <div className="flex gap-4 flex-wrap">
               <Select value={filterStatus} onValueChange={(value: any) => setFilterStatus(value)}>
                 <SelectTrigger className="w-40 border-slate-300">
@@ -1830,10 +1732,8 @@ export default function Payments() {
                 </SelectContent>
               </Select>
             </div>
-            */}
 
             <div className="flex gap-4 items-center flex-wrap">
-              {/*
               <Label className="text-sm text-slate-600">Due Date Range:</Label>
               <div className="flex gap-2 items-center">
                 <Input
@@ -1854,38 +1754,7 @@ export default function Payments() {
                   className="border-slate-300"
                 />
               </div>
-              */}
 
-              <div className="flex gap-2 items-center">
-                <Button
-                  variant="outline"
-                  onClick={handleMarkAllAsPaid}
-                  className="gap-2 border-slate-200 hover:bg-green-50 hover:text-green-700 hover:border-green-200"
-                  title="Mark all visible pending payments as PAID"
-                >
-                  <CheckCircle className="w-4 h-4" />
-                   ✓ Paid
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={handleMarkAllAsUnpaid}
-                  className="gap-2 border-slate-200 hover:bg-orange-50 hover:text-orange-700 hover:border-orange-200"
-                  title="Mark all visible paid payments as UNPAID"
-                >
-                  <Clock className="w-4 h-4" />
-                   ✗ Unpaid
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={handleDeleteAllPending}
-                  className="gap-2 border-slate-200 text-red-600 hover:text-red-700 hover:bg-red-50"
-                  disabled={filteredPayments.filter(p => p.status === "pending").length === 0}
-                >
-                  🗑 Clear All
-                </Button>
-              </div>
-
-              {/*
               <div className="flex gap-2 ml-auto">
                 <Button
                   onClick={() => setIsBulkDaysOpen(true)}
@@ -1932,7 +1801,6 @@ export default function Payments() {
                   Print Weekly Report
                 </Button>
               </div>
-              */}
             </div>
           </div>
         </CardHeader>
@@ -1942,7 +1810,7 @@ export default function Payments() {
               <thead className="border-b border-slate-200 bg-slate-50">
                 <tr>
                   <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Employee</th>
-                  {/* <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Description</th> */}
+                  <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Description</th>
                   <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Week</th>
                   <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Amount</th>
                   <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Due Date</th>
@@ -1960,11 +1828,10 @@ export default function Payments() {
                   </tr>
                 ) : (
                   filteredPayments.map((payment, idx) => (
-                    <tr key={payment.id} className="bg-white hover:bg-slate-50">
+                    <tr key={payment.id} className={idx % 2 === 0 ? "bg-white" : "bg-slate-50"}>
                       <td className="p-3 text-slate-700 font-medium whitespace-nowrap">
                         <p className="font-semibold">{payment.employee_id} - {payment.employee_name}</p>
                       </td>
-                      {/*
                       <td className="p-3 text-slate-700 text-xs whitespace-nowrap">
                          {(() => {
                            if (payment.is_severance || (payment.notes && payment.notes.toLowerCase().includes("severance"))) {
@@ -1977,7 +1844,6 @@ export default function Payments() {
                            return <span className="text-slate-600">{payment.notes || "Weekly Salary"}</span>;
                          })()}
                       </td>
-                      */}
                       <td className="p-3 text-slate-700 text-xs whitespace-nowrap">
                         <span>{new Date(payment.week_start_date).toLocaleDateString()} to {new Date(payment.week_end_date).toLocaleDateString()}</span>
                         {payment.days_worked !== 5 && (
@@ -2030,11 +1896,13 @@ export default function Payments() {
                       </td>
                       <td className="p-3 text-slate-700 whitespace-nowrap">
                         {payment.status === "paid" && payment.payment_method === "check" ? (
-                          <div
-                            className="px-3 py-1.5 rounded-full inline-block text-sm font-medium whitespace-nowrap bg-purple-100 text-purple-700"
+                          <button
+                            onClick={() => handleEditCheckDetails(payment.id)}
+                            className="px-3 py-1.5 rounded-full inline-block text-sm font-medium whitespace-nowrap cursor-pointer hover:opacity-80 transition-opacity bg-purple-100 text-purple-700"
+                            title="Click to edit check details"
                           >
                             <span>{getPaymentMethodDisplay(payment.payment_method, payment)}</span>
-                          </div>
+                          </button>
                         ) : (
                           <div className={`px-3 py-1.5 rounded-full inline-block text-sm font-medium whitespace-nowrap ${
                             payment.payment_method === 'direct_deposit' ? 'bg-blue-100 text-blue-700' :
@@ -2079,54 +1947,121 @@ export default function Payments() {
                         )}
                       </td>
                       <td className="p-3">
-                        <div className="flex gap-4 items-center flex-wrap">
-                          <button
-                            className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800"
-                            onClick={() => handlePrintCheck(payment.id)}
-                            title="Print check"
-                          >
-                            <Printer className="w-4 h-4" />
-                            <span>Check</span>
-                          </button>
-                          
-                          <button
-                            className="flex items-center gap-1 text-sm text-teal-600 hover:text-teal-800"
-                            onClick={() => handleAttachCheck(payment.id)}
-                            title="Attach check image"
-                          >
-                            <Paperclip className="w-4 h-4" />
-                            <span>Attach</span>
-                          </button>
-
-                          <button
-                            className="flex items-center gap-1 text-sm text-purple-600 hover:text-purple-800"
-                            onClick={() => handleEditAmount(payment.id)}
-                            title="Edit payment amount"
-                          >
-                            <Edit2 className="w-4 h-4" />
-                            <span>Edit</span>
-                          </button>
-                        </div>
-                        <div className="flex gap-4 items-center mt-2 flex-wrap">
-                          {payment.status === "pending" && (
-                            <button
-                                className="flex items-center gap-1 text-sm text-indigo-600 hover:text-indigo-800"
-                                onClick={() => handleEditDays(payment.id)}
-                                title="Edit days worked"
+                        <div className="flex flex-col gap-2">
+                          <div className="flex gap-2 flex-wrap">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-blue-600 hover:bg-blue-50 gap-1"
+                              onClick={() => handlePrintCheck(payment.id)}
+                              title="Print check"
+                            >
+                              <Printer className="w-3 h-3" />
+                              Check
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-teal-600 hover:bg-teal-50 gap-1"
+                              onClick={() => handleAttachCheck(payment.id)}
+                              title="Attach check image"
+                            >
+                              <Paperclip className="w-3 h-3" />
+                              Attach
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-purple-600 hover:bg-purple-50 gap-1"
+                              onClick={() => handleEditAmount(payment.id)}
+                              title="Edit payment amount"
+                            >
+                              <span>Edit</span>
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-indigo-600 hover:bg-indigo-50 gap-1"
+                              onClick={() => handleEditDays(payment.id)}
+                              title="Edit days worked"
+                            >
+                              <span>Days</span>
+                            </Button>
+                            {/* <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-cyan-600 hover:bg-cyan-50 gap-1"
+                              onClick={() => handleEditDownPayment(payment.id)}
+                              title="Edit down payment"
+                            >
+                              <span>Down Pmt</span>
+                            </Button> */}
+                            {payment.status === "pending" ? (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-green-600 hover:bg-green-50"
+                                onClick={() => handleMarkAsPaid(payment.id)}
                               >
-                                <Calendar className="w-4 h-4" />
-                                <span>Days</span>
-                              </button>
+                                Paid
+                              </Button>
+                            ) : payment.status === "canceled" ? (
+                              <span className="text-xs text-slate-500">—</span>
+                            ) : (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-orange-600 hover:bg-orange-50"
+                                onClick={() => handleMarkAsPending(payment.id)}
+                              >
+                                Revert
+                              </Button>
+                            )}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-red-600 hover:bg-red-50 gap-1"
+                              onClick={() => handleRemovePayment(payment.id)}
+                              title="Remove payment"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                              Remove
+                            </Button>
+                          </div>
+                          {payment.attachments && payment.attachments.length > 0 && (
+                            <div className="flex flex-col gap-1">
+                              <div className="text-xs text-teal-700 font-medium">
+                                {payment.attachments.length} attachment{payment.attachments.length !== 1 ? "s" : ""}
+                              </div>
+                              <div className="flex gap-1 flex-wrap">
+                                {payment.attachments.map((att) => (
+                                  <div key={att.id} className="flex gap-0.5">
+                                    <button
+                                      onClick={() => handleViewCheckAttachment(att)}
+                                      className="text-blue-600 hover:text-blue-800 p-0.5"
+                                      title="View"
+                                    >
+                                      <Eye className="w-3 h-3" />
+                                    </button>
+                                    <button
+                                      onClick={() => handlePrintCheckAttachment(att)}
+                                      className="text-purple-600 hover:text-purple-800 p-0.5"
+                                      title="Print"
+                                    >
+                                      <Printer className="w-3 h-3" />
+                                    </button>
+                                    <button
+                                      onClick={() => handleDownloadCheckAttachment(att)}
+                                      className="text-green-600 hover:text-green-800 p-0.5"
+                                      title="Download"
+                                    >
+                                      <Download className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
                           )}
-
-                          <button
-                            className="flex items-center gap-1 text-sm text-red-600 hover:text-red-800"
-                            onClick={() => handleRemovePayment(payment.id)}
-                            title="Remove payment"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                            <span>Remove</span>
-                          </button>
                         </div>
                       </td>
                     </tr>

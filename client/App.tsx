@@ -22,6 +22,7 @@ import Workers from "./pages/Workers";
 import EmployeeOnboarding from "./pages/EmployeeOnboarding";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
+import PaymentHistory from "./pages/PaymentHistory";
 
 const queryClient = new QueryClient();
 
@@ -47,6 +48,7 @@ const App = () => (
                           <Route path="/" element={<Index />} />
                           <Route path="/employees" element={<Employees />} />
                           <Route path="/payments" element={<Payments />} />
+                          <Route path="/payment-history" element={<PaymentHistory />} />
                           <Route
                             path="/work-letters"
                             element={<WorkLetters />}

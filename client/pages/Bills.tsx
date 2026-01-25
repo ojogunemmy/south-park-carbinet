@@ -773,13 +773,6 @@ export default function Bills() {
           <p className="text-slate-600 mt-1">Track company expenses and bills with automatic number generation by category</p>
         </div>
         <div className="flex gap-2">
-          <Button
-            onClick={generateAnnualReport}
-            className="gap-2 bg-slate-600 hover:bg-slate-700"
-          >
-            <Printer className="w-4 h-4" />
-            Print
-          </Button>
           <Dialog open={isModalOpen} onOpenChange={handleCloseModal}>
             <DialogTrigger asChild>
               <Button
@@ -1132,6 +1125,13 @@ export default function Bills() {
             </div>
           </DialogContent>
         </Dialog>
+        <Button
+            onClick={generateAnnualReport}
+            className="gap-2 bg-slate-600 hover:bg-slate-700"
+          >
+            <Printer className="w-4 h-4" />
+            Print
+          </Button>
         </div>
       </div>
 

@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Users, FileText, Receipt, TrendingUp, AlertCircle, DollarSign, Printer, Plus, Trash2, Edit2, Eye, EyeOff } from "lucide-react";
+import { Users, FileText, Receipt, TrendingUp, AlertCircle, DollarSign, Printer, Plus, Trash2, Edit2, Eye, EyeOff, ChevronDown, ChevronRight } from "lucide-react";
 import { useMemo, useState, useEffect } from "react";
 import { useYear } from "@/contexts/YearContext";
 import { useSupabaseAuth } from "@/contexts/SupabaseAuthContext";
@@ -64,6 +64,7 @@ export default function Index() {
   const [editRole, setEditRole] = useState<string>("worker");
   const [showNewUserPassword, setShowNewUserPassword] = useState(false);
   const [showEditUserPassword, setShowEditUserPassword] = useState(false);
+  const [isMonthlyBreakdownOpen, setIsMonthlyBreakdownOpen] = useState(false);
 
   // Fetch all data on mount or year change
   useEffect(() => {
@@ -182,13 +183,19 @@ export default function Index() {
       }
     });
 
-    const totalContractValue = contracts.reduce((sum: number, c: any) => sum + (c.total_value || 0), 0);
-    const totalCosts = totalMaterialCosts + totalMiscCosts;
-    const totalProfit = totalContractValue - totalCosts;
-    const profitMargin = totalContractValue > 0 ? (totalProfit / totalContractValue) * 100 : 0;
-
     const totalBillsAmount = bills.reduce((sum: number, b: any) => sum + (Number(b.amount) || 0), 0);
     const pendingBills = bills.filter((b: any) => b.status !== "paid").reduce((sum: number, b: any) => sum + (Number(b.amount) || 0), 0);
+
+    const totalContractValue = contracts.reduce((sum: number, c: any) => sum + (c.total_value || 0), 0);
+    
+    // Total Costs = Project Costs (Materials + Misc) + Operating Costs (Bills)
+    // Note: Payroll is usually separate or part of Operating, but for this view "Project + Operating" usually implies external costs.
+    // If user wants Payroll included, they would usually say "Labor".
+    // given the "Project + Operating" subtitle, I'll sum Project (from contracts) and Operating (Bills).
+    const totalCosts = totalMaterialCosts + totalMiscCosts + totalBillsAmount;
+    
+    const totalProfit = totalContractValue - totalCosts;
+    const profitMargin = totalContractValue > 0 ? (totalProfit / totalContractValue) * 100 : 0;
 
     // Calculate month-by-month payroll data
     const monthlyPayroll: { [key: string]: number } = {};
@@ -265,7 +272,7 @@ export default function Index() {
         ["Total Employees", `${dashboardStats.totalEmployees}`, "Active employees"],
         ["Active Contracts", `${dashboardStats.totalContracts}`, `$${dashboardStats.totalContractValue.toLocaleString()}`],
         ["Outstanding Bills", `${dashboardStats.totalBills}`, `$${dashboardStats.pendingBills.toLocaleString()}`],
-        ["Total Costs", `$${dashboardStats.totalCosts.toLocaleString()}`, "Materials & misc"],
+        ["Total Costs", `$${dashboardStats.totalCosts.toLocaleString()}`, "Project + Operating"],
         ["Total Profit", `$${dashboardStats.totalProfit.toLocaleString()}`, `${dashboardStats.profitMargin.toFixed(1)}% margin`],
       ];
 
@@ -342,7 +349,7 @@ export default function Index() {
             Print
           </Button>
         </div>
-        <div className="flex flex-wrap gap-4 mt-6">
+        {/* <div className="flex flex-wrap gap-4 mt-6">
           <Link to="/employees">
             <Button className="bg-white text-blue-600 hover:bg-blue-50">
               View Employees
@@ -363,85 +370,66 @@ export default function Index() {
               View Costs
             </Button>
           </Link>
-        </div>
+        </div> */}
       </div>
 
       {/* Quick Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {/* Total Revenue */}
         <Card className="border-slate-200">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-slate-600 flex items-center gap-2">
-              <Users className="w-4 h-4 text-blue-600 flex-shrink-0" />
-              <span>Total Employees</span>
+              <FileText className="w-4 h-4 text-blue-600 flex-shrink-0" />
+              <span>Total Revenue</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-1">
-              <p className="text-3xl font-bold text-slate-900 whitespace-nowrap">{dashboardStats.totalEmployees}</p>
-              <p className="text-xs text-slate-500">Active employees</p>
+              <p className="text-3xl font-bold text-slate-900 whitespace-nowrap">
+                ${dashboardStats.revenue.toLocaleString()}
+              </p>
+              <p className="text-xs text-slate-500">
+                {dashboardStats.totalContracts} active contracts
+              </p>
             </div>
           </CardContent>
         </Card>
 
+        {/* Total Costs */}
         <Card className="border-slate-200">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-slate-600 flex items-center gap-2">
-              <FileText className="w-4 h-4 text-green-600 flex-shrink-0" />
-              <span>Active Contracts</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-1">
-              <p className="text-3xl font-bold text-slate-900 whitespace-nowrap">{dashboardStats.totalContracts}</p>
-              <p className="text-xs text-slate-500 whitespace-nowrap">Value: ${dashboardStats.totalContractValue.toLocaleString()}</p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-slate-200">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-slate-600 flex items-center gap-2">
-              <Receipt className="w-4 h-4 text-orange-600 flex-shrink-0" />
-              <span>Outstanding Bills</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-1">
-              <p className="text-3xl font-bold text-slate-900 whitespace-nowrap">{dashboardStats.totalBills}</p>
-              <p className="text-xs text-slate-500 whitespace-nowrap">Amount: ${dashboardStats.pendingBills.toLocaleString()}</p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-slate-200">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-slate-600 flex items-center gap-2">
-              <DollarSign className="w-4 h-4 text-red-600 flex-shrink-0" />
+              <DollarSign className="w-4 h-4 text-orange-600 flex-shrink-0" />
               <span>Total Costs</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-1">
-              <p className="text-3xl font-bold text-slate-900 whitespace-nowrap">${dashboardStats.totalCosts.toLocaleString()}</p>
-              <p className="text-xs text-slate-500">Materials & misc</p>
+              <p className="text-3xl font-bold text-slate-900 whitespace-nowrap">
+                ${dashboardStats.totalCosts.toLocaleString()}
+              </p>
+              <p className="text-xs text-slate-500">
+                Project + Operating
+              </p>
             </div>
           </CardContent>
         </Card>
 
-        <Card className={`border-slate-200 ${dashboardStats.totalProfit >= 0 ? "bg-green-50" : "bg-red-50"}`}>
+        {/* Net Profit */}
+        <Card className="border-green-200 bg-white">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-slate-600 flex items-center gap-2">
-              <TrendingUp className={`w-4 h-4 ${dashboardStats.totalProfit >= 0 ? "text-green-600" : "text-red-600"} flex-shrink-0`} />
-              <span>Profit</span>
+              <TrendingUp className="w-4 h-4 text-green-600 flex-shrink-0" />
+              <span>Net Profit</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-1">
-              <p className={`text-3xl font-bold whitespace-nowrap ${dashboardStats.totalProfit >= 0 ? "text-green-700" : "text-red-700"}`}>
+              <p className="text-3xl font-bold text-green-700 whitespace-nowrap">
                 ${dashboardStats.totalProfit.toLocaleString()}
               </p>
-              <p className={`text-xs whitespace-nowrap ${dashboardStats.totalProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
-                Margin: {dashboardStats.profitMargin.toFixed(1)}%
+              <p className="text-sm font-semibold text-green-600">
+                {dashboardStats.profitMargin.toFixed(1)}% <span className="text-xs font-normal text-slate-500 ml-1">margin</span>
               </p>
             </div>
           </CardContent>
@@ -473,34 +461,47 @@ export default function Index() {
             </div>
 
             <div className="space-y-3">
-              <h4 className="text-sm font-semibold text-slate-900">Monthly Breakdown</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-64 overflow-y-auto pr-2">
-                {["January", "February", "March", "April", "May", "June",
-                  "July", "August", "September", "October", "November", "December"].map((month, index) => {
-                  const monthNumber = index + 1;
-                  const amount = dashboardStats.monthlyPayroll[`${monthNumber}`] || 0;
-                  const monthlyValues = Object.values(dashboardStats.monthlyPayroll);
-                  const maxAmount = Math.max(...monthlyValues, 74000); // Estimate ~$18.5k x 4 weeks
-                  const percentage = maxAmount > 0 ? (amount / maxAmount) * 100 : 0;
+              <button 
+                onClick={() => setIsMonthlyBreakdownOpen(!isMonthlyBreakdownOpen)}
+                className="flex items-center gap-2 w-full hover:bg-slate-50 p-2 rounded -ml-2 transition-colors group"
+              >
+                {isMonthlyBreakdownOpen ? (
+                  <ChevronDown className="w-4 h-4 text-slate-500 group-hover:text-slate-700" />
+                ) : (
+                  <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-slate-700" />
+                )}
+                <h4 className="text-sm font-semibold text-slate-900">Monthly Breakdown</h4>
+              </button>
+              
+              {isMonthlyBreakdownOpen && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-64 overflow-y-auto pr-2 animate-in slide-in-from-top-2 duration-200">
+                  {["January", "February", "March", "April", "May", "June",
+                    "July", "August", "September", "October", "November", "December"].map((month, index) => {
+                    const monthNumber = index + 1;
+                    const amount = dashboardStats.monthlyPayroll[`${monthNumber}`] || 0;
+                    const monthlyValues = Object.values(dashboardStats.monthlyPayroll);
+                    const maxAmount = Math.max(...monthlyValues, 74000); // Estimate ~$18.5k x 4 weeks
+                    const percentage = maxAmount > 0 ? (amount / maxAmount) * 100 : 0;
 
-                  return (
-                    <div key={month} className="space-y-1">
-                      <div className="flex justify-between items-center text-xs">
-                        <span className="font-medium text-slate-700">{month}</span>
-                        <span className={`font-semibold ${amount > 0 ? "text-green-700" : "text-slate-500"}`}>
-                          ${amount.toLocaleString()}
-                        </span>
+                    return (
+                      <div key={month} className="space-y-1">
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="font-medium text-slate-700">{month}</span>
+                          <span className={`font-semibold ${amount > 0 ? "text-green-700" : "text-slate-500"}`}>
+                            ${amount.toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                          <div
+                            className="bg-gradient-to-r from-green-400 to-green-600 h-full transition-all duration-300"
+                            style={{ width: `${Math.max(percentage, 2)}%` }}
+                          />
+                        </div>
                       </div>
-                      <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
-                        <div
-                          className="bg-gradient-to-r from-green-400 to-green-600 h-full transition-all duration-300"
-                          style={{ width: `${Math.max(percentage, 2)}%` }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             <Link to="/payments" className="block pt-2">

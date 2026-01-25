@@ -13,6 +13,7 @@ import {
   Briefcase,
   Receipt,
   LogOut,
+  History,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SouthParkLogo } from "@/components/SouthParkLogo";
@@ -39,7 +40,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
       ],
     },
     {
-      title: "Payroll",
+      title: "Human Resoures",
       items: [
         {
           label: "Employees",
@@ -47,12 +48,17 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
           icon: Users,
         },
          {
-          label: "Payments",
+          label: "Payroll",
           path: "/payments",
           icon: CreditCard,
         },
         {
-          label: "Work Letters",
+          label: "Payment Ledger",
+          path: "/payment-history",
+          icon: History,
+        },
+        {
+          label: "Employee Documents",
           path: "/work-letters",
           icon: FileCheck,
         },
@@ -60,7 +66,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
       adminOnly: true,
     },
     {
-      title: "Financial",
+      title: "Projects",
       items: [
         {
           label: "Contracts",
@@ -68,14 +74,20 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
           icon: Briefcase,
         },
         {
-          label: "Bills",
-          path: "/bills",
-          icon: Receipt,
-        },
-        {
           label: "Costs",
           path: "/costs",
           icon: TrendingUp,
+        },
+      ],
+      adminOnly: true,
+    },
+    {
+      title: "Accounting",
+      items: [
+        {
+          label: "Bills",
+          path: "/bills",
+          icon: Receipt,
         },
       ],
       adminOnly: true,
@@ -179,7 +191,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
   );
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
+    <div className="min-h-screen bg-slate-50 flex overflow-x-hidden">
       {/* Desktop Sidebar */}
       <aside className="hidden lg:block w-64 flex-shrink-0 fixed inset-y-0 left-0 z-50">
         <SidebarContent />
@@ -204,7 +216,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
       </aside>
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col lg:pl-64 min-h-screen transition-all duration-300">
+      <div className="flex-1 flex flex-col lg:pl-64 min-h-screen transition-all duration-300 min-w-0 w-full">
         <header className="sticky top-0 z-40 w-full border-b border-slate-200 bg-white shadow-sm h-16 px-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <div
@@ -214,7 +226,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
               <HiMenuAlt1 className="w-7 h-7" />
             </div>
             <h2 className="text-lg font-semibold text-slate-900 truncate">
-              South Park Cabinets
+              South Park Cabinet Management
             </h2>
           </div>
         </header>

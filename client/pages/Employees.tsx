@@ -1,6 +1,6 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Plus, ChevronRight, ChevronLeft, Edit2, Trash2, Eye, ChevronDown, Download, Printer, FileText, Settings, TrendingUp } from "lucide-react";
+import { Plus, ChevronRight, ChevronLeft, Edit2, Trash2, Eye, ChevronDown, Download, Printer, FileText, Settings, TrendingUp, MoreVertical } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import jsPDF from "jspdf";
 import { useState, useEffect } from "react";
@@ -34,6 +34,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface EmployeeAbsence {
   id: string;
@@ -1201,7 +1209,7 @@ export default function Employees() {
   };
 
 
-  const printEmployeesList = () => {
+  const handlePrintRoster = () => {
     try {
       if (employees.length === 0) {
         alert("No employees to print");
@@ -1215,99 +1223,94 @@ export default function Employees() {
       const margin = 10;
       const lineHeight = 5;
 
-      pdf.setFontSize(14);
+      // Header
+      pdf.setFontSize(18);
       pdf.setFont(undefined, "bold");
       pdf.text("Employee Roster", margin, yPosition);
       yPosition += 8;
 
-      pdf.setFontSize(9);
+      pdf.setFontSize(10);
       pdf.setFont(undefined, "normal");
       pdf.text(`Generated: ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`, margin, yPosition);
-      yPosition += 8;
+      yPosition += 10;
 
       const totalWeeklyPayroll = employees.reduce((sum, e) => sum + e.weeklyRate, 0);
       const activeEmployees = employees.filter((e) => e.paymentStatus === "active").length;
-      pdf.setFontSize(9);
+      
+      // Summary Line
+      pdf.setFontSize(10);
       pdf.text(`Total Employees: ${employees.length} | Active: ${activeEmployees} | Weekly Payroll: $${totalWeeklyPayroll.toLocaleString()}`, margin, yPosition);
-      yPosition += 6;
+      yPosition += 8;
 
-      const colWidths = [15, 40, 35, 25, 25, 35, 20];
+      const colWidths = [20, 50, 40, 30, 30, 40, 30];
       const headers = ["ID", "Name", "Position", "Weekly Rate", "Start Date", "Payment Method", "Status"];
-      const cellPadding = 1.5;
+      const cellPadding = 2;
       let xPosition = margin;
 
+      // Table Header using lines like the screenshot (simple header row)
       pdf.setFont(undefined, "bold");
-      pdf.setFontSize(9);
+      pdf.setFontSize(10);
       headers.forEach((header, idx) => {
         pdf.text(header, xPosition + cellPadding, yPosition);
         xPosition += colWidths[idx];
       });
-      yPosition += lineHeight + 1;
-      pdf.setDrawColor(200);
-      pdf.line(margin, yPosition - 1, pageWidth - margin, yPosition - 1);
       yPosition += 2;
+      pdf.setDrawColor(200, 200, 200);
+      pdf.line(margin, yPosition, pageWidth - margin, yPosition);
+      yPosition += 6;
 
       pdf.setFont(undefined, "normal");
-      pdf.setFontSize(8);
+      pdf.setFontSize(9);
 
       employees.forEach((emp) => {
-        if (yPosition > pageHeight - 10) {
+        if (yPosition > pageHeight - 15) {
           pdf.addPage();
           yPosition = 15;
+          // Re-print header for new page? Optional, usually good practice.
+          // pdf.setFont(undefined, "bold");
+          // Headers...
         }
 
         xPosition = margin;
-        const cellTextHeight = lineHeight;
-
+        
         pdf.text(emp.id, xPosition + cellPadding, yPosition);
         xPosition += colWidths[0];
 
-        let nameToPrint = emp.name;
-        if (nameToPrint.length > 25) {
-          nameToPrint = nameToPrint.substring(0, 22) + "...";
-        }
-        pdf.text(nameToPrint, xPosition + cellPadding, yPosition);
+        pdf.text(emp.name, xPosition + cellPadding, yPosition);
         xPosition += colWidths[1];
 
-        let positionToPrint = emp.position;
-        if (positionToPrint.length > 25) {
-          positionToPrint = positionToPrint.substring(0, 22) + "...";
-        }
-        pdf.text(positionToPrint, xPosition + cellPadding, yPosition);
+        pdf.text(emp.position || "-", xPosition + cellPadding, yPosition);
         xPosition += colWidths[2];
 
         pdf.text(`$${emp.weeklyRate.toLocaleString()}`, xPosition + cellPadding, yPosition);
         xPosition += colWidths[3];
 
-        const startDateFormatted = formatDateString(emp.startDate);
+        const startDateFormatted = emp.startDate ? new Date(emp.startDate).toLocaleDateString() : "-";
         pdf.text(startDateFormatted, xPosition + cellPadding, yPosition);
         xPosition += colWidths[4];
 
         let paymentMethod = emp.paymentMethod
           ? emp.paymentMethod.charAt(0).toUpperCase() + emp.paymentMethod.slice(1).replace(/_/g, " ")
           : "-";
-        if (paymentMethod.length > 20) {
-          paymentMethod = paymentMethod.substring(0, 17) + "...";
-        }
         pdf.text(paymentMethod, xPosition + cellPadding, yPosition);
         xPosition += colWidths[5];
 
         const status = emp.paymentStatus ? emp.paymentStatus.charAt(0).toUpperCase() + emp.paymentStatus.slice(1) : "Active";
         pdf.text(status, xPosition + cellPadding, yPosition);
 
-        yPosition += cellTextHeight + 1;
+        yPosition += 8;
       });
 
-      yPosition += 3;
+      // Footer / Totals
+      yPosition += 5;
       pdf.setFont(undefined, "bold");
-      pdf.setFontSize(9);
       pdf.text(`Total Employees: ${employees.length}`, margin, yPosition);
       pdf.text(`Weekly Payroll: $${totalWeeklyPayroll.toLocaleString()}`, margin + 50, yPosition);
 
       pdf.save(`Employee-Roster-${new Date().toISOString().split("T")[0]}.pdf`);
       alert("✓ Employee roster printed successfully");
     } catch (error) {
-      console.error("Error generating employee roster:", error);
+      console.error("Error generating roster:", error);
       alert("Error generating roster. Please try again.");
     }
   };
@@ -1674,37 +1677,14 @@ export default function Employees() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900">Employee Management</h1>
-          <p className="text-slate-600 mt-1">Manage employee information, weekly payments, and payroll</p>
-          {employees.length > 0 && (
-            <p className="text-sm text-slate-500 mt-2">
-              Total: <span className="font-semibold text-slate-900">{employees.length}</span> employees |
-              Active: <span className="font-semibold text-green-600">{employees.filter(e => e.paymentStatus === 'active').length}</span> |
-              Paused: <span className="font-semibold text-orange-600">{employees.filter(e => e.paymentStatus === 'paused').length}</span> |
-              Leaving: <span className="font-semibold text-red-600">{employees.filter(e => e.paymentStatus === 'leaving').length}</span>
-            </p>
-          )}
+          <h1 className="text-3xl font-bold text-slate-900">Employees</h1>
+          <p className="text-slate-600 mt-1">View and manage employee information</p>
         </div>
-        <div className="flex gap-3 flex-wrap">
-          <Button
-            onClick={generateEmployeeTemplate}
-            className="gap-2 bg-slate-700 hover:bg-slate-800"
-          >
-            <Download className="w-3.8 h-3.8" />
-            Download Template
-          </Button>
-          <Button
-            onClick={downloadEmployeeDetailsReport}
-            className="gap-2 bg-slate-700 hover:bg-slate-800"
-            title="Download employee details report with all information"
-          >
-            <FileText className="w-3.8 h-3.8" />
-            Employee Details
-          </Button>
+        <div className="flex gap-3">
           <Dialog open={isModalOpen} onOpenChange={handleModalOpenChange}>
             <DialogTrigger asChild>
               <Button className="gap-2 bg-indigo-600 hover:bg-indigo-700">
-                <Plus className="w-3.8 h-3.8" />
+                <Plus className="w-4 h-4" />
                 Add Employee
               </Button>
             </DialogTrigger>
@@ -2008,15 +1988,71 @@ export default function Employees() {
               </div>
             </DialogContent>
           </Dialog>
-          <Button
-            onClick={printEmployeesList}
-            className="gap-2 bg-slate-700 hover:bg-slate-800"
-            title="Print employee roster as PDF"
-          >
-            <Printer className="w-4 h-4" />
-            Print List
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" className="gap-2 bg-white hover:bg-slate-50 border-slate-300 text-slate-700">
+                Export
+                <ChevronDown className="w-4 h-4 ml-1 opacity-50" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuLabel>Export Options</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={generateEmployeeTemplate} className="cursor-pointer gap-2">
+                <Download className="w-4 h-4 text-slate-500" />
+                Download Template
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={downloadEmployeeDetailsReport} className="cursor-pointer gap-2">
+                <FileText className="w-4 h-4 text-slate-500" />
+                Employee Details PDF
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handlePrintRoster} className="cursor-pointer gap-2">
+                <Printer className="w-4 h-4 text-slate-500" />
+                Print Roster
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
+      </div>
+      
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <Card className="border-slate-200 shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-slate-500">Total Employees</CardTitle>
+          </CardHeader>
+          <CardContent>
+             <div className="text-3xl font-bold text-slate-900">{employees.length}</div>
+             <p className="text-xs text-slate-500 mt-1">Active team members</p>
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-200 shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-slate-500">Weekly Payroll</CardTitle>
+          </CardHeader>
+          <CardContent>
+             <div className="text-3xl font-bold text-slate-900">
+               ${employees.reduce((sum, emp) => sum + emp.weeklyRate, 0).toLocaleString()}
+             </div>
+             <p className="text-xs text-slate-500 mt-1">Total obligation</p>
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-200 shadow-sm">
+          <CardHeader className="pb-2">
+             <CardTitle className="text-sm font-medium text-slate-500">Total Paid YTD</CardTitle>
+          </CardHeader>
+          <CardContent>
+             <div className="text-3xl font-bold text-slate-900">
+               ${weeklyPayments
+                 .filter(p => p.status === "paid" && new Date(p.weekStartDate).getFullYear() === selectedYear)
+                 .reduce((sum, p) => sum + p.finalAmount, 0)
+                 .toLocaleString()}
+             </div>
+             <p className="text-xs text-slate-500 mt-1">Completed payments</p>
+          </CardContent>
+        </Card>
       </div>
 
       {employees.length > 0 ? (
@@ -2025,11 +2061,11 @@ export default function Employees() {
             <CardHeader>
               <CardTitle>Employee List</CardTitle>
               <CardDescription>
-                All employees and their information
+                Active and inactive employees
               </CardDescription>
-              <div className="mt-4 space-y-4">
-                <div>
-                  <Label className="text-sm font-medium text-slate-700 mb-2 block">Payment Status</Label>
+              <div className="mt-4 flex flex-wrap items-end gap-4">
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium text-slate-700">Status</Label>
                   <Select value={filterStatus} onValueChange={(value: any) => setFilterStatus(value)}>
                     <SelectTrigger className="w-40 border-slate-300 whitespace-nowrap">
                       <SelectValue />
@@ -2044,39 +2080,42 @@ export default function Employees() {
                   </Select>
                 </div>
 
-                <div className="flex gap-3 items-center">
-                  <Label className="text-sm font-medium text-slate-700 whitespace-nowrap">Start Date Range:</Label>
+                <div className="space-y-2">
+                  <Label htmlFor="filterFromDate" className="text-sm font-medium text-slate-700">From:</Label>
                   <Input
                     id="filterFromDate"
                     type="date"
-                    placeholder="From"
                     value={filterFromDate}
                     onChange={(e) => setFilterFromDate(e.target.value)}
                     className="border-slate-300 w-40"
                   />
-                  <span className="text-slate-500 text-sm">to</span>
+                </div>
+                
+                <div className="pb-2.5 text-slate-500 text-sm">to</div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="filterToDate" className="text-sm font-medium text-slate-700">To:</Label>
                   <Input
                     id="filterToDate"
                     type="date"
-                    placeholder="To"
                     value={filterToDate}
                     onChange={(e) => setFilterToDate(e.target.value)}
                     className="border-slate-300 w-40"
                   />
-                  {(filterFromDate || filterToDate) && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setFilterFromDate("");
-                        setFilterToDate("");
-                      }}
-                      className="border-slate-300 text-slate-600"
-                    >
-                      Clear
-                    </Button>
-                  )}
                 </div>
+
+                {(filterFromDate || filterToDate) && (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setFilterFromDate("");
+                      setFilterToDate("");
+                    }}
+                    className="mb-0.5 border-slate-300 text-slate-600"
+                  >
+                    Clear
+                  </Button>
+                )}
               </div>
             </CardHeader>
             <CardContent>
