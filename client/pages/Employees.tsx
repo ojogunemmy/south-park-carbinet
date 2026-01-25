@@ -1097,9 +1097,14 @@ export default function Employees() {
     }
 
     if (!weekStartStr) {
-      const parts = severanceDate.split('-');
-      const severanceDateObj = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
-      weekStartStr = getWeekStartDate(severanceDateObj);
+      if (severanceDate) {
+        const parts = severanceDate.split('-');
+        const severanceDateObj = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+        weekStartStr = getWeekStartDate(severanceDateObj);
+      } else {
+        // Fallback to current week if no other date found
+        weekStartStr = getWeekStartDate(new Date());
+      }
     }
 
     // Calculate/Validate dates
@@ -1115,7 +1120,7 @@ export default function Employees() {
 
     try {
         const newPayment: Omit<SupabasePayment, "created_at" | "updated_at"> = {
-          id: `SEVER-${employee.id}-${weekStartStr}`,
+          id: `SEVER-${employee.id}-${weekStartStr}-${Date.now()}`, // Added timestamp to ensure uniqueness
           employee_id: employee.id,
           week_start_date: weekStartStr,
           week_end_date: weekEndStr,
@@ -1146,6 +1151,9 @@ export default function Employees() {
         setSeveranceReason("");
         setSeveranceDate("");
         setSeveranceMode("quick");
+        
+        alert(`✓ Severance payment created for ${employee.name}.\nAmount: $${severanceAmount.toLocaleString()}\nWeek: ${new Date(weekStartStr).toLocaleDateString()}`);
+
     } catch (error) {
         console.error("Error creating severance payment:", error);
         alert("Failed to create severance payment.");

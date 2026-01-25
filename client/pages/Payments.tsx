@@ -34,6 +34,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Toaster } from "sonner";
+import { Badge } from "@/components/ui/badge";
 
 interface CheckAttachment {
   id: string;
@@ -335,7 +336,10 @@ export default function Payments() {
 
         const dateStr = new Date(payment.week_start_date).toLocaleDateString();
         const methodStr = (payment.payment_method || "N/A").replace("_", " ");
-        let descStr = payment.is_severance ? "Severance" : "Weekly Salary";
+        
+        // Determine description: Use notes if available (covers Severance), else default to Weekly Salary
+        let descStr = payment.notes || (payment.is_severance ? "Severance" : "Weekly Salary");
+        
         if (payment.check_number) descStr += ` (Chk #${payment.check_number})`;
         
         // Status formatting
@@ -1806,6 +1810,7 @@ export default function Payments() {
               <thead className="border-b border-slate-200 bg-slate-50">
                 <tr>
                   <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Employee</th>
+                  <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Description</th>
                   <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Week</th>
                   <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Amount</th>
                   <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Due Date</th>
@@ -1817,7 +1822,7 @@ export default function Payments() {
               <tbody>
                 {filteredPayments.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="p-3 text-center text-slate-500">
+                    <td colSpan={8} className="p-3 text-center text-slate-500">
                       No payments found
                     </td>
                   </tr>
@@ -1826,6 +1831,18 @@ export default function Payments() {
                     <tr key={payment.id} className={idx % 2 === 0 ? "bg-white" : "bg-slate-50"}>
                       <td className="p-3 text-slate-700 font-medium whitespace-nowrap">
                         <p className="font-semibold">{payment.employee_id} - {payment.employee_name}</p>
+                      </td>
+                      <td className="p-3 text-slate-700 text-xs whitespace-nowrap">
+                         {(() => {
+                           if (payment.is_severance || (payment.notes && payment.notes.toLowerCase().includes("severance"))) {
+                             return (
+                               <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 hover:bg-red-50">
+                                 {payment.notes || "Severance Payment"}
+                               </Badge>
+                             );
+                           }
+                           return <span className="text-slate-600">{payment.notes || "Weekly Salary"}</span>;
+                         })()}
                       </td>
                       <td className="p-3 text-slate-700 text-xs whitespace-nowrap">
                         <span>{new Date(payment.week_start_date).toLocaleDateString()} to {new Date(payment.week_end_date).toLocaleDateString()}</span>
