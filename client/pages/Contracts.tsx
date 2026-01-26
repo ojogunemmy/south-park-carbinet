@@ -3128,7 +3128,7 @@ export default function Contracts() {
         </Dialog>
       </div>
       
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         <Card className="border-slate-200">
           <CardContent className="pt-6">
             <p className="text-sm font-medium text-slate-500">Total Contracts</p>
@@ -3182,7 +3182,7 @@ export default function Contracts() {
               <CardDescription>
                 All client contracts with deposit and payment schedule tracking
               </CardDescription>
-              <div className="flex flex-col md:flex-row gap-4 mt-4 items-start md:items-center flex-wrap">
+              <div className="flex flex-col lg:flex-row gap-4 mt-4 items-start lg:items-center flex-wrap">
                 <Select value={filterStatus} onValueChange={(value: any) => setFilterStatus(value)}>
                   <SelectTrigger className="w-full md:w-40 border-slate-300">
                     <SelectValue />
@@ -3313,7 +3313,7 @@ export default function Contracts() {
               </div>
 
               {/* Mobile Card View */}
-              <div className="md:hidden space-y-4">
+              <div className="lg:hidden space-y-4">
                 {filteredContracts.map((contract) => (
                   <div key={contract.id} className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
                     <div className={`p-4 border-b border-slate-100 flex justify-between items-start border-l-4 ${

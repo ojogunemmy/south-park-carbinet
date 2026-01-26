@@ -40,6 +40,35 @@ router.patch('/:id', async (req, res) => {
   }
 });
 
+// Delete employee
+router.delete('/:id', async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const { id } = req.params;
+    
+    // Check if employee exists first
+    const { data: existing, error: fetchError } = await supabase
+      .from('employees')
+      .select('id')
+      .eq('id', id)
+      .single();
+      
+    if (fetchError || !existing) {
+      return res.status(404).json({ error: 'Employee not found' });
+    }
+    
+    const { error } = await supabase
+      .from('employees')
+      .delete()
+      .eq('id', id);
+    
+    if (error) throw error;
+    res.json({ message: 'Employee deleted successfully' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Create employee (HR record)
 router.post('/', async (req, res) => {
   try {
