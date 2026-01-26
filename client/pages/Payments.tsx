@@ -2,7 +2,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { CheckCircle, Clock, AlertCircle, Printer, Trash2, Paperclip, Download, Eye, X, Plus, Calendar, Edit2 } from "lucide-react";
 import jsPDF from "jspdf";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useYear } from "@/contexts/YearContext";
 import { getTodayDate, formatDateString, formatDateToString, saveYearData } from "@/utils/yearStorage";
 import { useAutoSave } from "@/hooks/useAutoSave";
@@ -571,7 +571,22 @@ export default function Payments() {
   const [isAddWeekModalOpen, setIsAddWeekModalOpen] = useState(false);
   const [week_start_date, setWeekStartDate] = useState<string>("");
   const [selectedEmployeesForWeek, setSelectedEmployeesForWeek] = useState<Set<string>>(new Set());
-  const [weekDaysWorked, setWeekDaysWorked] = useState<number>(5);
+  const [weekDaysWorked, setWeekDaysWorked] = useState<number>(5); // Keeping for fallback/initialization
+  const [employeeDays, setEmployeeDays] = useState<Record<string, number>>({});
+  const [bulkDaysInput, setBulkDaysInput] = useState<number>(5);
+
+  // Additional Payments Inline State
+  const [isAddingPaymentInline, setIsAddingPaymentInline] = useState(false);
+  const [queuedAdditionalPayments, setQueuedAdditionalPayments] = useState<Array<{
+    id: string;
+    employeeId: string;
+    amount: number;
+    reason: string;
+    employeeName: string;
+  }>>([]);
+  const [inlinePaymentEmpId, setInlinePaymentEmpId] = useState("");
+  const [inlinePaymentAmount, setInlinePaymentAmount] = useState<string>("");
+  const [inlinePaymentReason, setInlinePaymentReason] = useState("");
 
   // Down Payment Edit modal state
   const [isEditDownPaymentOpen, setIsEditDownPaymentOpen] = useState(false);
@@ -580,6 +595,7 @@ export default function Payments() {
   
   // Submission state to prevent double clicks
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [viewMode, setViewMode] = useState<"weekly" | "yearly">("weekly");
 
   // Settings state
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -1068,6 +1084,8 @@ export default function Payments() {
     setIsDeleteConfirmOpen(true);
   };
 
+  const [isClearAllConfirmOpen, setIsClearAllConfirmOpen] = useState(false);
+
   const handleConfirmRemovePayment = async () => {
     if (!selectedDeletePaymentId) return;
 
@@ -1095,33 +1113,84 @@ export default function Payments() {
   };
 
   // Find the earliest pending payment date (coming week to pay)
-  const upcomingPaymentWeek = (() => {
-    // Find the earliest week with pending payments using string comparison to avoid timezone issues
-    const pendingPayments = payments.filter(p => p.status === "pending");
-    if (pendingPayments.length > 0) {
-      // Use string comparison on YYYY-MM-DD format (lexicographic ordering works correctly)
-      return pendingPayments.reduce<string | null>((earliest, p) => {
-        if (!earliest || p.week_start_date < earliest) {
-          return p.week_start_date;
-        }
-        return earliest;
-      }, null);
-    }
+  // Get all unique week start dates
+  const availableWeeks = Array.from(new Set(payments.map(p => p.week_start_date)))
+    .sort((a, b) => b.localeCompare(a)); // Sort descending (newest first)
 
-    // If no pending payments, show the earliest week (first week of year)
-    // This way, if week 1 is all paid, it shows week 1's paid status
-    if (payments.length > 0) {
-      // Use string comparison on YYYY-MM-DD format (lexicographic ordering works correctly)
-      return payments.reduce<string | null>((earliest, p) => {
-        if (!earliest || p.week_start_date < earliest) {
-          return p.week_start_date;
-        }
-        return earliest;
-      }, null);
-    }
+  // Determine default week (Earliest Pending > Current Real Week > Latest Available)
+  const defaultWeek = useMemo(() => {
+    // 1. Try to find earliest pending week
+    const pendingWeeks = payments
+      .filter(p => p.status === "pending")
+      .map(p => p.week_start_date)
+      .sort();
+    
+    if (pendingWeeks.length > 0) return pendingWeeks[0];
 
-    return null;
-  })();
+    // 2. Fallback to latest available week
+    if (availableWeeks.length > 0) return availableWeeks[0];
+
+    // 3. Fallback to current week (2026-01-26 context)
+    return "2026-01-25"; // Approximate default
+  }, [payments, availableWeeks]);
+
+  const [selectedWeek, setSelectedWeek] = useState<string>(defaultWeek);
+
+  // Update selected week when default changes (initial load)
+  useEffect(() => {
+    if (defaultWeek && !selectedWeek) {
+      setSelectedWeek(defaultWeek);
+    }
+  }, [defaultWeek]);
+
+  // Compute Yearly Stats for "All Payments" view
+  const yearlyStats = useMemo(() => {
+    const stats: Record<string, { id: string, name: string, paid: number, pending: number, total: number, count: number }> = {};
+    
+    // Initialize with all active employees
+    employees.forEach(e => {
+      stats[e.id] = { id: e.id, name: e.name, paid: 0, pending: 0, total: 0, count: 0 };
+    });
+
+    // Aggregate payments
+    payments.forEach(p => {
+      // If employee not in map (e.g. deleted), create entry or skip?
+      // For now, let's skip if no matching employee to avoid displaying IDs, or handle if needed.
+      // But usually payments belong to valid employees.
+      if (!stats[p.employee_id]) {
+         // Optionally handle deleted employees if name is available in payment? (Cabinet2 payments don't seem to store name denormalized, just ID. Wait, PDF gen helper used p.employee_name??)
+         // Checking types... PaymentObligation interface from Step 741 getPaymentMethodDisplay params...
+         // Let's rely on `employees` list. If they are deleted, they might be missing.
+         // Better to check if we can get name from somewhere else or just skip.
+         return;
+      }
+      
+      const amount = p.amount || 0;
+      stats[p.employee_id].total += amount;
+      stats[p.employee_id].count += 1;
+      
+      if (p.status === 'paid') {
+        const deduction = p.deduction_amount || 0;
+        stats[p.employee_id].paid += (amount - deduction); // Net paid? Or gross? Usually Total Earned = Gross. Paid = Net? 
+        // Image 2 "Total Earned" vs "Paid" vs "Pending". 
+        // Let's assume Paid = amount for now unless specific logic needed.
+        // Step 750 line 1176: totalPaid uses (amount - deduction). I will use that for consistency.
+      } else if (p.status === 'pending') {
+        stats[p.employee_id].pending += amount;
+      }
+    });
+
+    return Object.values(stats);
+  }, [employees, payments]);
+
+  const yearlyTotals = useMemo(() => {
+    return yearlyStats.reduce((acc, curr) => ({
+      total: acc.total + curr.total,
+      paid: acc.paid + curr.paid,
+      pending: acc.pending + curr.pending,
+      count: acc.count + curr.count
+    }), { total: 0, paid: 0, pending: 0, count: 0 });
+  }, [yearlyStats]);
 
   const filteredPayments = payments
     .filter((p) => {
@@ -1142,9 +1211,9 @@ export default function Payments() {
           const to_date = parseLocalDate(filterToDate);
           if (paymentDate > to_date) dateMatch = false;
         }
-      } else if (upcomingPaymentWeek) {
-        // Otherwise, default to showing only the coming week's payments
-        dateMatch = p.week_start_date === upcomingPaymentWeek;
+      } else {
+        // Strict Week Filtering
+        dateMatch = p.week_start_date === selectedWeek;
       }
 
       return statusMatch && employeeMatch && dateMatch;
@@ -1234,30 +1303,39 @@ export default function Payments() {
   };
   
   const handleDeleteAllPending = async () => {
-    // Only target pending payments currently displayed/filtered
-    const pendingPaymentsToDelete = filteredPayments.filter(p => p.status === "pending");
+    // Target all payments in the current view (week)
+    const paymentsToDelete = filteredPayments;
     
-    if (pendingPaymentsToDelete.length === 0) {
-      toast({ description: "No pending payments to delete in current view." });
+    if (paymentsToDelete.length === 0) {
+      toast({ description: "No payments to delete in current view." });
       return;
     }
     
-    if (window.confirm(`Are you sure you want to clear (delete) ${pendingPaymentsToDelete.length} pending payments? This cannot be undone.`)) {
-      try {
-        await Promise.all(pendingPaymentsToDelete.map(p => paymentsService.delete(p.id)));
-        await loadFreshData();
-        toast({
-          title: "Cleared All Pending",
-          description: `Successfully deleted ${pendingPaymentsToDelete.length} pending payments.`,
-        });
-      } catch (error) {
-         console.error("Error deleting all pending:", error);
-         toast({
-          title: "Error",
-          description: "Failed to clear pending payments.",
-          variant: "destructive"
-         });
-      }
+    setIsClearAllConfirmOpen(true);
+  };
+
+  const handleConfirmClearAll = async () => {
+    const paymentsToDelete = filteredPayments;
+    if (paymentsToDelete.length === 0) return;
+
+    try {
+      setIsSubmitting(true);
+      await Promise.all(paymentsToDelete.map(p => paymentsService.delete(p.id)));
+      await loadFreshData();
+      toast({
+        title: "Cleared Week",
+        description: `Successfully deleted ${paymentsToDelete.length} payments.`,
+      });
+      setIsClearAllConfirmOpen(false);
+    } catch (error) {
+       console.error("Error deleting payments:", error);
+       toast({
+        title: "Error",
+        description: "Failed to clear payments.",
+        variant: "destructive"
+       });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -1431,8 +1509,9 @@ export default function Payments() {
       await Promise.all(Array.from(selectedEmployeesForWeek).map(async (empId) => {
         const employee = employees.find(e => e.id === empId);
         if (employee) {
+          const daysWorked = employeeDays[empId] ?? 5;
           const dailyRate = employee.weekly_rate / 5;
-          const amount = dailyRate * weekDaysWorked;
+          const amount = dailyRate * daysWorked;
 
           await paymentsService.create({
             employee_id: employee.id,
@@ -1447,7 +1526,7 @@ export default function Payments() {
             account_number: employee.bank_details?.account_number || null,
             account_type: employee.bank_details?.account_type || null,
             account_last_four: employee.bank_details?.account_number ? (employee.bank_details.account_number.slice(-4)) : null,
-            days_worked: weekDaysWorked,
+            days_worked: daysWorked,
             deduction_amount: 0,
             gross_amount: amount,
             bonus_amount: 0,
@@ -1459,6 +1538,37 @@ export default function Payments() {
         }
       }));
 
+      // Process queued additional payments
+      if (queuedAdditionalPayments.length > 0) {
+        await Promise.all(queuedAdditionalPayments.map(async (qp) => {
+          const employee = employees.find(e => e.id === qp.employeeId);
+          if (employee) {
+            await paymentsService.create({
+              employee_id: employee.id,
+              amount: qp.amount,
+              week_start_date: weekStartStr,
+              week_end_date: weekEndStr,
+              due_date: due_dateStr,
+              status: "pending",
+              payment_method: employee.payment_method,
+              bank_name: employee.bank_details?.bank_name || null,
+              routing_number: employee.bank_details?.routing_number || null,
+              account_number: employee.bank_details?.account_number || null,
+              account_type: employee.bank_details?.account_type || null,
+              account_last_four: employee.bank_details?.account_number ? (employee.bank_details.account_number.slice(-4)) : null,
+              days_worked: 0, // Additional payment doesn't imply days worked
+              deduction_amount: 0,
+              gross_amount: qp.amount,
+              bonus_amount: 0,
+              check_number: null,
+              paid_date: null,
+              down_payment: 0,
+              notes: qp.reason,
+            });
+          }
+        }));
+      }
+
       await loadFreshData();
 
       // Reset form and close modal
@@ -1466,10 +1576,11 @@ export default function Payments() {
       setWeekStartDate("");
       setSelectedEmployeesForWeek(new Set());
       setWeekDaysWorked(5);
-
+      setQueuedAdditionalPayments([]);
+      
       toast({
-        title: "✓ Week Added",
-        description: `Added payments for ${selectedEmployeesForWeek.size} employee(s) for the week of ${weekStartStr}`,
+        title: "✓ Week & Payments Added",
+        description: `Added salary payments for ${selectedEmployeesForWeek.size} employees and ${queuedAdditionalPayments.length} additional payments.`,
       });
     } catch (error) {
       console.error("Error adding week payments:", error);
@@ -1489,10 +1600,25 @@ export default function Payments() {
     // Initialize with all employees selected
     const allEmployeeIds = new Set(employees.map(e => e.id));
     setSelectedEmployeesForWeek(allEmployeeIds);
+    
+    // Initialize days for all employees to 5
+    const initialDays: Record<string, number> = {};
+    employees.forEach(emp => {
+      initialDays[emp.id] = 5;
+    });
+    setEmployeeDays(initialDays);
+    setBulkDaysInput(5);
+    
+    // Reset additional payments state
+    setQueuedAdditionalPayments([]);
+    setIsAddingPaymentInline(false);
+    setInlinePaymentEmpId("");
+    setInlinePaymentAmount("");
+    setInlinePaymentReason("");
 
-    // Set week start date to NEXT week (7 days after upcoming payment week)
-    if (upcomingPaymentWeek) {
-      const currentWeekParts = upcomingPaymentWeek.split('-');
+    // Set week start date to NEXT week (7 days after currently viewed week)
+    if (selectedWeek) {
+      const currentWeekParts = selectedWeek.split('-');
       const currentWeekDate = new Date(
         parseInt(currentWeekParts[0], 10),
         parseInt(currentWeekParts[1], 10) - 1,
@@ -1505,6 +1631,44 @@ export default function Payments() {
       // Fallback: default to second week in 2026
       setWeekStartDate("2026-01-11");
     }
+  };
+
+  const handleBulkApply = () => {
+    const newDays = { ...employeeDays };
+    selectedEmployeesForWeek.forEach(id => {
+      newDays[id] = bulkDaysInput;
+    });
+    setEmployeeDays(newDays);
+    toast({
+      description: `Applied ${bulkDaysInput} days to ${selectedEmployeesForWeek.size} selected employees.`
+    });
+  };
+
+  const handleAddInlinePayment = () => {
+    if (!inlinePaymentEmpId || !inlinePaymentAmount) return;
+    
+    const emp = employees.find(e => e.id === inlinePaymentEmpId);
+    if (!emp) return;
+
+    const amount = parseFloat(inlinePaymentAmount);
+    if (isNaN(amount) || amount <= 0) return;
+
+    setQueuedAdditionalPayments(prev => [...prev, {
+      id: `q-${Date.now()}`,
+      employeeId: emp.id,
+      employeeName: emp.name,
+      amount: amount,
+      reason: inlinePaymentReason || "Additional Payment"
+    }]);
+
+    setIsAddingPaymentInline(false);
+    setInlinePaymentEmpId("");
+    setInlinePaymentAmount("");
+    setInlinePaymentReason("");
+  };
+
+  const handleRemoveQueuedPayment = (id: string) => {
+    setQueuedAdditionalPayments(prev => prev.filter(p => p.id !== id));
   };
 
   const handleAttachCheck = (paymentId: string) => {
@@ -1750,7 +1914,14 @@ export default function Payments() {
           <p className="text-slate-600 mt-1">Process and manage employee payments</p>
         </div>
         <div className="flex flex-wrap gap-3">
-         <Button
+          <Button
+            onClick={() => setViewMode(viewMode === "weekly" ? "yearly" : "weekly")}
+            className={`gap-2 ${viewMode === "yearly" ? "bg-indigo-600 hover:bg-indigo-700" : "bg-slate-700 hover:bg-slate-800"}`}
+          >
+            <span className="font-bold">$</span>
+            {viewMode === "weekly" ? "Yearly Earnings" : "All Payments"}
+          </Button>
+          <Button
             onClick={() => setIsAddPaymentModalOpen(true)}
             className="gap-2 bg-indigo-600 hover:bg-indigo-700"
           >
@@ -1818,9 +1989,50 @@ export default function Payments() {
         </Card>
       </div>
 
-      <Card className="border-slate-200">
-        <CardHeader>
-          <CardTitle>Generate Payments</CardTitle>
+      {viewMode === "yearly" ? (
+        <Card className="border-slate-200">
+          <CardHeader>
+            <CardTitle>Yearly Earnings Summary</CardTitle>
+            <CardDescription>Consolidated payments for 2026</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="border-b border-slate-200 bg-slate-50">
+                  <tr>
+                    <th className="text-left p-3 font-semibold text-slate-900">Employee</th>
+                    <th className="text-right p-3 font-semibold text-slate-900">Total Earned</th>
+                    <th className="text-right p-3 font-semibold text-slate-900">Paid</th>
+                    <th className="text-right p-3 font-semibold text-slate-900">Pending</th>
+                    <th className="text-center p-3 font-semibold text-slate-900">Payments</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {yearlyStats.map(stat => (
+                    <tr key={stat.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
+                      <td className="p-3 text-slate-700 font-medium">{stat.name}</td>
+                      <td className="p-3 text-slate-700 text-right font-medium">${stat.total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      <td className="p-3 text-green-600 text-right bg-green-50/50">${stat.paid.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      <td className="p-3 text-orange-600 text-right bg-orange-50/50">${stat.pending.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      <td className="p-3 text-slate-700 text-center">{stat.count}</td>
+                    </tr>
+                  ))}
+                  <tr className="bg-slate-100 font-bold border-t-2 border-slate-300">
+                    <td className="p-3 text-slate-900">TOTAL</td>
+                    <td className="p-3 text-slate-900 text-right">${yearlyTotals.total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td className="p-3 text-green-700 text-right">${yearlyTotals.paid.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td className="p-3 text-orange-700 text-right">${yearlyTotals.pending.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td className="p-3 text-slate-900 text-center">{yearlyTotals.count}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card className="border-slate-200">
+          <CardHeader>
+            <CardTitle>Generate Payments</CardTitle>
           <CardDescription>Calculate and process payments</CardDescription>
           <div className="space-y-4 mt-4">
             {/* 
@@ -1854,28 +2066,26 @@ export default function Payments() {
             */}
 
             <div className="flex gap-4 items-center flex-wrap">
-              {/*
-              <Label className="text-sm text-slate-600">Due Date Range:</Label>
-              <div className="flex gap-2 items-center">
-                <Input
-                  id="filterFromDate"
-                  type="date"
-                  placeholder="From"
-                  value={filterFromDate}
-                  onChange={(e) => setFilterFromDate(e.target.value)}
-                  className="border-slate-300"
-                />
-                <span className="text-slate-500 text-sm whitespace-nowrap">to</span>
-                <Input
-                  id="filterToDate"
-                  type="date"
-                  placeholder="To"
-                  value={filterToDate}
-                  onChange={(e) => setFilterToDate(e.target.value)}
-                  className="border-slate-300"
-                />
+              <div className="flex items-center gap-2">
+                <Label htmlFor="weekSelector" className="text-sm font-medium text-slate-700">View Week:</Label>
+                <Select value={selectedWeek} onValueChange={setSelectedWeek}>
+                  <SelectTrigger id="weekSelector" className="w-[180px] border-slate-300">
+                    <SelectValue placeholder="Select week" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableWeeks.map((week) => (
+                      <SelectItem key={week} value={week}>
+                        {new Date(week).toLocaleDateString()} ({payments.filter(p => p.week_start_date === week).length} items)
+                      </SelectItem>
+                    ))}
+                    {!availableWeeks.includes(selectedWeek) && (
+                      <SelectItem value={selectedWeek}>
+                        {new Date(selectedWeek).toLocaleDateString()} (Current)
+                      </SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
               </div>
-              */}
 
               <div className="flex gap-2 items-center flex-wrap">
                 <Button
@@ -1898,9 +2108,9 @@ export default function Payments() {
                   variant="outline"
                   onClick={handleDeleteAllPending}
                   className="gap-2 border-slate-200 text-red-600 hover:text-red-700 hover:bg-red-50"
-                  disabled={filteredPayments.filter(p => p.status === "pending").length === 0}
+                  disabled={filteredPayments.length === 0}
                 >
-                  🗑 Clear All
+                  🗑 Clear Week
                 </Button>
               </div>
 
@@ -1974,7 +2184,7 @@ export default function Payments() {
                 {filteredPayments.length === 0 ? (
                   <tr>
                     <td colSpan={8} className="p-3 text-center text-slate-500">
-                      No payments found
+                      No payments found for the week of {new Date(selectedWeek).toLocaleDateString()}.
                     </td>
                   </tr>
                 ) : (
@@ -2304,6 +2514,7 @@ export default function Payments() {
           </div>
         </CardContent>
       </Card>
+      )}
 
       {isPaymentModalOpen && selectedPaymentId && (() => {
         const selectedPayment = payments.find(p => p.id === selectedPaymentId);
@@ -3363,6 +3574,34 @@ export default function Payments() {
         </DialogContent>
       </Dialog>
 
+      {/* Clear All Confirmation Dialog */}
+      <Dialog open={isClearAllConfirmOpen} onOpenChange={setIsClearAllConfirmOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Clear All Payments</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete {filteredPayments.length} payments from this week? This includes both pending and paid records. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-3 mt-4">
+            <Button
+              variant="outline"
+              onClick={() => setIsClearAllConfirmOpen(false)}
+              disabled={isSubmitting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleConfirmClearAll}
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? "Clearing..." : "Yes, Clear All"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Add Payment Modal */}
       <Dialog open={isAddPaymentModalOpen} onOpenChange={setIsAddPaymentModalOpen}>
         <DialogContent className="sm:max-w-md">
@@ -3473,53 +3712,173 @@ export default function Payments() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="weekDaysWorked">Days Worked *</Label>
-              <Input
-                id="weekDaysWorked"
-                type="number"
-                min="1"
-                max="5"
-                value={weekDaysWorked}
-                onChange={(e) => setWeekDaysWorked(Math.max(1, Math.min(5, parseInt(e.target.value) || 5)))}
-                className="border-slate-300"
-              />
-              <p className="text-xs text-slate-500">Number of days worked (1-5, default is 5)</p>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Select Employees *</Label>
-              <div className="border rounded-lg p-3 space-y-2 max-h-[300px] overflow-y-auto bg-slate-50">
+              <Label>Select Employees & Days Worked *</Label>
+              <div className="border rounded-lg max-h-[300px] overflow-y-auto bg-slate-50 divide-y divide-slate-100">
                 {employees.length === 0 ? (
-                  <p className="text-sm text-slate-500">No employees found</p>
+                  <p className="p-3 text-sm text-slate-500">No employees found</p>
                 ) : (
                   employees.map((emp) => (
-                    <div key={emp.id} className="flex items-center space-x-2">
-                      <input
-                        type="checkbox"
-                        id={`emp-${emp.id}`}
-                        checked={selectedEmployeesForWeek.has(emp.id)}
-                        onChange={(e) => {
-                          const newSelected = new Set(selectedEmployeesForWeek);
-                          if (e.target.checked) {
-                            newSelected.add(emp.id);
-                          } else {
-                            newSelected.delete(emp.id);
-                          }
-                          setSelectedEmployeesForWeek(newSelected);
-                        }}
-                        className="rounded"
-                      />
-                      <label htmlFor={`emp-${emp.id}`} className="text-sm cursor-pointer">
-                        {emp.name} ({emp.id}) - ${(emp.weekly_rate || 0).toLocaleString()}
-                      </label>
+                    <div key={emp.id} className="flex items-center justify-between p-3 hover:bg-slate-100 bg-white">
+                      <div className="flex items-center space-x-3">
+                        <input
+                          type="checkbox"
+                          id={`emp-${emp.id}`}
+                          checked={selectedEmployeesForWeek.has(emp.id)}
+                          onChange={(e) => {
+                            const newSelected = new Set(selectedEmployeesForWeek);
+                            if (e.target.checked) {
+                              newSelected.add(emp.id);
+                            } else {
+                              newSelected.delete(emp.id);
+                            }
+                            setSelectedEmployeesForWeek(newSelected);
+                          }}
+                          className="rounded w-4 h-4 border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <label htmlFor={`emp-${emp.id}`} className="text-sm font-medium text-slate-700 cursor-pointer select-none">
+                          {emp.name} ({emp.id}) - ${(emp.weekly_rate || 0).toLocaleString()}
+                        </label>
+                      </div>
+                      <div className="flex items-center gap-2">
+                         <Label htmlFor={`days-${emp.id}`} className="text-xs text-slate-500">Days:</Label>
+                         <Input
+                           id={`days-${emp.id}`}
+                           type="number"
+                           min="0"
+                           max="7"
+                           step="0.5"
+                           value={employeeDays[emp.id] ?? 5}
+                           onChange={(e) => {
+                             const val = parseFloat(e.target.value);
+                             setEmployeeDays(prev => ({...prev, [emp.id]: isNaN(val) ? 0 : val}));
+                           }}
+                           className="w-16 h-8 text-sm"
+                           disabled={!selectedEmployeesForWeek.has(emp.id)}
+                         />
+                      </div>
                     </div>
                   ))
                 )}
               </div>
               <p className="text-xs text-slate-500">
-                {selectedEmployeesForWeek.size} employee(s) selected
+                {selectedEmployeesForWeek.size} employee(s) selected - Set individual days worked for each
               </p>
             </div>
+            
+            {/* Bulk Set Days Section */}
+             <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 space-y-3">
+                 <div className="flex flex-col space-y-1">
+                    <p className="text-sm font-medium text-blue-900">Bulk Set Days for Selected Employees</p>
+                    <p className="text-xs text-blue-700">{selectedEmployeesForWeek.size} employee(s) selected</p>
+                 </div>
+                 
+                 <div className="flex items-end gap-3">
+                    <div className="flex-1 space-y-1">
+                        <Label htmlFor="bulkDays" className="text-xs text-blue-800">Days Worked:</Label>
+                         <Select value={bulkDaysInput.toString()} onValueChange={(v) => setBulkDaysInput(parseFloat(v))}>
+                            <SelectTrigger id="bulkDays" className="bg-white border-blue-200">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {[1, 2, 3, 4, 5].map(d => (
+                                <SelectItem key={d} value={d.toString()}>{d} Days</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                    </div>
+                    <Button 
+                        onClick={handleBulkApply}
+                        className="bg-blue-600 hover:bg-blue-700 text-white"
+                        disabled={selectedEmployeesForWeek.size === 0}
+                    >
+                        Apply
+                    </Button>
+                 </div>
+             </div>
+
+             <div className="space-y-4 pt-4 border-t border-slate-100">
+                <div className="flex items-center justify-between">
+                     <h4 className="text-sm font-medium text-slate-900">Additional Individual Payments</h4>
+                     {!isAddingPaymentInline && (
+                       <Button variant="outline" size="sm" className="gap-1 text-slate-600" onClick={() => setIsAddingPaymentInline(true)}>
+                          <Plus className="w-3 h-3" /> Add Payment
+                       </Button>
+                     )}
+                </div>
+
+                {/* Inline Payment Form */}
+                {isAddingPaymentInline && (
+                  <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-3">
+                    <div className="space-y-1">
+                      <Label htmlFor="inlineEmp" className="text-xs">Employee *</Label>
+                      <Select value={inlinePaymentEmpId} onValueChange={setInlinePaymentEmpId}>
+                        <SelectTrigger id="inlineEmp" className="bg-white h-9">
+                          <SelectValue placeholder="Select employee" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {employees.map(e => (
+                             <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="inlineAmount" className="text-xs">Amount *</Label>
+                      <Input
+                        id="inlineAmount"
+                        type="number"
+                        placeholder="0.00"
+                        value={inlinePaymentAmount}
+                        onChange={e => setInlinePaymentAmount(e.target.value)}
+                        className="bg-white h-9"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="inlineReason" className="text-xs">Reason (Optional)</Label>
+                      <Input
+                        id="inlineReason"
+                        placeholder="e.g., Bonus, Correction, etc."
+                        value={inlinePaymentReason}
+                        onChange={e => setInlinePaymentReason(e.target.value)}
+                        className="bg-white h-9"
+                      />
+                    </div>
+                    <div className="flex gap-2 pt-1">
+                      <Button size="sm" onClick={handleAddInlinePayment} className="bg-green-600 hover:bg-green-700 h-8">
+                        Add
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => setIsAddingPaymentInline(false)} className="h-8">
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Queued Payments List */}
+                {queuedAdditionalPayments.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium text-slate-500">Added Payments:</p>
+                    <div className="border rounded-lg overflow-hidden divide-y divide-slate-100">
+                      {queuedAdditionalPayments.map(p => (
+                        <div key={p.id} className="flex justify-between items-center p-3 bg-white text-sm">
+                           <div>
+                             <p className="font-medium text-slate-900">{p.employeeName}</p>
+                             <p className="text-slate-500 text-xs">${p.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })} - {p.reason}</p>
+                           </div>
+                           <Button 
+                             variant="ghost" 
+                             size="sm" 
+                             className="h-6 w-6 p-0 text-red-400 hover:text-red-600 hover:bg-red-50"
+                             onClick={() => handleRemoveQueuedPayment(p.id)}
+                           >
+                              <X className="w-4 h-4" />
+                           </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+             </div>
           </div>
 
           <div className="flex justify-between">
