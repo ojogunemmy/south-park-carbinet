@@ -467,8 +467,8 @@ export default function PaymentHistory() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900">Payment Ledger</h1>
-          <p className="text-slate-600 mt-1">Review and archive payment records</p>
+          <h1 className="text-2xl font-bold text-slate-900 md:text-4xl">Payment Ledger</h1>
+          <p className="text-slate-600 text-sm md:text-base mt-1">Review and archive payment records</p>
         </div>
         <Button
           onClick={() => window.print()}
@@ -558,12 +558,12 @@ export default function PaymentHistory() {
       ) : (
         <Card className="border-slate-200">
           <CardHeader>
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-4">
               <div>
                 <CardTitle>Processed Payments</CardTitle>
                 <CardDescription>All paid payments for {selectedYear}</CardDescription>
               </div>
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 <Button
                   onClick={savePaymentHistoryArchive}
                   variant="outline"
@@ -614,7 +614,7 @@ export default function PaymentHistory() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto">
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="border-b border-slate-200 bg-slate-50">
                   <tr>
@@ -718,6 +718,106 @@ export default function PaymentHistory() {
                   })}
                 </tbody>
               </table>
+            </div>
+
+            {/* Mobile Card View */}
+            <div className="md:hidden space-y-4">
+              {paymentRecords.map((record) => {
+                 // Get unique payment methods and their check numbers
+                 const paymentMethodsData = (() => {
+                  const methods = new Map<string, string[]>();
+                  record.employees.forEach(emp => {
+                    const method = emp.paymentMethod || 'Unknown';
+                    if (!methods.has(method)) {
+                      methods.set(method, []);
+                    }
+                    if (emp.paidCheckNumber && method === 'check') {
+                      methods.get(method)!.push(`#${emp.paidCheckNumber}`);
+                    }
+                  });
+                  return Array.from(methods.entries()).map(([method, checks]) => {
+                    if (method === 'check' && checks.length > 0) {
+                      return `Check ${checks.join(", ")}`;
+                    }
+                    return method.charAt(0).toUpperCase() + method.slice(1).replace(/_/g, ' ');
+                  });
+                })();
+
+                return (
+                  <div key={`${record.weekStartDate}_${record.paidDate}`} className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+                    <div className="p-4 border-b border-slate-100 flex justify-between items-start">
+                      <div>
+                        <p className="font-semibold text-slate-900">Payment Batch</p>
+                        <p className="text-xs text-slate-500">{formatDateRange(record.weekStartDate, record.weekEndDate)}</p>
+                      </div>
+                      <div className="text-right">
+                         <span className="block font-bold text-green-600">
+                          ${record.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                         </span>
+                         <span className="text-xs text-slate-500">{new Date(record.paidDate).toLocaleDateString('en-US')}</span>
+                      </div>
+                    </div>
+                    
+                    <div className="p-4 space-y-3">
+                      <div className="grid grid-cols-2 gap-2 text-xs text-slate-600">
+                        <div>
+                          <span className="block text-slate-400">Employees Paid</span>
+                          <span className="font-medium text-slate-900">{record.employees.length}</span>
+                        </div>
+                        <div>
+                           <span className="block text-slate-400">Reason</span>
+                           {record.reasons.length > 0 ? (
+                             <div className="space-y-1 mt-1">
+                               {record.reasons.map((reason, idx) => (
+                                 <span key={idx} className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded block text-xs w-fit">
+                                   {reason}
+                                 </span>
+                               ))}
+                             </div>
+                           ) : (
+                             <span>Regular</span>
+                           )}
+                        </div>
+                      </div>
+
+                      <div className="pt-2">
+                        <span className="block text-xs text-slate-400 mb-1">Payment Methods</span>
+                        <div className="flex flex-wrap gap-1">
+                          {paymentMethodsData.map((method, idx) => (
+                            <span key={idx} className="bg-purple-50 text-purple-700 px-2 py-1 rounded text-xs">
+                              {method}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-50 p-3 flex justify-end gap-2 border-t border-slate-100">
+                      <button
+                        className="p-2 text-slate-600 hover:bg-slate-200 rounded-full"
+                        onClick={() => downloadPaymentReport(record)}
+                        title="Download"
+                      >
+                        <Download className="w-4 h-4" />
+                      </button>
+                      <button
+                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-full"
+                        onClick={() => handleEditRecord(record)}
+                        title="Edit"
+                      >
+                       <Edit2 className="w-4 h-4" />
+                      </button>
+                      <button
+                        className="p-2 text-red-600 hover:bg-red-50 rounded-full"
+                        onClick={() => handleDeleteRecord(record)}
+                        title="Delete"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </CardContent>
         </Card>

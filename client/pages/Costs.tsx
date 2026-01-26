@@ -339,62 +339,74 @@ export default function Costs() {
       {contracts.length > 0 && (
         <Card className="border-slate-200">
           <div className="border-b border-slate-200 px-6 py-4">
-            <div className="flex gap-2 flex-wrap items-center">
-              <Button
-                onClick={() => setFilterStatus("all")}
-                variant={filterStatus === "all" ? "default" : "outline"}
-                className={filterStatus === "all" ? "bg-blue-600 hover:bg-blue-700" : "border-slate-300"}
-              >
-                All ({contracts.length})
-              </Button>
-              <Button
-                onClick={() => setFilterStatus("pending")}
-                variant={filterStatus === "pending" ? "default" : "outline"}
-                className={filterStatus === "pending" ? "bg-yellow-600 hover:bg-yellow-700" : "border-slate-300"}
-              >
-                Pending ({contracts.filter(c => c.status === "pending").length})
-              </Button>
-              <Button
-                onClick={() => setFilterStatus("in-progress")}
-                variant={filterStatus === "in-progress" ? "default" : "outline"}
-                className={filterStatus === "in-progress" ? "bg-blue-600 hover:bg-blue-700" : "border-slate-300"}
-              >
-                In Progress ({contracts.filter(c => c.status === "in-progress").length})
-              </Button>
-              <Button
-                onClick={() => setFilterStatus("completed")}
-                variant={filterStatus === "completed" ? "default" : "outline"}
-                className={filterStatus === "completed" ? "bg-green-600 hover:bg-green-700" : "border-slate-300"}
-              >
-                Completed ({contracts.filter(c => c.status === "completed").length})
-              </Button>
-              <div className="border-l border-slate-200 mx-2 h-6"></div>
-              <Input
-                type="date"
-                placeholder="From"
-                value={filterFromDate}
-                onChange={(e) => setFilterFromDate(e.target.value)}
-                className="border-slate-300 w-36"
-              />
-              <Input
-                type="date"
-                placeholder="To"
-                value={filterToDate}
-                onChange={(e) => setFilterToDate(e.target.value)}
-                className="border-slate-300 w-36"
-              />
-              {(filterFromDate || filterToDate) && (
+            <div className="flex flex-col md:flex-row gap-4 items-start md:items-center flex-wrap">
+              <div className="flex gap-2 flex-wrap w-full md:w-auto">
                 <Button
-                  onClick={() => {
-                    setFilterFromDate("");
-                    setFilterToDate("");
-                  }}
-                  variant="outline"
-                  className="border-slate-300"
+                  onClick={() => setFilterStatus("all")}
+                  variant={filterStatus === "all" ? "default" : "outline"}
+                  className={filterStatus === "all" ? "bg-blue-600 hover:bg-blue-700" : "border-slate-300"}
+                  size="sm"
                 >
-                  Clear Dates
+                  All ({contracts.length})
                 </Button>
-              )}
+                <Button
+                  onClick={() => setFilterStatus("pending")}
+                  variant={filterStatus === "pending" ? "default" : "outline"}
+                  className={filterStatus === "pending" ? "bg-yellow-600 hover:bg-yellow-700" : "border-slate-300"}
+                  size="sm"
+                >
+                  Pending ({contracts.filter(c => c.status === "pending").length})
+                </Button>
+                <Button
+                  onClick={() => setFilterStatus("in-progress")}
+                  variant={filterStatus === "in-progress" ? "default" : "outline"}
+                  className={filterStatus === "in-progress" ? "bg-blue-600 hover:bg-blue-700" : "border-slate-300"}
+                   size="sm"
+                >
+                  In Progress ({contracts.filter(c => c.status === "in-progress").length})
+                </Button>
+                <Button
+                  onClick={() => setFilterStatus("completed")}
+                  variant={filterStatus === "completed" ? "default" : "outline"}
+                  className={filterStatus === "completed" ? "bg-green-600 hover:bg-green-700" : "border-slate-300"}
+                   size="sm"
+                >
+                  Completed ({contracts.filter(c => c.status === "completed").length})
+                </Button>
+              </div>
+
+               <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto items-start sm:items-center">
+                  <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
+                    <Input
+                      type="date"
+                      placeholder="From"
+                      value={filterFromDate}
+                      onChange={(e) => setFilterFromDate(e.target.value)}
+                      className="border-slate-300 w-full sm:w-36"
+                    />
+                    <span className="text-slate-500 text-sm">to</span>
+                    <Input
+                      type="date"
+                      placeholder="To"
+                      value={filterToDate}
+                      onChange={(e) => setFilterToDate(e.target.value)}
+                      className="border-slate-300 w-full sm:w-36"
+                    />
+                  </div>
+                  {(filterFromDate || filterToDate) && (
+                    <Button
+                      onClick={() => {
+                        setFilterFromDate("");
+                        setFilterToDate("");
+                      }}
+                      variant="outline"
+                      className="border-slate-300 w-full sm:w-auto"
+                      size="sm"
+                    >
+                      Clear
+                    </Button>
+                  )}
+               </div>
             </div>
           </div>
         </Card>
@@ -407,7 +419,7 @@ export default function Costs() {
             <CardDescription>Material, labor, and miscellaneous costs for each project</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto">
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="border-b border-slate-200 bg-slate-50">
                   <tr>
@@ -440,7 +452,7 @@ export default function Costs() {
                         <td className="p-3 text-slate-700">{contract.project_name}</td>
                         <td className="p-3 text-slate-700 text-xs">{contract.client_name}</td>
                         <td className="p-3 whitespace-nowrap">
-                          <span className={`inline-block px-2 py-1 rounded text-xs font-medium ${getStatusColor(contract.status)}`}>
+                          <span className={`inline-block px-2 py-1 rounded text-xs font-medium whitespace-nowrap ${getStatusColor(contract.status)}`}>
                             {contract.status ? contract.status.replace("-", " ") : "Pending"}
                           </span>
                         </td>
@@ -470,6 +482,68 @@ export default function Costs() {
                   })}
                 </tbody>
               </table>
+            </div>
+
+            {/* Mobile Card View */}
+            <div className="md:hidden space-y-4">
+               {filteredContracts.map((contract) => {
+                  const costTracking = contract.cost_tracking as CostTracking;
+                  const materialCost = calculateMaterialCost(costTracking?.materials || []);
+                  const laborCost = calculateLaborCost(costTracking?.laborCost);
+                  const miscCost = calculateMiscCost(costTracking?.miscellaneous || []);
+                  const totalCost = materialCost + laborCost + miscCost;
+                  const profit = calculateProfit(contract);
+                  const margin = calculateProfitMargin(contract);
+
+                  return (
+                    <div key={contract.id} className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden p-4">
+                      <div className="flex justify-between items-start mb-2">
+                        <div>
+                          <h4 className="font-bold text-slate-900">{contract.project_name}</h4>
+                          <p className="text-xs text-slate-600">{contract.client_name}</p>
+                        </div>
+                         <span className={`inline-block px-2 py-1 rounded text-xs font-medium whitespace-nowrap ${getStatusColor(contract.status)}`}>
+                            {contract.status ? contract.status.replace("-", " ") : "Pending"}
+                          </span>
+                      </div>
+
+                      <div className="flex justify-between items-center mb-3">
+                         <span className="text-sm text-slate-500">Contract Value</span>
+                         <span className="font-bold text-slate-900">${(contract.total_value || 0).toLocaleString()}</span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 text-sm mb-3 pt-2 border-t border-slate-100">
+                          <div>
+                            <span className="block text-xs text-blue-600 font-medium">Materials</span>
+                            <span>${materialCost.toLocaleString()}</span>
+                          </div>
+                          <div>
+                            <span className="block text-xs text-purple-600 font-medium">Labor</span>
+                            <span>${laborCost.toLocaleString()}</span>
+                          </div>
+                           <div>
+                            <span className="block text-xs text-orange-600 font-medium">Misc</span>
+                            <span>${miscCost.toLocaleString()}</span>
+                          </div>
+                          <div>
+                            <span className="block text-xs text-slate-600 font-medium">Total Cost</span>
+                            <span className="font-semibold">${totalCost.toLocaleString()}</span>
+                          </div>
+                      </div>
+
+                      <div className="flex justify-between items-center pt-2 border-t border-slate-100 bg-slate-50 -mx-4 -mb-4 p-4 mt-2">
+                         <div>
+                            <span className="block text-xs text-slate-500">Profit Margin</span>
+                            <span className={`font-bold ${margin >= 0 ? "text-green-600" : "text-red-600"}`}>{margin.toFixed(1)}%</span>
+                         </div>
+                         <div className="text-right">
+                             <span className="block text-xs text-slate-500">Net Profit</span>
+                             <span className={`font-bold text-lg ${profit >= 0 ? "text-green-600" : "text-red-600"}`}>${profit.toLocaleString()}</span>
+                         </div>
+                      </div>
+                    </div>
+                  );
+               })}
             </div>
           </CardContent>
         </Card>

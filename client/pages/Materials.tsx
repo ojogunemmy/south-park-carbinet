@@ -411,12 +411,12 @@ export default function Materials() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-slate-900">Materials Catalog</h1>
           <p className="text-slate-600 mt-1">Manage standard cabinet materials and pricing</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 w-full md:w-auto">
           <Button
             onClick={printMaterialsCatalog}
             className="gap-2 bg-slate-600 hover:bg-slate-700"
@@ -487,7 +487,7 @@ export default function Materials() {
           <CardDescription>All materials in the catalog</CardDescription>
           <div className="mt-4">
             <Select value={filterCategory} onValueChange={setFilterCategory}>
-              <SelectTrigger className="w-40 border-slate-300">
+              <SelectTrigger className="w-full md:w-40 border-slate-300">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -502,7 +502,7 @@ export default function Materials() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="border-b border-slate-200 bg-slate-50">
                 <tr>
@@ -573,6 +573,70 @@ export default function Materials() {
                 )}
               </tbody>
             </table>
+          </div>
+
+          <div className="md:hidden space-y-4">
+             {filteredMaterials.length === 0 ? (
+                 <div className="text-center py-8 text-slate-500">
+                      No materials found
+                 </div>
+             ) : (
+               filteredMaterials.map((material) => (
+                <div key={material.id} className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden p-4">
+                  <div className="mb-2">
+                    <h4 className="font-bold text-slate-900 mb-1">{material.name}</h4>
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs text-slate-600 font-medium bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                            {material.code}
+                        </span>
+                        <span className="bg-blue-100 text-blue-800 text-xs font-medium px-2 py-0.5 rounded whitespace-nowrap">
+                            {material.category}
+                        </span>
+                    </div>
+                  </div>
+                  
+                  {material.description && (
+                      <p className="text-sm text-slate-600 mb-3">{material.description}</p>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-3 text-sm mb-3 pt-2 border-t border-slate-100">
+                     <div>
+                        <span className="block text-xs text-slate-500">Price</span>
+                        <span className="font-semibold text-slate-900">${(material.unit_price || 0).toFixed(2)}</span>
+                     </div>
+                     <div>
+                        <span className="block text-xs text-slate-500">Unit</span>
+                        <span className="font-medium text-slate-700">{material.unit}</span>
+                     </div>
+                     <div>
+                        <span className="block text-xs text-slate-500">Supplier</span>
+                        <span className="font-medium text-slate-700">{material.supplier || "-"}</span>
+                     </div>
+                  </div>
+
+                  <div className="flex justify-end pt-2 border-t border-slate-100 gap-2">
+                       <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-purple-600 hover:bg-purple-50 gap-1 h-8"
+                            onClick={() => handleEdit(material)}
+                          >
+                            <Edit2 className="w-3 h-3" />
+                            Edit
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-red-600 hover:bg-red-50 gap-1 h-8"
+                            onClick={() => handleDeleteMaterial(material.id)}
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            Delete
+                          </Button>
+                  </div>
+                </div>
+               ))
+             )}
           </div>
         </CardContent>
       </Card>

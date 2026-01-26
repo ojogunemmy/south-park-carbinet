@@ -225,8 +225,8 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
       </aside>
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col lg:pl-64 min-h-screen transition-all duration-300 min-w-0 w-full">
-        <header className="sticky top-0 z-40 w-full border-b border-slate-200 bg-white shadow-sm h-16 px-4 flex items-center justify-between">
+      <div className="flex-1 flex flex-col lg:pl-64 min-h-screen transition-all duration-300 min-w-0 w-full pt-16 lg:pt-0">
+        <header className="fixed top-0 inset-x-0 lg:sticky lg:top-0 z-40 w-full border-b border-slate-200 bg-white shadow-sm h-16 px-4 flex items-center justify-between lg:w-full">
           <div className="flex items-center gap-4">
             <div
               className="lg:hidden text-slate-700 hover:bg-slate-100 px-2 py-2 rounded-lg"
@@ -235,7 +235,8 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
               <HiMenuAlt1 className="w-7 h-7" />
             </div>
             <h2 className="text-lg font-semibold text-slate-900 truncate">
-              South Park Cabinet Management
+              <span className="md:hidden">SP Cabinets</span>
+              <span className="hidden md:inline">South Park Cabinet Management</span>
             </h2>
           </div>
           

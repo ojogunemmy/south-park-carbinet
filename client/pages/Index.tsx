@@ -349,7 +349,7 @@ export default function Index() {
     <div className="space-y-8">
       {/* Welcome Section */}
       <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-lg p-8 text-white">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-4">
           <div>
             <h1 className="text-4xl font-bold mb-2">Welcome to Cabinet Business Management</h1>
             <p className="text-blue-100">
@@ -461,7 +461,7 @@ export default function Index() {
             <CardDescription>Monthly payment summary and annual total</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="bg-green-50 rounded-lg p-4 border border-green-200">
                 <p className="text-sm font-medium text-green-700">Total Paid YTD</p>
                 <p className="text-3xl font-bold text-green-900 mt-2">${dashboardStats.totalPayroll.toLocaleString()}</p>

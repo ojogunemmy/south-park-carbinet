@@ -767,12 +767,12 @@ export default function Bills() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-slate-900">Bills</h1>
           <p className="text-slate-600 mt-1">Track company expenses and bills with automatic number generation by category</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 w-full md:w-auto">
           <Dialog open={isModalOpen} onOpenChange={handleCloseModal}>
             <DialogTrigger asChild>
               <Button
@@ -1469,11 +1469,13 @@ export default function Bills() {
               )}
             </CardHeader>
             <div className="border-b border-slate-200 px-6 py-4">
-              <div className="flex gap-2 flex-wrap items-center">
+            <div className="flex flex-col md:flex-row gap-4 items-start md:items-center flex-wrap">
+              <div className="flex gap-2 flex-wrap w-full md:w-auto">
                 <Button
                   onClick={() => setFilterStatus("all")}
                   variant={filterStatus === "all" ? "default" : "outline"}
                   className={filterStatus === "all" ? "bg-blue-600 hover:bg-blue-700" : "border-slate-300"}
+                  size="sm"
                 >
                   All ({bills.length})
                 </Button>
@@ -1481,6 +1483,7 @@ export default function Bills() {
                   onClick={() => setFilterStatus("pending")}
                   variant={filterStatus === "pending" ? "default" : "outline"}
                   className={filterStatus === "pending" ? "bg-yellow-600 hover:bg-yellow-700" : "border-slate-300"}
+                  size="sm"
                 >
                   Pending ({bills.filter(b => b.status === "pending").length})
                 </Button>
@@ -1488,6 +1491,7 @@ export default function Bills() {
                   onClick={() => setFilterStatus("paid")}
                   variant={filterStatus === "paid" ? "default" : "outline"}
                   className={filterStatus === "paid" ? "bg-green-600 hover:bg-green-700" : "border-slate-300"}
+                  size="sm"
                 >
                   Paid ({bills.filter(b => b.status === "paid").length})
                 </Button>
@@ -1495,13 +1499,15 @@ export default function Bills() {
                   onClick={() => setFilterStatus("overdue")}
                   variant={filterStatus === "overdue" ? "default" : "outline"}
                   className={filterStatus === "overdue" ? "bg-red-600 hover:bg-red-700" : "border-slate-300"}
+                   size="sm"
                 >
                   Overdue ({bills.filter(b => b.status === "overdue").length})
                 </Button>
+              </div>
 
-                <div className="border-l border-slate-200 mx-2 h-6"></div>
-                <Select value={filterCategory} onValueChange={setFilterCategory}>
-                  <SelectTrigger className="w-[180px] border-slate-300">
+               <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto items-start sm:items-center">
+                 <Select value={filterCategory} onValueChange={setFilterCategory}>
+                  <SelectTrigger className="w-full sm:w-[180px] border-slate-300">
                     <SelectValue placeholder="Category" />
                   </SelectTrigger>
                   <SelectContent>
@@ -1513,36 +1519,42 @@ export default function Bills() {
                     ))}
                   </SelectContent>
                 </Select>
-                <Input
-                  type="date"
-                  placeholder="From"
-                  value={filterFromDate}
-                  onChange={(e) => setFilterFromDate(e.target.value)}
-                  className="border-slate-300 w-36"
-                />
-                <Input
-                  type="date"
-                  placeholder="To"
-                  value={filterToDate}
-                  onChange={(e) => setFilterToDate(e.target.value)}
-                  className="border-slate-300 w-36"
-                />
-                {(filterFromDate || filterToDate) && (
-                  <Button
-                    onClick={() => {
-                      setFilterFromDate("");
-                      setFilterToDate("");
-                    }}
-                    variant="outline"
-                    className="border-slate-300"
-                  >
-                    Clear Dates
-                  </Button>
-                )}
-              </div>
+
+                  <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
+                    <Input
+                      type="date"
+                      placeholder="From"
+                      value={filterFromDate}
+                      onChange={(e) => setFilterFromDate(e.target.value)}
+                      className="border-slate-300 w-full sm:w-36"
+                    />
+                    <span className="text-slate-500 text-sm">to</span>
+                    <Input
+                      type="date"
+                      placeholder="To"
+                      value={filterToDate}
+                      onChange={(e) => setFilterToDate(e.target.value)}
+                      className="border-slate-300 w-full sm:w-36"
+                    />
+                  </div>
+                  {(filterFromDate || filterToDate) && (
+                    <Button
+                      onClick={() => {
+                        setFilterFromDate("");
+                        setFilterToDate("");
+                      }}
+                      variant="outline"
+                      className="border-slate-300 w-full sm:w-auto"
+                      size="sm"
+                    >
+                      Clear
+                    </Button>
+                  )}
+               </div>
+            </div>
             </div>
             <CardContent>
-              <div className="overflow-x-auto">
+              <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="border-b border-slate-200 bg-slate-50">
                     <tr>
@@ -1635,6 +1647,95 @@ export default function Bills() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+
+              {/* Mobile Card View */}
+              <div className="md:hidden space-y-4">
+                {filteredBills.map((bill) => (
+                  <div key={bill.id} className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden p-4">
+                    <div className="flex justify-between items-start mb-3">
+                      <div>
+                        <h4 className="font-bold text-slate-900">{bill.vendor}</h4>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-800">
+                            {bill.category}
+                          </span>
+                           <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${getStatusBadge(bill.status)}`}>
+                            {bill.status}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="font-bold text-lg text-slate-900">${bill.amount.toLocaleString()}</span>
+                      </div>
+                    </div>
+                    
+                    <div className="text-sm text-slate-600 mb-2">
+                       <p>{bill.description}</p>
+                    </div>
+
+                    <div className="flex justify-between items-center text-xs text-slate-500 mb-3 border-b border-slate-100 pb-3">
+                      <span>Due: {formatDateString(bill.due_date)}</span>
+                       {bill.invoice_number && <span>Inv: {bill.invoice_number}</span>}
+                    </div>
+
+                    <div className="flex justify-between items-center">
+                        <div className="flex gap-1">
+                          {bill.attachments && bill.attachments.length > 0 && (
+                             <div className="flex items-center gap-1 text-xs text-purple-700 font-medium bg-purple-50 px-2 py-1 rounded">
+                                <Paperclip className="w-3 h-3" />
+                                {bill.attachments.length}
+                             </div>
+                          )}
+                        </div>
+                        <div className="flex gap-2">
+                            <button
+                                onClick={() => handleEditBill(bill)}
+                                className="p-2 text-blue-600 hover:bg-blue-50 rounded-full"
+                                title="Edit"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleAttachFile(bill.id)}
+                                className="p-2 text-purple-600 hover:bg-purple-50 rounded-full"
+                                title="Attach"
+                              >
+                                <Paperclip className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteBill(bill.id)}
+                                className="p-2 text-red-600 hover:bg-red-50 rounded-full"
+                                title="Delete"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                        </div>
+                    </div>
+
+                     {bill.attachments && bill.attachments.length > 0 && (
+                        <div className="mt-3 flex gap-2 overflow-x-auto py-1">
+                             {bill.attachments.map((att) => (
+                                    <div key={att.id} className="flex gap-1 items-center bg-slate-50 border border-slate-200 rounded px-2 py-1 flex-shrink-0">
+                                      <span className="text-xs truncate max-w-[80px]">{att.filename}</span>
+                                      <button
+                                        onClick={() => handleViewAttachment(att)}
+                                        className="text-blue-600 p-0.5"
+                                      >
+                                        <Eye className="w-3 h-3" />
+                                      </button>
+                                       <button
+                                        onClick={() => handleDownloadAttachment(att)}
+                                        className="text-green-600 p-0.5"
+                                      >
+                                        <Download className="w-3 h-3" />
+                                      </button>
+                                    </div>
+                                  ))}
+                        </div>
+                     )}
+                  </div>
+                ))}
               </div>
               {filteredBills.length > 0 && (
                 <div className="mt-4 pt-4 border-t border-slate-200 flex justify-between items-center">

@@ -1735,12 +1735,12 @@ export default function Payments() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-slate-900">Payroll</h1>
           <p className="text-slate-600 mt-1">Process and manage employee payments</p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
          <Button
             onClick={() => setIsAddPaymentModalOpen(true)}
             className="gap-2 bg-indigo-600 hover:bg-indigo-700"
@@ -1811,7 +1811,7 @@ export default function Payments() {
 
       <Card className="border-slate-200">
         <CardHeader>
-          <CardTitle>Generate Payements</CardTitle>
+          <CardTitle>Generate Payments</CardTitle>
           <CardDescription>Calculate and process payments</CardDescription>
           <div className="space-y-4 mt-4">
             {/* 
@@ -1868,14 +1868,13 @@ export default function Payments() {
               </div>
               */}
 
-              <div className="flex gap-2 items-center">
+              <div className="flex gap-2 items-center flex-wrap">
                 <Button
                   variant="outline"
                   onClick={handleMarkAllAsPaid}
                   className="gap-2 border-slate-200 hover:bg-green-50 hover:text-green-700 hover:border-green-200"
                   title="Mark all visible pending payments as PAID"
                 >
-                  <CheckCircle className="w-4 h-4" />
                    ✓ Paid
                 </Button>
                 <Button
@@ -1884,7 +1883,6 @@ export default function Payments() {
                   className="gap-2 border-slate-200 hover:bg-orange-50 hover:text-orange-700 hover:border-orange-200"
                   title="Mark all visible paid payments as UNPAID"
                 >
-                  <Clock className="w-4 h-4" />
                    ✗ Unpaid
                 </Button>
                 <Button
@@ -1949,7 +1947,7 @@ export default function Payments() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="border-b border-slate-200 bg-slate-50">
                 <tr>
@@ -2146,6 +2144,154 @@ export default function Payments() {
                 )}
               </tbody>
             </table>
+          </div>
+
+          {/* Mobile Card View */}
+          <div className="md:hidden space-y-4">
+            {filteredPayments.length === 0 ? (
+              <div className="text-center p-8 bg-white rounded-lg border border-slate-200">
+                <p className="text-slate-500">No payments found</p>
+              </div>
+            ) : (
+              filteredPayments.map((payment) => (
+                <div key={payment.id} className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+                  <div className="p-4 border-b border-slate-100 flex justify-between items-start">
+                    <div>
+                      <p className="font-semibold text-slate-900">{payment.employee_name}</p>
+                      <p className="text-xs text-slate-500">{payment.employee_id}</p>
+                    </div>
+                    <div className="flex flex-col items-end gap-1">
+                       {payment.status === "paid" ? (
+                          <div className="flex items-center gap-1 text-xs font-medium text-green-700 bg-green-50 px-2 py-0.5 rounded-full">
+                            <CheckCircle className="w-3 h-3" />
+                            Paid
+                          </div>
+                        ) : payment.status === "canceled" ? (
+                          <div className="flex items-center gap-1 text-xs font-medium text-red-700 bg-red-50 px-2 py-0.5 rounded-full">
+                            <AlertCircle className="w-3 h-3" />
+                            Canceled
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1 text-xs font-medium text-orange-700 bg-orange-50 px-2 py-0.5 rounded-full">
+                            <Clock className="w-3 h-3" />
+                            Pending
+                          </div>
+                        )}
+                        {isOverdue(payment.due_date) && payment.status === "pending" && (
+                          <span className="text-[10px] text-red-600 font-medium flex items-center gap-1">
+                            <AlertCircle className="w-3 h-3" /> Overdue
+                          </span>
+                        )}
+                    </div>
+                  </div>
+                  
+                  <div className="p-4 space-y-3">
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-slate-500">Amount</span>
+                      <span className="font-bold text-slate-900 text-lg">
+                        ${(payment.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
+
+                    {payment.is_adjusted_for_absence && (
+                       <div className="bg-orange-50 p-2 rounded border border-orange-200 text-xs space-y-1">
+                          <div className="flex justify-between text-orange-900">
+                            <span>Full Salary:</span>
+                            <span className="line-through">${(payment.full_weekly_salary || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                          </div>
+                           <div className="flex justify-between text-red-700 font-semibold">
+                            <span>Deduction:</span>
+                            <span>-${(payment.deduction_amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                          </div>
+                       </div>
+                    )}
+
+                    {payment.down_payment && payment.down_payment > 0 && (
+                        <div className="bg-cyan-50 p-2 rounded border border-cyan-200 text-xs space-y-1">
+                          <div className="flex justify-between text-cyan-900">
+                            <span>Down Payment:</span>
+                            <span>-${(payment.down_payment || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                          </div>
+                          <div className="flex justify-between text-cyan-700 font-semibold border-t border-cyan-200 pt-1">
+                            <span>Net:</span>
+                            <span>${((payment.amount || 0) - (payment.down_payment || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                          </div>
+                        </div>
+                    )}
+
+                    <div className="grid grid-cols-2 gap-2 text-xs text-slate-600">
+                      <div>
+                        <span className="block text-slate-400">Week</span>
+                        <span>{new Date(payment.week_start_date).toLocaleDateString()}</span>
+                      </div>
+                      <div>
+                         <span className="block text-slate-400">Due Date</span>
+                         <span>{new Date(payment.due_date).toLocaleDateString()}</span>
+                      </div>
+                      <div>
+                         <span className="block text-slate-400">Days</span>
+                         <span>{payment.days_worked}/5</span>
+                      </div>
+                      <div>
+                         <span className="block text-slate-400">Method</span>
+                         <span>{getPaymentMethodDisplay(payment.payment_method, payment)}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-50 p-3 flex justify-between gap-2 border-t border-slate-100 overflow-x-auto">
+                    <button
+                        className="p-2 text-slate-600 hover:bg-slate-200 rounded-full"
+                        onClick={() => handlePrintCheck(payment.id)}
+                        title="Print Check"
+                      >
+                        <Printer className="w-4 h-4" />
+                      </button>
+                      <button
+                        className="p-2 text-slate-600 hover:bg-slate-200 rounded-full"
+                        onClick={() => handleAttachCheck(payment.id)}
+                        title="Attach"
+                      >
+                        <Paperclip className="w-4 h-4" />
+                      </button>
+                       <button
+                        className="p-2 text-slate-600 hover:bg-slate-200 rounded-full"
+                        onClick={() => handleEditAmount(payment.id)}
+                        title="Edit Amount"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                      {payment.status === "pending" && (
+                         <button
+                            className="p-2 text-slate-600 hover:bg-slate-200 rounded-full"
+                            onClick={() => handleEditDays(payment.id)}
+                            title="Edit Days"
+                          >
+                            <Calendar className="w-4 h-4" />
+                          </button>
+                      )}
+                      
+                      {/* Mark as paid button embedded for quick action if pending */}
+                      {payment.status === "pending" && (
+                        <Button 
+                          className="h-8 text-xs bg-green-600 hover:bg-green-700 px-3"
+                          onClick={() => handleMarkAsPaid(payment.id)}
+                        >
+                          Pay
+                        </Button>
+                      )}
+                      
+                       <button
+                        className="p-2 text-red-600 hover:bg-red-50 rounded-full ml-auto"
+                        onClick={() => handleRemovePayment(payment.id)}
+                        title="Remove"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </CardContent>
       </Card>

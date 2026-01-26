@@ -1997,12 +1997,12 @@ export default function Contracts() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900">Contracts</h1>
-          <p className="text-slate-600 mt-1">Handle client contracts, deposits, payment schedules, and project details</p>
+          <h1 className="text-2xl font-bold text-slate-900 md:text-3xl">Contracts</h1>
+          <p className="text-slate-600 mt-1 text-sm md:text-base">Handle client contracts, deposits, payment schedules, and project details</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {/* <Button
             onClick={() => setIsCalculatorOpen(true)}
             className="gap-2 bg-amber-600 hover:bg-amber-700"
@@ -3182,9 +3182,9 @@ export default function Contracts() {
               <CardDescription>
                 All client contracts with deposit and payment schedule tracking
               </CardDescription>
-              <div className="flex gap-4 mt-4 flex-wrap">
+              <div className="flex flex-col md:flex-row gap-4 mt-4 items-start md:items-center flex-wrap">
                 <Select value={filterStatus} onValueChange={(value: any) => setFilterStatus(value)}>
-                  <SelectTrigger className="w-40 border-slate-300">
+                  <SelectTrigger className="w-full md:w-40 border-slate-300">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -3195,28 +3195,30 @@ export default function Contracts() {
                   </SelectContent>
                 </Select>
 
-                <div className="flex gap-3 items-center">
+                <div className="flex flex-col gap-2 w-full md:w-auto">
                   <Label className="text-sm text-slate-600 whitespace-nowrap">Due Date Range:</Label>
-                  <Input
-                    type="date"
-                    placeholder="From"
-                    value={filterFromDate ?? ""}
-                  onChange={(e) => setFilterFromDate(e.target.value)}
-                    className="border-slate-300"
-                  />
-                  <span className="text-slate-500 text-sm">to</span>
-                  <Input
-                    type="date"
-                    placeholder="To"
-                    value={filterToDate ?? ""}
-                  onChange={(e) => setFilterToDate(e.target.value)}
-                    className="border-slate-300"
-                  />
+                  <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto sm:items-center">
+                    <Input
+                      type="date"
+                      placeholder="From"
+                      value={filterFromDate ?? ""}
+                      onChange={(e) => setFilterFromDate(e.target.value)}
+                      className="border-slate-300 w-full sm:w-auto"
+                    />
+                    <span className="text-slate-500 text-sm text-center sm:text-left">to</span>
+                    <Input
+                      type="date"
+                      placeholder="To"
+                      value={filterToDate ?? ""}
+                      onChange={(e) => setFilterToDate(e.target.value)}
+                      className="border-slate-300 w-full sm:w-auto"
+                    />
+                  </div>
                 </div>
               </div>
             </CardHeader>
             <CardContent>
-              <div className="overflow-x-auto">
+              <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="border-b border-slate-200 bg-slate-50">
                     <tr>
@@ -3308,6 +3310,114 @@ export default function Contracts() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+
+              {/* Mobile Card View */}
+              <div className="md:hidden space-y-4">
+                {filteredContracts.map((contract) => (
+                  <div key={contract.id} className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+                    <div className={`p-4 border-b border-slate-100 flex justify-between items-start border-l-4 ${
+                         (contract.payment_schedule?.filter(p => p.status === 'paid').length || 0) === 0
+                            ? "border-l-red-500"
+                            : "border-l-yellow-500"
+                    }`}>
+                      <div>
+                        <button
+                            onClick={() => setDetailsContractId(contract.id)}
+                            className="text-blue-600 hover:text-blue-800 hover:underline transition-colors cursor-pointer font-bold text-lg"
+                        >
+                          {contract.project_name}
+                        </button>
+                        <p className="text-sm text-slate-600">{contract.client_name}</p>
+                      </div>
+                      <div className="flex flex-col items-end gap-1">
+                        <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap ${getStatusBadge(contract.status)}`}>
+                              {contract.status.replace("-", " ")}
+                        </span>
+                        {isOverdue(contract.due_date) && (
+                          <span className="text-xs text-red-600 font-bold flex items-center gap-1">
+                            <AlertCircle className="w-3 h-3" /> Overdue
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div className="p-4 space-y-3">
+                      <div className="flex justify-between items-center text-sm">
+                        <span className="text-slate-500">Contract Value</span>
+                        <span className="font-bold text-slate-900 text-lg">
+                          ${contract.total_value.toLocaleString()}
+                        </span>
+                      </div>
+
+                       <div className="grid grid-cols-2 gap-2 text-xs text-slate-600">
+                        <div>
+                          <span className="block text-slate-400">Deposit</span>
+                          <span>${contract.deposit_amount.toLocaleString()}</span>
+                        </div>
+                        <div>
+                           <span className="block text-slate-400">Due Date</span>
+                           <span>{formatDateString(contract.due_date)}</span>
+                        </div>
+                      </div>
+
+                       <div className="pt-2">
+                          <span className="block text-xs text-slate-400 mb-1">Payment Status</span>
+                          {(() => {
+                              const totalPayments = contract.payment_schedule?.length || 0;
+                              const paidPayments = contract.payment_schedule?.filter(p => p.status === 'paid').length || 0;
+                              const badgeColor = paidPayments === 0 
+                                ? "bg-red-50 text-red-700 border-red-100" 
+                                : "bg-yellow-50 text-yellow-700 border-yellow-100";
+                              
+                              return (
+                                <div className={`inline-block px-2 py-1 rounded text-xs font-medium border ${badgeColor}`}>
+                                  {paidPayments} of {totalPayments} payments completed
+                                </div>
+                              );
+                            })()}
+                       </div>
+                    </div>
+
+                    <div className="bg-slate-50 p-3 flex justify-between gap-2 border-t border-slate-100">
+                      <button
+                            onClick={() => setSelectedContractId(contract.id)}
+                            className="p-2 text-green-600 hover:bg-green-50 rounded-full"
+                            title="Payments"
+                          >
+                            <CircleDollarSign className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => setPdfSelectContractId(contract.id)}
+                            className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-full"
+                            title="PDF"
+                          >
+                            <Download className="w-4 h-4" />
+                          </button>
+                           <button
+                             onClick={() => setDetailsContractId(contract.id)}
+                             className="p-2 text-slate-600 hover:bg-slate-200 rounded-full"
+                             title="Details"
+                           >
+                             <FileIcon className="w-4 h-4" />
+                           </button>
+                          <button
+                            onClick={() => handleEditContract(contract)}
+                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-full"
+                            title="Edit"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteContract(contract.id)}
+                            className="p-2 text-red-600 hover:bg-red-50 rounded-full"
+                            title="Delete"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                    </div>
+                  </div>
+                ))}
               </div>
             </CardContent>
           </Card>
