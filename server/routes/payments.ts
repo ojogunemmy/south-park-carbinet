@@ -92,4 +92,20 @@ router.patch('/:id', async (req, res) => {
   }
 });
 
+// Delete payment
+router.delete('/:id', async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const { id } = req.params;
+    const { error } = await supabase
+      .from('payments')
+      .delete()
+      .eq('id', id);
+    if (error) throw error;
+    res.json({ message: 'Payment deleted successfully' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 export default router;

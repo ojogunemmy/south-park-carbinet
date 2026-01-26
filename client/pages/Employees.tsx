@@ -901,15 +901,34 @@ export default function Employees() {
     setIsModalOpen(true);
   };
 
-  const handleDeleteEmployee = async (employeeId: string) => {
-    if (window.confirm("Are you sure you want to delete this employee? This action cannot be undone.")) {
-      try {
-        await employeesService.delete(employeeId);
-        await fetchData();
-      } catch (error) {
-        console.error("Error deleting employee:", error);
-        alert("Failed to delete employee.");
-      }
+  // Add state for delete confirmation
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [employeeToDelete, setEmployeeToDelete] = useState<string | null>(null);
+
+  const confirmDeleteEmployee = (employeeId: string) => {
+    setEmployeeToDelete(employeeId);
+    setIsDeleteConfirmOpen(true);
+  };
+
+  const handleDeleteEmployee = async () => {
+    if (!employeeToDelete) return;
+    
+    try {
+      await employeesService.delete(employeeToDelete);
+      await fetchData();
+      toast({
+        title: "Employee Deleted",
+        description: "The employee has been successfully removed.",
+      });
+      setIsDeleteConfirmOpen(false);
+      setEmployeeToDelete(null);
+    } catch (error) {
+      console.error("Error deleting employee:", error);
+      toast({
+        title: "Error",
+        description: "Failed to delete employee.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -2254,7 +2273,7 @@ export default function Employees() {
                                 variant="ghost"
                                 size="sm"
                                 className="text-red-600 hover:bg-red-50"
-                                onClick={() => handleDeleteEmployee(emp.id)}
+                                onClick={() => confirmDeleteEmployee(emp.id)}
                                 title="Delete employee"
                               >
                                 <Trash2 className="w-4 h-4" />
@@ -2400,7 +2419,7 @@ export default function Employees() {
                                 variant="ghost"
                                 size="sm"
                                 className="text-red-600 hover:bg-red-50 h-8 w-8 p-0"
-                                onClick={() => handleDeleteEmployee(emp.id)}
+                                onClick={() => confirmDeleteEmployee(emp.id)}
                                 title="Delete employee"
                               >
                                 <Trash2 className="w-4 h-4" />
@@ -2448,6 +2467,32 @@ export default function Employees() {
           </CardContent>
         </Card>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={isDeleteConfirmOpen} onOpenChange={setIsDeleteConfirmOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Delete Employee</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this employee? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-3 mt-4">
+            <Button
+              variant="outline"
+              onClick={() => setIsDeleteConfirmOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteEmployee}
+            >
+              Delete Employee
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {isViewModalOpen && viewingEmployee && (
         <Dialog open={isViewModalOpen} onOpenChange={setIsViewModalOpen}>

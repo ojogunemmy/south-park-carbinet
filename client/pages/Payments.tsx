@@ -577,6 +577,9 @@ export default function Payments() {
   const [isEditDownPaymentOpen, setIsEditDownPaymentOpen] = useState(false);
   const [editingDownPaymentPaymentId, setEditingDownPaymentPaymentId] = useState<string | null>(null);
   const [editingDownPaymentAmount, setEditingDownPaymentAmount] = useState<number>(0);
+  
+  // Submission state to prevent double clicks
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Settings state
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -1309,6 +1312,7 @@ export default function Payments() {
     const due_date_str = formatDateToString(due_date_obj);
 
     try {
+      setIsSubmitting(true);
       await paymentsService.create({
         employee_id: employee.id,
         amount: addPaymentAmount,
@@ -1351,6 +1355,8 @@ export default function Payments() {
         description: "Failed to add payment.",
         variant: "destructive",
       });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -1421,6 +1427,7 @@ export default function Payments() {
 
     // Create payments for selected employees
     try {
+      setIsSubmitting(true);
       await Promise.all(Array.from(selectedEmployeesForWeek).map(async (empId) => {
         const employee = employees.find(e => e.id === empId);
         if (employee) {
@@ -1471,6 +1478,8 @@ export default function Payments() {
         description: "Failed to add weekly payments.",
         variant: "destructive",
       });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -3431,8 +3440,9 @@ export default function Payments() {
             <Button
               onClick={handleAddPayment}
               className="bg-green-600 hover:bg-green-700"
+              disabled={isSubmitting}
             >
-              Add Payment
+              {isSubmitting ? "Adding..." : "Add Payment"}
             </Button>
           </div>
         </DialogContent>
@@ -3528,8 +3538,9 @@ export default function Payments() {
             <Button
               onClick={handleAddWeekPayments}
               className="bg-green-600 hover:bg-green-700"
+              disabled={isSubmitting}
             >
-              Add Week
+              {isSubmitting ? "Adding..." : "Add Week"}
             </Button>
           </div>
         </DialogContent>
