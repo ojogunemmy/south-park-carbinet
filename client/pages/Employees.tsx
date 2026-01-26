@@ -1675,7 +1675,7 @@ export default function Employees() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-slate-900">Employees</h1>
           <p className="text-slate-600 mt-1">View and manage employee information</p>
@@ -2016,7 +2016,7 @@ export default function Employees() {
       </div>
       
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
         <Card className="border-slate-200 shadow-sm">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-slate-500">Total Employees</CardTitle>
@@ -2063,11 +2063,11 @@ export default function Employees() {
               <CardDescription>
                 Active and inactive employees
               </CardDescription>
-              <div className="mt-4 flex flex-wrap items-end gap-4">
-                <div className="space-y-2">
+              <div className="mt-4 flex flex-col lg:flex-row gap-4 items-start lg:items-end flex-wrap">
+                <div className="w-full lg:w-auto space-y-2">
                   <Label className="text-sm font-medium text-slate-700">Status</Label>
                   <Select value={filterStatus} onValueChange={(value: any) => setFilterStatus(value)}>
-                    <SelectTrigger className="w-40 border-slate-300 whitespace-nowrap">
+                    <SelectTrigger className="w-full lg:w-40 border-slate-300 whitespace-nowrap">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -2080,28 +2080,30 @@ export default function Employees() {
                   </Select>
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="filterFromDate" className="text-sm font-medium text-slate-700">From:</Label>
-                  <Input
-                    id="filterFromDate"
-                    type="date"
-                    value={filterFromDate}
-                    onChange={(e) => setFilterFromDate(e.target.value)}
-                    className="border-slate-300 w-40"
-                  />
-                </div>
-                
-                <div className="pb-2.5 text-slate-500 text-sm">to</div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="filterToDate" className="text-sm font-medium text-slate-700">To:</Label>
-                  <Input
-                    id="filterToDate"
-                    type="date"
-                    value={filterToDate}
-                    onChange={(e) => setFilterToDate(e.target.value)}
-                    className="border-slate-300 w-40"
-                  />
+                <div className="flex flex-col sm:flex-row gap-2 items-end w-full lg:w-auto">
+                    <div className="space-y-2 w-full sm:w-auto">
+                    <Label htmlFor="filterFromDate" className="text-sm font-medium text-slate-700">From:</Label>
+                    <Input
+                        id="filterFromDate"
+                        type="date"
+                        value={filterFromDate}
+                        onChange={(e) => setFilterFromDate(e.target.value)}
+                        className="border-slate-300 w-full sm:w-40"
+                    />
+                    </div>
+                    
+                    <div className="pb-2.5 text-slate-500 text-sm hidden sm:block">to</div>
+                    
+                    <div className="space-y-2 w-full sm:w-auto">
+                    <Label htmlFor="filterToDate" className="text-sm font-medium text-slate-700">To:</Label>
+                    <Input
+                        id="filterToDate"
+                        type="date"
+                        value={filterToDate}
+                        onChange={(e) => setFilterToDate(e.target.value)}
+                        className="border-slate-300 w-full sm:w-40"
+                    />
+                    </div>
                 </div>
 
                 {(filterFromDate || filterToDate) && (
@@ -2111,7 +2113,7 @@ export default function Employees() {
                       setFilterFromDate("");
                       setFilterToDate("");
                     }}
-                    className="mb-0.5 border-slate-300 text-slate-600"
+                    className="mb-0.5 border-slate-300 text-slate-600 w-full lg:w-auto"
                   >
                     Clear
                   </Button>
@@ -2119,7 +2121,7 @@ export default function Employees() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="overflow-x-auto max-h-96 overflow-y-auto">
+              <div className="hidden lg:block overflow-x-auto max-h-96 overflow-y-auto">
                 <table className="w-full text-sm">
                   <thead className="border-b border-slate-200 bg-slate-50">
                     <tr>
@@ -2264,6 +2266,149 @@ export default function Employees() {
                     )}
                   </tbody>
                 </table>
+              </div>
+
+              {/* Mobile Card View */}
+              <div className="lg:hidden space-y-4">
+                {filteredEmployees.length === 0 ? (
+                  <div className="text-center text-slate-500 py-8">
+                    No employees found matching your filters
+                  </div>
+                ) : (
+                  filteredEmployees.map((emp) => (
+                    <div key={emp.id} className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden p-4">
+                      <div className="flex justify-between items-start mb-3">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-bold text-slate-900">{emp.name}</h4>
+                            <span className="text-xs text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">{emp.id}</span>
+                          </div>
+                          <p className="text-sm text-slate-600">{emp.position}</p>
+                        </div>
+                        <div className="relative">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className={`gap-2 border-0 text-xs font-semibold whitespace-nowrap h-8 ${
+                                  emp.paymentStatus === "active"
+                                    ? "bg-green-50 text-green-700 hover:bg-green-100"
+                                    : emp.paymentStatus === "paused"
+                                    ? "bg-yellow-50 text-yellow-700 hover:bg-yellow-100"
+                                    : emp.paymentStatus === "leaving"
+                                    ? "bg-red-50 text-red-700 hover:bg-red-100"
+                                    : "bg-slate-50 text-slate-700 hover:bg-slate-100"
+                                }`}
+                                onClick={() => setOpenStatusMenuId(openStatusMenuId === emp.id ? null : emp.id)}
+                              >
+                                <span className={`inline-block w-2 h-2 rounded-full ${
+                                  emp.paymentStatus === "active" ? "bg-green-600" :
+                                  emp.paymentStatus === "paused" ? "bg-yellow-600" :
+                                  emp.paymentStatus === "leaving" ? "bg-red-600" :
+                                  "bg-slate-600"
+                                }`}></span>
+                                {emp.paymentStatus || "active"}
+                                <ChevronDown className="w-3 h-3" />
+                              </Button>
+                              {openStatusMenuId === emp.id && (
+                                <div className="absolute top-full mt-1 right-0 bg-white border border-slate-200 rounded shadow-lg z-10 w-40">
+                                  <button
+                                    className="w-full text-left px-4 py-2 text-sm hover:bg-slate-100 text-green-700 font-medium flex items-center gap-2"
+                                    onClick={() => handleStatusChange(emp.id, "active")}
+                                  >
+                                    <span className="inline-block w-2 h-2 rounded-full bg-green-600"></span>
+                                    Active
+                                  </button>
+                                  <button
+                                    className="w-full text-left px-4 py-2 text-sm hover:bg-slate-100 text-yellow-700 font-medium flex items-center gap-2 border-t border-slate-200"
+                                    onClick={() => handleStatusChange(emp.id, "paused")}
+                                  >
+                                    <span className="inline-block w-2 h-2 rounded-full bg-yellow-600"></span>
+                                    Paused
+                                  </button>
+                                  <button
+                                    className="w-full text-left px-4 py-2 text-sm hover:bg-slate-100 text-red-700 font-medium flex items-center gap-2 border-t border-slate-200"
+                                    onClick={() => handleStatusChange(emp.id, "leaving")}
+                                  >
+                                    <span className="inline-block w-2 h-2 rounded-full bg-red-600"></span>
+                                    Leaving
+                                  </button>
+                                  <button
+                                    className="w-full text-left px-4 py-2 text-sm hover:bg-slate-100 text-slate-700 font-medium flex items-center gap-2 border-t border-slate-200"
+                                    onClick={() => handleStatusChange(emp.id, "laid_off")}
+                                  >
+                                    <span className="inline-block w-2 h-2 rounded-full bg-slate-600"></span>
+                                    Laid Off
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3 text-sm mb-4 pt-2 border-t border-slate-100">
+                         <div>
+                            <span className="block text-xs text-slate-500">Weekly Rate</span>
+                            <span className="font-semibold text-slate-900">${emp.weeklyRate.toLocaleString()}</span>
+                         </div>
+                         <div>
+                            <span className="block text-xs text-slate-500">Start Date</span>
+                            <span className="font-medium text-slate-700">{formatDateString(emp.startDate)}</span>
+                         </div>
+                         <div className="col-span-2">
+                            <span className="block text-xs text-slate-500 mb-1">Payment Method</span>
+                             <span className="bg-slate-100 px-2 py-1 rounded inline-block text-xs font-medium text-slate-700">
+                              {emp.paymentMethod === "cash" && "Cash"}
+                              {emp.paymentMethod === "direct_deposit" && "Direct Deposit"}
+                              {emp.paymentMethod === "check" && "Check"}
+                              {emp.paymentMethod === "ach" && "ACH Transfer"}
+                              {emp.paymentMethod === "wire" && "Wire Transfer"}
+                            </span>
+                         </div>
+                      </div>
+
+                      <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                           <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-blue-600 hover:bg-blue-50 h-8 w-8 p-0"
+                                onClick={() => {
+                                  setViewingEmployee(emp);
+                                  setIsViewModalOpen(true);
+                                }}
+                                title="View employee details"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-green-600 hover:bg-green-50 h-8 w-8 p-0"
+                                onClick={() => handleAdjustSalary(emp.id)}
+                                title="Adjust employee salary"
+                              >
+                                <TrendingUp className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-amber-600 hover:bg-amber-50 h-8 w-8 p-0"
+                                onClick={() => handleEditEmployee(emp)}
+                                title="Edit employee"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-red-600 hover:bg-red-50 h-8 w-8 p-0"
+                                onClick={() => handleDeleteEmployee(emp.id)}
+                                title="Delete employee"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </CardContent>
           </Card>

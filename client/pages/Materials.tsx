@@ -411,12 +411,12 @@ export default function Materials() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
+      <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-slate-900">Materials Catalog</h1>
           <p className="text-slate-600 mt-1">Manage standard cabinet materials and pricing</p>
         </div>
-        <div className="flex gap-2 w-full md:w-auto">
+        <div className="flex gap-2 w-full lg:w-auto">
           <Button
             onClick={printMaterialsCatalog}
             className="gap-2 bg-slate-600 hover:bg-slate-700"
@@ -441,7 +441,7 @@ export default function Materials() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card className="border-slate-200">
           <CardHeader>
             <CardTitle className="text-lg">Total Materials</CardTitle>
@@ -487,7 +487,7 @@ export default function Materials() {
           <CardDescription>All materials in the catalog</CardDescription>
           <div className="mt-4">
             <Select value={filterCategory} onValueChange={setFilterCategory}>
-              <SelectTrigger className="w-full md:w-40 border-slate-300">
+              <SelectTrigger className="w-full lg:w-40 border-slate-300">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -502,7 +502,7 @@ export default function Materials() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="hidden md:block overflow-x-auto">
+          <div className="hidden lg:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="border-b border-slate-200 bg-slate-50">
                 <tr>
@@ -575,7 +575,7 @@ export default function Materials() {
             </table>
           </div>
 
-          <div className="md:hidden space-y-4">
+          <div className="lg:hidden space-y-4">
              {filteredMaterials.length === 0 ? (
                  <div className="text-center py-8 text-slate-500">
                       No materials found

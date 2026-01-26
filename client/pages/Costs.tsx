@@ -1,6 +1,6 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { AlertCircle, Printer } from "lucide-react";
+import { AlertCircle, Printer, Download } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useYear } from "@/contexts/YearContext";
 import jsPDF from "jspdf";
@@ -142,6 +142,65 @@ export default function Costs() {
   const totalProfit = totalContractValue - totalCosts;
   const overallProfitMargin = totalContractValue > 0 ? (totalProfit / totalContractValue) * 100 : 0;
 
+  const exportToCSV = () => {
+    if (filteredContracts.length === 0) {
+      alert("No data to export");
+      return;
+    }
+
+    const headers = [
+      "Contract ID",
+      "Project",
+      "Client",
+      "Status",
+      "Contract Value",
+      "Material Costs",
+      "Labor Costs",
+      "Misc Costs",
+      "Total Costs",
+      "Profit",
+      "Margin %"
+    ];
+
+    const csvRows = [headers.join(",")];
+
+    filteredContracts.forEach(contract => {
+      const costTracking = contract.cost_tracking as CostTracking;
+      const materialCost = calculateMaterialCost(costTracking?.materials || []);
+      const laborCost = calculateLaborCost(costTracking?.laborCost);
+      const miscCost = calculateMiscCost(costTracking?.miscellaneous || []);
+      const totalCost = materialCost + laborCost + miscCost;
+      const profit = calculateProfit(contract);
+      const margin = calculateProfitMargin(contract);
+
+      const row = [
+        contract.id,
+        `"${contract.project_name.replace(/"/g, '""')}"`,
+        `"${(contract.client_name || "").replace(/"/g, '""')}"`,
+        contract.status,
+        contract.total_value || 0,
+        materialCost,
+        laborCost,
+        miscCost,
+        totalCost,
+        profit,
+        margin.toFixed(2)
+      ];
+      csvRows.push(row.join(","));
+    });
+
+    const csvString = csvRows.join("\n");
+    const blob = new Blob([csvString], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", `project_costs_export_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case "completed":
@@ -271,76 +330,67 @@ export default function Costs() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-slate-900">Project Costs</h1>
-          <p className="text-slate-600 mt-1">Track material, labor, and miscellaneous costs across all projects</p>
+          <p className="text-slate-600 mt-1">Track and analyze costs across all contracts</p>
         </div>
-        <Button
-          onClick={printCostReport}
-          className="gap-2 bg-slate-600 hover:bg-slate-700"
-          disabled={filteredContracts.length === 0}
-        >
-          <Printer className="w-4 h-4" />
-          Print
-        </Button>
+        <div className="flex gap-2 w-full lg:w-auto">
+          <Button onClick={printCostReport} className="gap-2 bg-slate-600 hover:bg-slate-700">
+             <Printer className="w-4 h-4" />
+             Print Report
+          </Button>
+          <Button onClick={exportToCSV} variant="outline" className="gap-2">
+            <Download className="w-4 h-4" />
+            Export CSV
+          </Button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card className="border-slate-200">
           <CardHeader>
             <CardTitle className="text-lg">Total Contract Value</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold text-slate-900">${totalContractValue.toLocaleString()}</p>
+            <p className="text-3xl font-bold text-slate-900">${totalContractValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
           </CardContent>
         </Card>
         <Card className="border-slate-200">
           <CardHeader>
-            <CardTitle className="text-lg">Total Material Costs</CardTitle>
+            <CardTitle className="text-lg">Total Costs</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold text-blue-600">${totalMaterialCosts.toLocaleString()}</p>
+            <p className="text-3xl font-bold text-red-600">${totalCosts.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
           </CardContent>
         </Card>
         <Card className="border-slate-200">
-          <CardHeader>
-            <CardTitle className="text-lg">Total Labor Costs</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-bold text-purple-600">${totalLaborCosts.toLocaleString()}</p>
-          </CardContent>
-        </Card>
-        <Card className="border-slate-200">
-          <CardHeader>
-            <CardTitle className="text-lg">Total Misc Costs</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-bold text-orange-600">${totalMiscCosts.toLocaleString()}</p>
-          </CardContent>
-        </Card>
-        <Card className={`border-slate-200 ${totalProfit >= 0 ? "bg-green-50" : "bg-red-50"}`}>
-          <CardHeader>
+           <CardHeader>
             <CardTitle className="text-lg">Total Profit</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-2">
-              <p className={`text-3xl font-bold ${totalProfit >= 0 ? "text-green-700" : "text-red-700"}`}>
-                ${totalProfit.toLocaleString()}
-              </p>
-              <p className={`text-sm font-semibold ${totalProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
-                Margin: {overallProfitMargin.toFixed(1)}%
-              </p>
-            </div>
+            <p className="text-3xl font-bold text-green-600">${totalProfit.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
+          </CardContent>
+        </Card>
+        <Card className="border-slate-200">
+          <CardHeader>
+             <CardTitle className="text-lg">Avg Margin</CardTitle>
+          </CardHeader>
+           <CardContent>
+            <p className="text-3xl font-bold text-blue-600">{overallProfitMargin.toFixed(1)}%</p>
           </CardContent>
         </Card>
       </div>
 
       {contracts.length > 0 && (
         <Card className="border-slate-200">
+          <CardHeader>
+            <CardTitle>Filter Projects</CardTitle>
+            <CardDescription>Filter by status or date range</CardDescription>
+          </CardHeader>
           <div className="border-b border-slate-200 px-6 py-4">
-            <div className="flex flex-col md:flex-row gap-4 items-start md:items-center flex-wrap">
-              <div className="flex gap-2 flex-wrap w-full md:w-auto">
+            <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center flex-wrap">
+              <div className="flex gap-2 flex-wrap w-full lg:w-auto">
                 <Button
                   onClick={() => setFilterStatus("all")}
                   variant={filterStatus === "all" ? "default" : "outline"}
@@ -375,7 +425,7 @@ export default function Costs() {
                 </Button>
               </div>
 
-               <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto items-start sm:items-center">
+               <div className="flex flex-col sm:flex-row gap-2 w-full lg:w-auto items-start sm:items-center">
                   <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
                     <Input
                       type="date"
@@ -419,7 +469,7 @@ export default function Costs() {
             <CardDescription>Material, labor, and miscellaneous costs for each project</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="hidden md:block overflow-x-auto">
+            <div className="hidden lg:block overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="border-b border-slate-200 bg-slate-50">
                   <tr>
@@ -485,7 +535,7 @@ export default function Costs() {
             </div>
 
             {/* Mobile Card View */}
-            <div className="md:hidden space-y-4">
+            <div className="lg:hidden space-y-4">
                {filteredContracts.map((contract) => {
                   const costTracking = contract.cost_tracking as CostTracking;
                   const materialCost = calculateMaterialCost(costTracking?.materials || []);

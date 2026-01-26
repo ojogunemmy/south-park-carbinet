@@ -767,12 +767,12 @@ export default function Bills() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
+      <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-slate-900">Bills</h1>
           <p className="text-slate-600 mt-1">Track company expenses and bills with automatic number generation by category</p>
         </div>
-        <div className="flex gap-2 w-full md:w-auto">
+        <div className="flex gap-2 w-full lg:w-auto">
           <Dialog open={isModalOpen} onOpenChange={handleCloseModal}>
             <DialogTrigger asChild>
               <Button
@@ -1469,8 +1469,8 @@ export default function Bills() {
               )}
             </CardHeader>
             <div className="border-b border-slate-200 px-6 py-4">
-            <div className="flex flex-col md:flex-row gap-4 items-start md:items-center flex-wrap">
-              <div className="flex gap-2 flex-wrap w-full md:w-auto">
+            <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center flex-wrap">
+              <div className="flex gap-2 flex-wrap w-full lg:w-auto">
                 <Button
                   onClick={() => setFilterStatus("all")}
                   variant={filterStatus === "all" ? "default" : "outline"}
@@ -1505,7 +1505,7 @@ export default function Bills() {
                 </Button>
               </div>
 
-               <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto items-start sm:items-center">
+               <div className="flex flex-col sm:flex-row gap-2 w-full lg:w-auto items-start sm:items-center">
                  <Select value={filterCategory} onValueChange={setFilterCategory}>
                   <SelectTrigger className="w-full sm:w-[180px] border-slate-300">
                     <SelectValue placeholder="Category" />
@@ -1554,7 +1554,7 @@ export default function Bills() {
             </div>
             </div>
             <CardContent>
-              <div className="hidden md:block overflow-x-auto">
+              <div className="hidden lg:block overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="border-b border-slate-200 bg-slate-50">
                     <tr>
@@ -1650,7 +1650,7 @@ export default function Bills() {
               </div>
 
               {/* Mobile Card View */}
-              <div className="md:hidden space-y-4">
+              <div className="lg:hidden space-y-4">
                 {filteredBills.map((bill) => (
                   <div key={bill.id} className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden p-4">
                     <div className="flex justify-between items-start mb-3">
@@ -1756,7 +1756,7 @@ export default function Bills() {
             </CardContent>
           </Card>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <Card className="border-slate-200">
               <CardHeader>
                 <CardTitle>By Category</CardTitle>
