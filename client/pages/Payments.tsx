@@ -23,6 +23,7 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -596,6 +597,11 @@ export default function Payments() {
   // Submission state to prevent double clicks
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [viewMode, setViewMode] = useState<"weekly" | "yearly">("weekly");
+
+  // Batch Mark Paid modal state
+  const [isBatchMarkPaidModalOpen, setIsBatchMarkPaidModalOpen] = useState(false);
+  const [batchPaidDate, setBatchPaidDate] = useState<string>("");
+  const [batchStartingCheckNumber, setBatchStartingCheckNumber] = useState<string>("");
 
   // Settings state
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -1245,30 +1251,56 @@ export default function Payments() {
     return sum + ((p.amount || 0) - deduction);
   }, 0);
 
-  const handleMarkAllAsPaid = async () => {
-    const confirmed = window.confirm("Are you sure you want to mark ALL pending payments in the CURRENT VIEW as paid?");
-    if (confirmed) {
-      const today = getTodayDate();
+  const handleMarkAllAsPaid = () => {
+    // Open the new modal instead of confirming directly
+    setBatchPaidDate(getTodayDate());
+    // Auto-fill next check number if checks are used
+    const nextCheck = getNextCheckNumber();
+    setBatchStartingCheckNumber(nextCheck.toString());
+    
+    setIsBatchMarkPaidModalOpen(true);
+  };
+
+  const handleConfirmBatchMarkPaid = async () => {
+    setIsSubmitting(true);
+    try {
       // Only mark the payments currently visible/filtered as paid
-      const pendingIds = filteredPayments.filter(p => p.status === "pending").map(p => p.id);
+      const pendingPayments = filteredPayments.filter(p => p.status === "pending");
       
-      try {
-        await Promise.all(pendingIds.map(id => 
-          paymentsService.update(id, { status: "paid", paid_date: today })
-        ));
-        await loadFreshData();
-        toast({
-          title: "✓ All Paid",
-          description: "All pending payments have been marked as paid.",
-        });
-      } catch (error) {
-        console.error("Error marking all as paid:", error);
-        toast({
-          title: "Error",
-          description: "Failed to mark all payments as paid.",
-          variant: "destructive",
-        });
-      }
+      let currentCheckNum = parseInt(batchStartingCheckNumber) || getNextCheckNumber();
+      const isCheckSequence = batchStartingCheckNumber && batchStartingCheckNumber.trim() !== "";
+
+      await Promise.all(pendingPayments.map(async (payment) => {
+        const updateData: any = { 
+          status: "paid", 
+          paid_date: batchPaidDate 
+        };
+        
+        // Only assign check number if method is Check AND we have a sequence start
+        if (isCheckSequence && payment.payment_method?.toLowerCase() === 'check') {
+          updateData.check_number = currentCheckNum.toString();
+          currentCheckNum++;
+        }
+
+        return paymentsService.update(payment.id, updateData);
+      }));
+
+      await loadFreshData();
+      setIsBatchMarkPaidModalOpen(false);
+      
+      toast({
+        title: "✓ All Paid",
+        description: `Marked ${pendingPayments.length} payments as paid.`,
+      });
+    } catch (error) {
+      console.error("Error marking all as paid:", error);
+      toast({
+        title: "Error",
+        description: "Failed to mark payments as paid.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -3021,6 +3053,92 @@ export default function Payments() {
           </Dialog>
         );
       })()}
+
+      <Dialog open={isBatchMarkPaidModalOpen} onOpenChange={setIsBatchMarkPaidModalOpen}>
+        <DialogContent className="sm:max-w-md p-6">
+          <DialogHeader className="space-y-1">
+            <DialogTitle className="text-xl">Batch Mark Pending as Paid</DialogTitle>
+            <DialogDescription className="text-slate-500">
+              Process all pending payments in one step
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-6 py-2">
+            {/* Payment Summary Box */}
+            <div className="bg-blue-50/80 border border-blue-100 rounded-md p-4 space-y-2">
+               <div className="flex items-center gap-2 text-blue-800 font-medium">
+                 <div className="h-4 w-1 bg-blue-500 rounded-full"></div>
+                 <div className="h-3 w-1 bg-green-500 rounded-full"></div>
+                 Payment Summary
+               </div>
+               
+               {/* Check Count */}
+               <div className="flex items-center gap-2 text-blue-700 text-sm pl-1">
+                 <CheckCircle className="w-4 h-4 text-blue-600" />
+                 <span>
+                    {filteredPayments.filter(p => p.status === 'pending' && p.payment_method?.toLowerCase() === 'check').length} payment(s) with Check
+                 </span>
+               </div>
+               
+               <div className="pt-2 border-t border-blue-200/60 text-blue-900 font-bold">
+                 Total: {filteredPayments.filter(p => p.status === 'pending').length} payment(s)
+               </div>
+            </div>
+
+            {/* Starting Check Number Box - Only show if there are check payments */}
+            {filteredPayments.filter(p => p.status === 'pending' && p.payment_method?.toLowerCase() === 'check').length > 0 && (
+              <div className="bg-purple-50/50 border border-purple-100 rounded-md p-4 space-y-3">
+                <Label htmlFor="batchStartingCheckNumber" className="text-purple-900 font-medium">
+                  Starting Check Number (for {filteredPayments.filter(p => p.status === 'pending' && p.payment_method?.toLowerCase() === 'check').length} check payment(s))
+                </Label>
+                
+                <Input
+                  type="number"
+                  id="batchStartingCheckNumber"
+                  className="font-mono font-medium text-lg border-purple-200 focus:border-purple-400 focus:ring-purple-200"
+                  value={batchStartingCheckNumber}
+                  onChange={(e) => setBatchStartingCheckNumber(e.target.value)}
+                />
+                
+                <div className="bg-white border border-purple-100 rounded p-2 text-sm text-slate-600">
+                  <span className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Check Numbers:</span>
+                  <span className="font-mono text-purple-700 font-medium">
+                    #{batchStartingCheckNumber || '...'}
+                    {parseInt(batchStartingCheckNumber) ? ` - #${parseInt(batchStartingCheckNumber) + filteredPayments.filter(p => p.status === 'pending' && p.payment_method?.toLowerCase() === 'check').length - 1}` : ''}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Payment Date */}
+            <div className="space-y-2">
+              <Label htmlFor="batchPaidDate">Payment Date *</Label>
+              <div className="relative">
+                <Input
+                  type="date"
+                  id="batchPaidDate"
+                  className="pl-3"
+                  value={batchPaidDate}
+                  onChange={(e) => setBatchPaidDate(e.target.value)}
+                />
+              </div>
+            </div>
+
+          </div>
+          <DialogFooter className="gap-3 sm:gap-0 mt-2">
+            <Button variant="outline" onClick={() => setIsBatchMarkPaidModalOpen(false)} className="h-10 px-4">
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleConfirmBatchMarkPaid} 
+              disabled={isSubmitting} 
+              className="bg-green-600 hover:bg-green-700 text-white h-10 px-6 font-medium"
+            >
+              {isSubmitting ? "Processing..." : `Mark ${filteredPayments.filter(p => p.status === 'pending').length} as Paid`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {isCheckPrintModalOpen && selectedCheckPaymentId && (() => {
         const payment = payments.find((p) => p.id === selectedCheckPaymentId);
