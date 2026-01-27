@@ -1,10 +1,11 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Plus, ChevronRight, ChevronLeft, Edit2, Trash2, Eye, ChevronDown, Download, Printer, FileText, Settings, TrendingUp, MoreVertical } from "lucide-react";
+import { Plus, ChevronRight, ChevronLeft, Edit2, Trash2, Eye, ChevronDown, Download, Printer, FileText, Settings, TrendingUp, MoreVertical, AlertCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import jsPDF from "jspdf";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useYear } from "@/contexts/YearContext";
+import { useToast } from "@/hooks/use-toast";
 import {
   employeesService,
   paymentsService,
@@ -24,6 +25,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -96,7 +98,7 @@ interface Employee {
   directDeposit?: boolean;
   itin?: string;
   paymentDay?: string;
-  paymentStatus?: "active" | "paused" | "leaving" | "laid_off";
+  payment_status?: "active" | "paused" | "leaving" | "laid_off";
   defaultDaysWorkedPerWeek?: number;
 }
 
@@ -121,7 +123,7 @@ interface EmployeeFormData {
   checkAttachment: string;
   checkNumber: string;
   paymentDay: string;
-  paymentStatus: "active" | "paused" | "leaving" | "laid_off";
+  payment_status: "active" | "paused" | "leaving" | "laid_off";
   defaultDaysWorkedPerWeek: string;
 }
 
@@ -136,6 +138,7 @@ interface SalaryHistory {
 }
 
 export default function Employees() {
+  const { toast } = useToast();
   const { selectedYear } = useYear();
   const [isBulkImporting, setIsBulkImporting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -145,6 +148,9 @@ export default function Employees() {
   const [weeklyPayments, setWeeklyPayments] = useState<WeeklyPayment[]>([]);
   const [absences, setAbsences] = useState<EmployeeAbsence[]>([]);
   const [salaryHistory, setSalaryHistory] = useState<SalaryHistory[]>([]);
+  /* State */
+  const [isLayoffModalOpen, setIsLayoffModalOpen] = useState(false);
+  const [employeeToLayoff, setEmployeeToLayoff] = useState<Employee | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [editingEmployeeId, setEditingEmployeeId] = useState<string | null>(null);
@@ -202,7 +208,7 @@ export default function Employees() {
     checkAttachment: "",
     checkNumber: "",
     paymentDay: "wednesday",
-    paymentStatus: "active",
+    payment_status: "active",
     defaultDaysWorkedPerWeek: "5",
   });
   const [isGeneratePaymentsModalOpen, setIsGeneratePaymentsModalOpen] = useState(false);
@@ -236,7 +242,7 @@ export default function Employees() {
     directDeposit: emp.direct_deposit,
     itin: emp.itin || "",
     paymentDay: emp.payment_day || "",
-    paymentStatus: emp.payment_status,
+    payment_status: emp.payment_status,
     defaultDaysWorkedPerWeek: emp.default_days_worked || 5,
   });
 
@@ -324,7 +330,7 @@ export default function Employees() {
 
   const filteredEmployees = employees
     .filter((emp) => {
-      const statusMatch = filterStatus === "all" || emp.paymentStatus === filterStatus;
+      const statusMatch = filterStatus === "all" || emp.payment_status === filterStatus;
 
       let dateMatch = true;
       if (filterFromDate || filterToDate) {
@@ -788,7 +794,7 @@ export default function Employees() {
           },
           direct_deposit: formData.paymentMethod === "direct_deposit",
           payment_day: formData.paymentDay,
-          payment_status: formData.paymentStatus,
+          payment_status: formData.payment_status,
           default_days_worked: parseInt(formData.defaultDaysWorkedPerWeek, 10) || 5,
         };
 
@@ -832,7 +838,7 @@ export default function Employees() {
           },
           direct_deposit: formData.paymentMethod === "direct_deposit",
           payment_day: formData.paymentDay,
-          payment_status: formData.paymentStatus,
+          payment_status: formData.payment_status,
           default_days_worked: parseInt(formData.defaultDaysWorkedPerWeek, 10) || 5,
         };
 
@@ -860,7 +866,7 @@ export default function Employees() {
         checkAttachment: "",
         checkNumber: "",
         paymentDay: "wednesday",
-        paymentStatus: "active",
+        payment_status: "active",
         defaultDaysWorkedPerWeek: "5",
       });
       setCurrentStep(1);
@@ -892,7 +898,7 @@ export default function Employees() {
       checkAttachment: employee.checkAttachment || "",
       checkNumber: employee.checkNumber || "",
       paymentDay: employee.paymentDay || "friday",
-      paymentStatus: employee.paymentStatus || "active",
+      payment_status: employee.payment_status || "active",
       defaultDaysWorkedPerWeek: (employee.defaultDaysWorkedPerWeek || 5).toString(),
     });
     setEditingEmployeeId(employee.id);
@@ -940,7 +946,7 @@ export default function Employees() {
       if (viewingEmployee && viewingEmployee.id === employeeId) {
         setViewingEmployee({
           ...viewingEmployee,
-          paymentStatus: newStatus,
+          payment_status: newStatus,
         });
       }
       setOpenStatusMenuId(null);
@@ -1122,22 +1128,15 @@ export default function Employees() {
     }
 
     let weekStartStr: string | null = null;
-    const employeeLatestPayment = getLatestPendingPaymentForEmployee(severanceEmployeeId);
-    if (employeeLatestPayment) {
-      weekStartStr = employeeLatestPayment.weekStartDate;
+    
+    // Always prioritize the actual severance date for the payment week
+    if (severanceDate) {
+      const parts = severanceDate.split('-');
+      const severanceDateObj = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+      weekStartStr = getWeekStartDate(severanceDateObj);
     } else {
-      weekStartStr = getUpcomingPaymentWeek();
-    }
-
-    if (!weekStartStr) {
-      if (severanceDate) {
-        const parts = severanceDate.split('-');
-        const severanceDateObj = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
-        weekStartStr = getWeekStartDate(severanceDateObj);
-      } else {
-        // Fallback to current week if no other date found
-        weekStartStr = getWeekStartDate(new Date());
-      }
+       // Fallback to current week 
+       weekStartStr = getWeekStartDate(new Date());
     }
 
     // Calculate/Validate dates
@@ -1220,7 +1219,7 @@ export default function Employees() {
         checkAttachment: "",
         checkNumber: "",
         paymentDay: "wednesday",
-        paymentStatus: "active",
+        payment_status: "active",
         defaultDaysWorkedPerWeek: "5",
       });
     }
@@ -1254,7 +1253,7 @@ export default function Employees() {
       yPosition += 10;
 
       const totalWeeklyPayroll = employees.reduce((sum, e) => sum + e.weeklyRate, 0);
-      const activeEmployees = employees.filter((e) => e.paymentStatus === "active").length;
+      const activeEmployees = employees.filter((e) => e.payment_status === "active").length;
       
       // Summary Line
       pdf.setFontSize(10);
@@ -1314,7 +1313,7 @@ export default function Employees() {
         pdf.text(paymentMethod, xPosition + cellPadding, yPosition);
         xPosition += colWidths[5];
 
-        const status = emp.paymentStatus ? emp.paymentStatus.charAt(0).toUpperCase() + emp.paymentStatus.slice(1) : "Active";
+        const status = emp.payment_status ? emp.payment_status.charAt(0).toUpperCase() + emp.payment_status.slice(1) : "Active";
         pdf.text(status, xPosition + cellPadding, yPosition);
 
         yPosition += 8;
@@ -1398,6 +1397,53 @@ export default function Employees() {
       });
 
     return { total, paidCount, breakdown, adjustmentAmount: adjustmentAmount > 0 ? adjustmentAmount : undefined };
+  };
+
+  /* Layoff Handlers */
+  const handleConfirmLayoff = async () => {
+    if (!employeeToLayoff) return;
+
+    try {
+      setIsLoading(true);
+      
+      // 1. Update employee status to 'laid_off'
+      await employeesService.update(employeeToLayoff.id, {
+        payment_status: 'laid_off'
+      } as any);
+
+      // 2. Find and cancel all pending payments for this employee
+      const employeePayments = await paymentsService.getByEmployee(employeeToLayoff.id);
+      const pendingPayments = employeePayments.filter(p => p.status === 'pending');
+
+      await Promise.all(pendingPayments.map(p => 
+        paymentsService.update(p.id, {
+          status: 'canceled',
+          notes: (p.notes ? p.notes + ' ' : '') + '[Suspended due to layoff]'
+        })
+      ));
+
+      await fetchData();
+      toast({
+        title: "Employee Laid Off",
+        description: `Laid off ${employeeToLayoff.name} and suspended ${pendingPayments.length} pending payments.`,
+      });
+      setIsLayoffModalOpen(false);
+      setEmployeeToLayoff(null);
+    } catch (error) {
+      console.error("Error laying off employee:", error);
+      toast({
+        title: "Error",
+        description: "Failed to layoff employee.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleLayoffClick = (employee: Employee) => {
+    setEmployeeToLayoff(employee);
+    setIsLayoffModalOpen(true);
   };
 
   const downloadAnnualEarningsReport = (employee: Employee) => {
@@ -1584,7 +1630,7 @@ export default function Employees() {
     yPosition += 8;
 
     const totalWeeklyPayroll = employees.reduce((sum, e) => sum + e.weeklyRate, 0);
-    const activeEmployees = employees.filter((e) => e.paymentStatus === "active").length;
+    const activeEmployees = employees.filter((e) => e.payment_status === "active").length;
 
     doc.setFontSize(9);
     doc.setFont(undefined, "bold");
@@ -1649,7 +1695,7 @@ export default function Employees() {
       doc.setFont(undefined, "bold");
       doc.text("Status:", col1X, yPosition);
       doc.setFont(undefined, "normal");
-      doc.text(emp.paymentStatus || "active", col2X, yPosition);
+      doc.text(emp.payment_status || "active", col2X, yPosition);
       yPosition += 8;
 
       doc.setFont(undefined, "bold");
@@ -2184,23 +2230,23 @@ export default function Employees() {
                                 variant="outline"
                                 size="sm"
                                 className={`gap-2 border-0 text-xs font-semibold whitespace-nowrap ${
-                                  emp.paymentStatus === "active"
+                                  emp.payment_status === "active"
                                     ? "bg-green-50 text-green-700 hover:bg-green-100"
-                                    : emp.paymentStatus === "paused"
+                                    : emp.payment_status === "paused"
                                     ? "bg-yellow-50 text-yellow-700 hover:bg-yellow-100"
-                                    : emp.paymentStatus === "leaving"
+                                    : emp.payment_status === "leaving"
                                     ? "bg-red-50 text-red-700 hover:bg-red-100"
                                     : "bg-slate-50 text-slate-700 hover:bg-slate-100"
                                 }`}
                                 onClick={() => setOpenStatusMenuId(openStatusMenuId === emp.id ? null : emp.id)}
                               >
                                 <span className={`inline-block w-2 h-2 rounded-full ${
-                                  emp.paymentStatus === "active" ? "bg-green-600" :
-                                  emp.paymentStatus === "paused" ? "bg-yellow-600" :
-                                  emp.paymentStatus === "leaving" ? "bg-red-600" :
+                                  emp.payment_status === "active" ? "bg-green-600" :
+                                  emp.payment_status === "paused" ? "bg-yellow-600" :
+                                  emp.payment_status === "leaving" ? "bg-red-600" :
                                   "bg-slate-600"
                                 }`}></span>
-                                {emp.paymentStatus || "active"}
+                                {emp.payment_status || "active"}
                                 <ChevronDown className="w-3 h-3" />
                               </Button>
                               {openStatusMenuId === emp.id && (
@@ -2269,6 +2315,7 @@ export default function Employees() {
                               >
                                 <Edit2 className="w-4 h-4" />
                               </Button>
+
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -2309,23 +2356,23 @@ export default function Employees() {
                                 variant="outline"
                                 size="sm"
                                 className={`gap-2 border-0 text-xs font-semibold whitespace-nowrap h-8 ${
-                                  emp.paymentStatus === "active"
+                                  emp.payment_status === "active"
                                     ? "bg-green-50 text-green-700 hover:bg-green-100"
-                                    : emp.paymentStatus === "paused"
+                                    : emp.payment_status === "paused"
                                     ? "bg-yellow-50 text-yellow-700 hover:bg-yellow-100"
-                                    : emp.paymentStatus === "leaving"
+                                    : emp.payment_status === "leaving"
                                     ? "bg-red-50 text-red-700 hover:bg-red-100"
                                     : "bg-slate-50 text-slate-700 hover:bg-slate-100"
                                 }`}
                                 onClick={() => setOpenStatusMenuId(openStatusMenuId === emp.id ? null : emp.id)}
                               >
                                 <span className={`inline-block w-2 h-2 rounded-full ${
-                                  emp.paymentStatus === "active" ? "bg-green-600" :
-                                  emp.paymentStatus === "paused" ? "bg-yellow-600" :
-                                  emp.paymentStatus === "leaving" ? "bg-red-600" :
+                                  emp.payment_status === "active" ? "bg-green-600" :
+                                  emp.payment_status === "paused" ? "bg-yellow-600" :
+                                  emp.payment_status === "leaving" ? "bg-red-600" :
                                   "bg-slate-600"
                                 }`}></span>
-                                {emp.paymentStatus || "active"}
+                                {emp.payment_status || "active"}
                                 <ChevronDown className="w-3 h-3" />
                               </Button>
                               {openStatusMenuId === emp.id && (
@@ -3407,6 +3454,82 @@ export default function Employees() {
           </Dialog>
         );
       })()}
+      <Dialog open={isLayoffModalOpen} onOpenChange={setIsLayoffModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-orange-700 flex items-center gap-2">
+              <AlertCircle className="w-5 h-5" />
+              Confirm Employee Layoff
+            </DialogTitle>
+            <DialogDescription>
+              Are you sure you want to lay off <strong>{employeeToLayoff?.name}</strong>?
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="bg-orange-50 p-3 rounded-md border border-orange-200 text-sm text-orange-800 space-y-2">
+            <p><strong>This action will:</strong></p>
+            <ul className="list-disc pl-4 space-y-1">
+              <li>Mark the employee status as "Laid Off".</li>
+              <li>Successfully <strong>cancel/suspend all pending payments</strong> for this employee.</li>
+              <li>Hide them from future weekly payroll generation batches.</li>
+            </ul>
+          </div>
+          <p className="text-xs text-slate-500 italic mt-2">
+            Note: You can still make single "severance" payments to this employee manually if needed.
+          </p>
+
+          <DialogFooter className="gap-2 sm:gap-0 mt-4">
+            <Button variant="outline" onClick={() => setIsLayoffModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleConfirmLayoff} 
+              disabled={isLoading}
+              className="bg-orange-600 hover:bg-orange-700 text-white gap-2"
+            >
+              {isLoading ? "Processing..." : "Confirm Layoff"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={isLayoffModalOpen} onOpenChange={setIsLayoffModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-orange-700 flex items-center gap-2">
+              <AlertCircle className="w-5 h-5" />
+              Confirm Employee Layoff
+            </DialogTitle>
+            <DialogDescription>
+              Are you sure you want to lay off <strong>{employeeToLayoff?.name}</strong>?
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="bg-orange-50 p-3 rounded-md border border-orange-200 text-sm text-orange-800 space-y-2">
+            <p><strong>This action will:</strong></p>
+            <ul className="list-disc pl-4 space-y-1">
+              <li>Mark the employee status as "Laid Off".</li>
+              <li>Successfully <strong>cancel/suspend all pending payments</strong> for this employee.</li>
+              <li>Hide them from future weekly payroll generation batches.</li>
+            </ul>
+          </div>
+          <p className="text-xs text-slate-500 italic mt-2">
+            Note: You can still make single "severance" payments to this employee manually if needed.
+          </p>
+
+          <DialogFooter className="gap-2 sm:gap-0 mt-4">
+            <Button variant="outline" onClick={() => setIsLayoffModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleConfirmLayoff} 
+              disabled={isLoading}
+              className="bg-orange-600 hover:bg-orange-700 text-white gap-2"
+            >
+              {isLoading ? "Processing..." : "Confirm Layoff"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

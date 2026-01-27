@@ -1,6 +1,6 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { CheckCircle, Clock, AlertCircle, Printer, Trash2, Paperclip, Download, Eye, X, Plus, Calendar, Edit2 } from "lucide-react";
+import { CheckCircle, Clock, AlertCircle, Printer, Trash2, Paperclip, Download, Eye, X, Plus, Calendar, Edit2, DollarSign } from "lucide-react";
 import jsPDF from "jspdf";
 import { useState, useEffect, useMemo } from "react";
 import { useYear } from "@/contexts/YearContext";
@@ -57,6 +57,7 @@ type PaymentObligation = Payment & {
   is_severance?: boolean;
   severance_reason?: string;
   severance_date?: string;
+  employee_status?: "active" | "paused" | "leaving" | "laid_off";
 };
 
 const exampleEmployees: Employee[] = [];
@@ -629,6 +630,7 @@ export default function Payments() {
           ...p,
           employee_name: p.employees?.name || "Unknown Employee",
           employee_position: p.employees?.position,
+          employee_status: p.employees?.payment_status,
         }));
       
       setPayments(mappedPayments);
@@ -1222,7 +1224,19 @@ export default function Payments() {
         dateMatch = p.week_start_date === selectedWeek;
       }
 
-      return statusMatch && employeeMatch && dateMatch;
+      // Filter out pending or canceled payments for laid-off employees unless it's severance
+      let laidOffFilter = true;
+      if ((p.status === "pending" || p.status === "canceled") && p.employee_status === "laid_off") {
+        // Rely strictly on DB flags as requested by user
+        // p.is_severance is the primary truth. p.severance_date is a secondary confirmation.
+        const isSeverance = !!p.is_severance || !!p.severance_date;
+        
+        if (!isSeverance) {
+          laidOffFilter = false;
+        }
+      }
+
+      return statusMatch && employeeMatch && dateMatch && laidOffFilter;
     })
     .sort((a, b) => {
       // Primary sort: by Employee ID in ascending order (EMP-001, EMP-002, etc.)
@@ -1265,24 +1279,23 @@ export default function Payments() {
     setIsSubmitting(true);
     try {
       // Only mark the payments currently visible/filtered as paid
-      const pendingPayments = filteredPayments.filter(p => p.status === "pending");
+      const pendingIds = filteredPayments.filter(p => p.status === "pending").map(p => p.id);
       
-      let currentCheckNum = parseInt(batchStartingCheckNumber) || getNextCheckNumber();
-      const isCheckSequence = batchStartingCheckNumber && batchStartingCheckNumber.trim() !== "";
+      let nextCheckNum = parseInt(batchStartingCheckNumber) || getNextCheckNumber();
+      const isCheckPayment = batchStartingCheckNumber && batchStartingCheckNumber.trim() !== "";
 
-      await Promise.all(pendingPayments.map(async (payment) => {
+      await Promise.all(pendingIds.map(async (id, index) => {
         const updateData: any = { 
           status: "paid", 
           paid_date: batchPaidDate 
         };
         
-        // Only assign check number if method is Check AND we have a sequence start
-        if (isCheckSequence && payment.payment_method?.toLowerCase() === 'check') {
-          updateData.check_number = currentCheckNum.toString();
-          currentCheckNum++;
+        // If user provided a starting check number, assign incrementing check numbers
+        if (isCheckPayment) {
+          updateData.check_number = (nextCheckNum + index).toString();
         }
 
-        return paymentsService.update(payment.id, updateData);
+        return paymentsService.update(id, updateData);
       }));
 
       await loadFreshData();
@@ -1290,7 +1303,7 @@ export default function Payments() {
       
       toast({
         title: "✓ All Paid",
-        description: `Marked ${pendingPayments.length} payments as paid.`,
+        description: `Marked ${pendingIds.length} payments as paid.`,
       });
     } catch (error) {
       console.error("Error marking all as paid:", error);
@@ -1629,9 +1642,13 @@ export default function Payments() {
   const handleAddWeeklyPayments = () => {
     // Simply open the modal - let user manually select week and employees
     setIsAddWeekModalOpen(true);
-    // Initialize with all employees selected
-    const allEmployeeIds = new Set(employees.map(e => e.id));
-    setSelectedEmployeesForWeek(allEmployeeIds);
+    // Initialize with all active employees selected (exclude laid_off)
+    const activeEmployeesIds = new Set(
+      employees
+        .filter(e => e.payment_status !== 'laid_off')
+        .map(e => e.id)
+    );
+    setSelectedEmployeesForWeek(activeEmployeesIds);
     
     // Initialize days for all employees to 5
     const initialDays: Record<string, number> = {};
@@ -1947,13 +1964,6 @@ export default function Payments() {
         </div>
         <div className="flex flex-wrap gap-3">
           <Button
-            onClick={() => setViewMode(viewMode === "weekly" ? "yearly" : "weekly")}
-            className={`gap-2 ${viewMode === "yearly" ? "bg-indigo-600 hover:bg-indigo-700" : "bg-slate-700 hover:bg-slate-800"}`}
-          >
-            <span className="font-bold">$</span>
-            {viewMode === "weekly" ? "Yearly Earnings" : "All Payments"}
-          </Button>
-          <Button
             onClick={() => setIsAddPaymentModalOpen(true)}
             className="gap-2 bg-indigo-600 hover:bg-indigo-700"
           >
@@ -1962,11 +1972,19 @@ export default function Payments() {
           </Button>
           <Button
             onClick={handleAddWeeklyPayments}
-            className="gap-2 bg-slate-700 hover:bg-slate-800"
+            className="gap-2 bg-indigo-600 hover:bg-indigo-700"
             title="Add weekly payments - upcoming week and all employees pre-selected"
           >
             <Calendar className="w-4 h-4" />
             Add Weekly Payments
+          </Button>
+          <div className="border-l border-slate-300"></div>
+          <Button
+            onClick={() => setViewMode(viewMode === "weekly" ? "yearly" : "weekly")}
+            className={`gap-2 ${viewMode === "yearly" ? "bg-indigo-600 hover:bg-indigo-700" : "bg-slate-700 hover:bg-slate-800"}`}
+          >
+            <DollarSign className="w-4 h-4" />
+            {viewMode === "weekly" ? "Yearly Earnings" : "All Payments"}
           </Button>
           <Button
             onClick={() => window.print()}
@@ -2224,6 +2242,13 @@ export default function Payments() {
                     <tr key={payment.id} className="bg-white hover:bg-slate-50">
                       <td className="p-3 text-slate-700 font-medium whitespace-nowrap">
                         <p className="font-semibold">{payment.employee_id} - {payment.employee_name}</p>
+                        {(payment.is_severance || payment.severance_date) && (
+                          <div className="mt-1">
+                            <Badge variant="outline" className="bg-amber-100 text-amber-800 border-amber-200 hover:bg-amber-100">
+                              Severance Payment
+                            </Badge>
+                          </div>
+                        )}
                       </td>
                       {/*
                       <td className="p-3 text-slate-700 text-xs whitespace-nowrap">
@@ -2410,6 +2435,13 @@ export default function Payments() {
                     <div>
                       <p className="font-semibold text-slate-900">{payment.employee_name}</p>
                       <p className="text-xs text-slate-500">{payment.employee_id}</p>
+                      {(payment.is_severance || payment.severance_date) && (
+                        <div className="mt-1">
+                          <Badge variant="outline" className="bg-amber-100 text-amber-800 border-amber-200 text-[10px] px-1.5 py-0 h-5 hover:bg-amber-100">
+                            Severance
+                          </Badge>
+                        </div>
+                      )}
                     </div>
                     <div className="flex flex-col items-end gap-1">
                        {payment.status === "paid" ? (
@@ -3055,86 +3087,51 @@ export default function Payments() {
       })()}
 
       <Dialog open={isBatchMarkPaidModalOpen} onOpenChange={setIsBatchMarkPaidModalOpen}>
-        <DialogContent className="sm:max-w-md p-6">
-          <DialogHeader className="space-y-1">
-            <DialogTitle className="text-xl">Batch Mark Pending as Paid</DialogTitle>
-            <DialogDescription className="text-slate-500">
-              Process all pending payments in one step
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Mark All as Paid</DialogTitle>
+            <DialogDescription>
+              Marking {filteredPayments.filter(p => p.status === 'pending').length} pending payments as paid.
             </DialogDescription>
           </DialogHeader>
-          
-          <div className="space-y-6 py-2">
-            {/* Payment Summary Box */}
-            <div className="bg-blue-50/80 border border-blue-100 rounded-md p-4 space-y-2">
-               <div className="flex items-center gap-2 text-blue-800 font-medium">
-                 <div className="h-4 w-1 bg-blue-500 rounded-full"></div>
-                 <div className="h-3 w-1 bg-green-500 rounded-full"></div>
-                 Payment Summary
-               </div>
-               
-               {/* Check Count */}
-               <div className="flex items-center gap-2 text-blue-700 text-sm pl-1">
-                 <CheckCircle className="w-4 h-4 text-blue-600" />
-                 <span>
-                    {filteredPayments.filter(p => p.status === 'pending' && p.payment_method?.toLowerCase() === 'check').length} payment(s) with Check
-                 </span>
-               </div>
-               
-               <div className="pt-2 border-t border-blue-200/60 text-blue-900 font-bold">
-                 Total: {filteredPayments.filter(p => p.status === 'pending').length} payment(s)
-               </div>
+          <div className="space-y-4 py-2">
+            <div className="grid w-full items-center gap-1.5">
+              <Label htmlFor="batchPaidDate">Payment Date</Label>
+              <Input
+                type="date"
+                id="batchPaidDate"
+                value={batchPaidDate}
+                onChange={(e) => setBatchPaidDate(e.target.value)}
+              />
             </div>
-
-            {/* Starting Check Number Box - Only show if there are check payments */}
-            {filteredPayments.filter(p => p.status === 'pending' && p.payment_method?.toLowerCase() === 'check').length > 0 && (
-              <div className="bg-purple-50/50 border border-purple-100 rounded-md p-4 space-y-3">
-                <Label htmlFor="batchStartingCheckNumber" className="text-purple-900 font-medium">
-                  Starting Check Number (for {filteredPayments.filter(p => p.status === 'pending' && p.payment_method?.toLowerCase() === 'check').length} check payment(s))
-                </Label>
-                
+            
+            <div className="space-y-2 pt-2 border-t border-slate-100">
+               <Label className="text-base font-medium">Check Details (Optional)</Label>
+               <p className="text-xs text-slate-500">If using checks, enter the starting check number. Numbers will increment automatically.</p>
+               
+               <div className="grid w-full items-center gap-1.5">
+                <Label htmlFor="batchStartingCheckNumber">Starting Check #</Label>
                 <Input
                   type="number"
                   id="batchStartingCheckNumber"
-                  className="font-mono font-medium text-lg border-purple-200 focus:border-purple-400 focus:ring-purple-200"
+                  placeholder="e.g. 1001"
                   value={batchStartingCheckNumber}
                   onChange={(e) => setBatchStartingCheckNumber(e.target.value)}
                 />
-                
-                <div className="bg-white border border-purple-100 rounded p-2 text-sm text-slate-600">
-                  <span className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Check Numbers:</span>
-                  <span className="font-mono text-purple-700 font-medium">
-                    #{batchStartingCheckNumber || '...'}
-                    {parseInt(batchStartingCheckNumber) ? ` - #${parseInt(batchStartingCheckNumber) + filteredPayments.filter(p => p.status === 'pending' && p.payment_method?.toLowerCase() === 'check').length - 1}` : ''}
-                  </span>
-                </div>
-              </div>
-            )}
+               </div>
+            </div>
 
-            {/* Payment Date */}
-            <div className="space-y-2">
-              <Label htmlFor="batchPaidDate">Payment Date *</Label>
-              <div className="relative">
-                <Input
-                  type="date"
-                  id="batchPaidDate"
-                  className="pl-3"
-                  value={batchPaidDate}
-                  onChange={(e) => setBatchPaidDate(e.target.value)}
-                />
-              </div>
+            <div className="bg-blue-50 text-blue-800 p-3 rounded-md text-sm border border-blue-100">
+               Total to Pay: <strong>${filteredPayments.filter(p => p.status === 'pending').reduce((sum, p) => sum + (p.amount || 0), 0).toLocaleString()}</strong>
             </div>
 
           </div>
-          <DialogFooter className="gap-3 sm:gap-0 mt-2">
-            <Button variant="outline" onClick={() => setIsBatchMarkPaidModalOpen(false)} className="h-10 px-4">
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setIsBatchMarkPaidModalOpen(false)}>
               Cancel
             </Button>
-            <Button 
-              onClick={handleConfirmBatchMarkPaid} 
-              disabled={isSubmitting} 
-              className="bg-green-600 hover:bg-green-700 text-white h-10 px-6 font-medium"
-            >
-              {isSubmitting ? "Processing..." : `Mark ${filteredPayments.filter(p => p.status === 'pending').length} as Paid`}
+            <Button onClick={handleConfirmBatchMarkPaid} disabled={isSubmitting} className="bg-green-600 hover:bg-green-700">
+              {isSubmitting ? "Processing..." : "Confirm & Pay All"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -3738,8 +3735,13 @@ export default function Payments() {
                 </SelectTrigger>
                 <SelectContent>
                   {employees.map((emp) => (
-                    <SelectItem key={emp.id} value={emp.id}>
-                      {emp.name} ({emp.id})
+                    <SelectItem 
+                      key={emp.id} 
+                      value={emp.id} 
+                      className={emp.payment_status === 'laid_off' ? 'text-slate-400 italic' : ''}
+                      disabled={emp.payment_status === 'laid_off'}
+                    >
+                      {emp.name} ({emp.id}){emp.payment_status === 'laid_off' ? ' (Laid Off)' : ''}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -3836,7 +3838,7 @@ export default function Payments() {
                   <p className="p-3 text-sm text-slate-500">No employees found</p>
                 ) : (
                   employees.map((emp) => (
-                    <div key={emp.id} className="flex items-center justify-between p-3 hover:bg-slate-100 bg-white">
+                    <div key={emp.id} className={`flex items-center justify-between p-3 border-b border-slate-100 last:border-0 hover:bg-slate-50 ${emp.payment_status === 'laid_off' ? 'opacity-60 bg-slate-50' : 'bg-white'}`}>
                       <div className="flex items-center space-x-3">
                         <input
                           type="checkbox"
@@ -3851,10 +3853,12 @@ export default function Payments() {
                             }
                             setSelectedEmployeesForWeek(newSelected);
                           }}
-                          className="rounded w-4 h-4 border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                          disabled={emp.payment_status === 'laid_off'}
+                          className="rounded w-4 h-4 border-slate-300 text-indigo-600 focus:ring-indigo-500 disabled:opacity-50"
                         />
-                        <label htmlFor={`emp-${emp.id}`} className="text-sm font-medium text-slate-700 cursor-pointer select-none">
+                        <label htmlFor={`emp-${emp.id}`} className={`text-sm font-medium cursor-pointer select-none ${emp.payment_status === 'laid_off' ? 'text-slate-400 italic' : 'text-slate-700'}`}>
                           {emp.name} ({emp.id}) - ${(emp.weekly_rate || 0).toLocaleString()}
+                          {emp.payment_status === 'laid_off' && " (Laid Off)"}
                         </label>
                       </div>
                       <div className="flex items-center gap-2">
@@ -3935,7 +3939,9 @@ export default function Payments() {
                         </SelectTrigger>
                         <SelectContent>
                           {employees.map(e => (
-                             <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>
+                             <SelectItem key={e.id} value={e.id} className={e.payment_status === 'laid_off' ? 'text-slate-400 italic' : ''}>
+                               {e.name}{e.payment_status === 'laid_off' ? ' (Laid Off)' : ''}
+                             </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
