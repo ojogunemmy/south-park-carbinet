@@ -1153,11 +1153,11 @@ export default function Payments() {
 
   // Compute Yearly Stats for "All Payments" view
   const yearlyStats = useMemo(() => {
-    const stats: Record<string, { id: string, name: string, paid: number, pending: number, total: number, count: number }> = {};
+    const stats: Record<string, { id: string, name: string, weeklyRate: number, paid: number, pending: number, total: number, count: number }> = {};
     
     // Initialize with all active employees
     employees.forEach(e => {
-      stats[e.id] = { id: e.id, name: e.name, paid: 0, pending: 0, total: 0, count: 0 };
+      stats[e.id] = { id: e.id, name: e.name, weeklyRate: e.weekly_rate || 0, paid: 0, pending: 0, total: 0, count: 0 };
     });
 
     // Aggregate payments
@@ -2051,28 +2051,31 @@ export default function Payments() {
                 <thead className="border-b border-slate-200 bg-slate-50">
                   <tr>
                     <th className="text-left p-3 font-semibold text-slate-900">Employee</th>
-                    <th className="text-right p-3 font-semibold text-slate-900">Total Earned</th>
-                    <th className="text-right p-3 font-semibold text-slate-900">Paid</th>
-                    <th className="text-right p-3 font-semibold text-slate-900">Pending</th>
+                    <th className="text-right p-3 font-semibold text-slate-900">Weekly Rate</th>
                     <th className="text-center p-3 font-semibold text-slate-900">Payments</th>
+                    <th className="text-right p-3 font-semibold text-slate-900">Total Earned</th>
+                    {/* <th className="text-right p-3 font-semibold text-slate-900">Paid</th> */}
+                    {/* <th className="text-right p-3 font-semibold text-slate-900">Pending</th> */}
                   </tr>
                 </thead>
                 <tbody>
                   {yearlyStats.map(stat => (
                     <tr key={stat.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
                       <td className="p-3 text-slate-700 font-medium">{stat.name}</td>
-                      <td className="p-3 text-slate-700 text-right font-medium">${stat.total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                      <td className="p-3 text-green-600 text-right bg-green-50/50">${stat.paid.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                      <td className="p-3 text-orange-600 text-right bg-orange-50/50">${stat.pending.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      <td className="p-3 text-slate-700 text-right font-medium">${stat.weeklyRate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                       <td className="p-3 text-slate-700 text-center">{stat.count}</td>
+                      <td className="p-3 text-slate-700 text-right font-medium">${stat.total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      {/* <td className="p-3 text-green-600 text-right bg-green-50/50">${stat.paid.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td> */}
+                      {/* <td className="p-3 text-orange-600 text-right bg-orange-50/50">${stat.pending.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td> */}
                     </tr>
                   ))}
                   <tr className="bg-slate-100 font-bold border-t-2 border-slate-300">
                     <td className="p-3 text-slate-900">TOTAL</td>
-                    <td className="p-3 text-slate-900 text-right">${yearlyTotals.total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                    <td className="p-3 text-green-700 text-right">${yearlyTotals.paid.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                    <td className="p-3 text-orange-700 text-right">${yearlyTotals.pending.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td className="p-3 text-slate-900 text-right">-</td>
                     <td className="p-3 text-slate-900 text-center">{yearlyTotals.count}</td>
+                    <td className="p-3 text-slate-900 text-right">${yearlyTotals.total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    {/* <td className="p-3 text-green-700 text-right">${yearlyTotals.paid.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td> */}
+                    {/* <td className="p-3 text-orange-700 text-right">${yearlyTotals.pending.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td> */}
                   </tr>
                 </tbody>
               </table>
