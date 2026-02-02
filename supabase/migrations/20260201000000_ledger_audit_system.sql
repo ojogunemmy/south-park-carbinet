@@ -71,7 +71,7 @@ BEGIN
   INSERT INTO payments (
     id, employee_id, week_start_date, week_end_date,
     days_worked, weekly_rate, calculated_amount, final_amount, amount,
-    status, paid_date, payment_method, notes,
+    status, paid_date, due_date, payment_method, notes, reversal_reason,
     reverses_payment_id, is_correction, created_at
   ) VALUES (
     v_reversal_id,
@@ -85,8 +85,10 @@ BEGIN
     -v_original_payment.amount,
     'paid',
     CURRENT_DATE,
-    'reversal',
+    CURRENT_DATE,
+    v_original_payment.payment_method,
     'REVERSAL: ' || COALESCE(p_reason, 'No reason') || ' [Original: ' || p_original_payment_id || ']',
+    p_reason,
     p_original_payment_id,
     TRUE,
     NOW()
