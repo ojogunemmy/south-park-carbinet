@@ -233,17 +233,37 @@ export const paymentsService = {
     });
   },
 
+  // DEPRECATED: update() - Use reversePayment() instead
+  // Kept temporarily for backwards compatibility but will be removed
   async update(id: string, payment: Partial<Payment>) {
+    console.warn('⚠️ paymentsService.update() is deprecated - ledger entries should be immutable');
     return apiFetch<Payment>(`/payments/${id}`, {
       method: "PATCH",
       body: JSON.stringify(payment),
     });
   },
 
+  // DEPRECATED: delete() - Use reversePayment() instead
+  // Kept temporarily for backwards compatibility but will be removed
   async delete(id: string) {
+    console.warn('⚠️ paymentsService.delete() is deprecated - use reversal entries instead');
     return apiFetch<void>(`/payments/${id}`, {
       method: "DELETE",
     });
+  },
+
+  async reversePayment(id: string, reason: string, userId?: string) {
+    return apiFetch<{ message: string; reversalId: string; originalPaymentId: string }>(
+      `/payments/${id}/reverse`,
+      {
+        method: "POST",
+        body: JSON.stringify({ reason, user_id: userId }),
+      }
+    );
+  },
+
+  async getAuditTrail(id: string) {
+    return apiFetch<any[]>(`/payments/${id}/audit`);
   },
 };
 
