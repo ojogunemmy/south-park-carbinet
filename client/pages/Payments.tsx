@@ -2423,7 +2423,7 @@ export default function Payments() {
                               </button>
                           )}
 
-                          {payment.status === "paid" && (
+                          {payment.status === "paid" && !(payment as any).is_correction && !(payment as any).reversed_by_payment_id && (
                             <button
                               className="flex items-center gap-1 text-sm text-orange-600 hover:text-orange-800"
                               onClick={() => handleReversePayment(payment.id)}
@@ -2584,7 +2584,7 @@ export default function Payments() {
                         </Button>
                       )}
                       
-                      {payment.status === "paid" && (
+                      {payment.status === "paid" && !(payment as any).is_correction && !(payment as any).reversed_by_payment_id && (
                         <button
                           className="p-2 text-orange-600 hover:bg-orange-50 rounded-full ml-auto"
                           onClick={() => handleReversePayment(payment.id)}
