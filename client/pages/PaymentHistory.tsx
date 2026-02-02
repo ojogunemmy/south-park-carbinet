@@ -416,6 +416,38 @@ export default function PaymentHistory() {
         </Button>
       </div>
 
+      <Card className="border-slate-200 bg-gradient-to-r from-green-50 to-emerald-50">
+        <CardHeader>
+          <CardTitle className="text-green-900">Weekly Payments Summary</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="bg-white rounded-lg p-4 border border-slate-200">
+              <p className="text-sm text-slate-600 font-medium">Total Paid</p>
+              <p className="text-2xl font-bold text-green-600">
+                ${paymentRecords.reduce((sum, r) => sum + r.totalAmount, 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </p>
+            </div>
+            <div className="bg-white rounded-lg p-4 border border-slate-200">
+              <p className="text-sm text-slate-600 font-medium">Payment Batches</p>
+              <p className="text-2xl font-bold text-blue-600">{paymentRecords.length}</p>
+            </div>
+            <div className="bg-white rounded-lg p-4 border border-slate-200">
+              <p className="text-sm text-slate-600 font-medium">Employees Affected</p>
+              <p className="text-2xl font-bold text-purple-600">
+                {new Set(paymentRecords.flatMap(r => r.entries.map(e => e.employee_id))).size}
+              </p>
+            </div>
+            <div className="bg-white rounded-lg p-4 border border-slate-200">
+              <p className="text-sm text-slate-600 font-medium">Average Per Batch</p>
+              <p className="text-2xl font-bold text-orange-600">
+                ${paymentRecords.length > 0 ? (paymentRecords.reduce((sum, r) => sum + r.totalAmount, 0) / paymentRecords.length).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "0.00"}
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Filters Card */}
       <Card className="border-slate-200">
         <CardHeader>
@@ -480,38 +512,6 @@ export default function PaymentHistory() {
               </Button>
             </div>
           )}
-        </CardContent>
-      </Card>
-
-      <Card className="border-slate-200 bg-gradient-to-r from-green-50 to-emerald-50">
-        <CardHeader>
-          <CardTitle className="text-green-900">Weekly Payments Summary</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="bg-white rounded-lg p-4 border border-slate-200">
-              <p className="text-sm text-slate-600 font-medium">Total Paid</p>
-              <p className="text-2xl font-bold text-green-600">
-                ${paymentRecords.reduce((sum, r) => sum + r.totalAmount, 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </p>
-            </div>
-            <div className="bg-white rounded-lg p-4 border border-slate-200">
-              <p className="text-sm text-slate-600 font-medium">Payment Batches</p>
-              <p className="text-2xl font-bold text-blue-600">{paymentRecords.length}</p>
-            </div>
-            <div className="bg-white rounded-lg p-4 border border-slate-200">
-              <p className="text-sm text-slate-600 font-medium">Employees Affected</p>
-              <p className="text-2xl font-bold text-purple-600">
-                {new Set(paymentRecords.flatMap(r => r.entries.map(e => e.employee_id))).size}
-              </p>
-            </div>
-            <div className="bg-white rounded-lg p-4 border border-slate-200">
-              <p className="text-sm text-slate-600 font-medium">Average Per Batch</p>
-              <p className="text-2xl font-bold text-orange-600">
-                ${paymentRecords.length > 0 ? (paymentRecords.reduce((sum, r) => sum + r.totalAmount, 0) / paymentRecords.length).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "0.00"}
-              </p>
-            </div>
-          </div>
         </CardContent>
       </Card>
 
