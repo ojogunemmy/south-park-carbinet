@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Download, Calendar, FolderOpen, RefreshCw, Save, Archive, Trash2, Printer, Edit2 } from "lucide-react";
+import { Download, Calendar, FolderOpen, RefreshCw, Save, Archive, Trash2, Printer, Edit2, AlertCircle, RotateCcw } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useYear } from "@/contexts/YearContext";
 import { getYearData, saveYearData } from "@/utils/yearStorage";
@@ -8,6 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Toaster } from "sonner";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { paymentsService, type Payment } from "@/lib/supabase-service";
 import {
   Select,
   SelectContent,
@@ -35,29 +36,21 @@ import {
 import jsPDF from "jspdf";
 import JSZip from "jszip";
 
-interface PaymentObligation {
-  id: string;
-  employeeId: string;
-  employeeName: string;
-  employeePosition: string;
-  amount: number;
-  weekStartDate: string;
-  weekEndDate: string;
-  dueDate: string;
-  status: "pending" | "paid" | "canceled";
-  paymentMethod: string;
-  paidDate?: string;
-  paidCheckNumber?: string;
-  paidBankName?: string;
-  daysWorked?: number;
-  reason?: string;
+interface PaymentLedgerEntry extends Payment {
+  employee_name?: string;
+  employee_position?: string;
+  is_reversal?: boolean;
+  is_correction?: boolean;
+  reversal_reason?: string | null;
+  reverses_payment_id?: string | null;
+  reversed_by_payment_id?: string | null;
 }
 
 interface PaymentRecord {
   weekStartDate: string;
   weekEndDate: string;
   paidDate: string;
-  employees: PaymentObligation[];
+  entries: PaymentLedgerEntry[];
   totalAmount: number;
   reasons: string[]; // Store all reasons for this payment batch
 }
@@ -83,97 +76,50 @@ export default function PaymentHistory() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [savedArchives, setSavedArchives] = useState<PaymentHistoryArchive[]>([]);
   const [showArchives, setShowArchives] = useState(false);
-  const [editingRecord, setEditingRecord] = useState<PaymentRecord | null>(null);
-  const [editAmount, setEditAmount] = useState<string>("");
-  const [editPaidDate, setEditPaidDate] = useState<string>("");
-  const [recordToDelete, setRecordToDelete] = useState<PaymentRecord | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Function to reload payment records from localStorage
-  const reloadPaymentRecords = (showToast: boolean = false) => {
-    const payments = getYearData<PaymentObligation[]>("payments", selectedYear, []) || [];
-    const paidPayments = payments.filter(p => p.status === "paid");
-
-    if (showToast && paidPayments.length > lastPaymentCount) {
-      toast({
-        title: "✓ Payment History Updated",
-        description: `${paidPayments.length - lastPaymentCount} new payment(s) added`,
-      });
-    }
-
-    setLastPaymentCount(paidPayments.length);
-  };
-
-  // Handle edit payment record
-  const handleEditRecord = (record: PaymentRecord) => {
-    setEditingRecord(record);
-    setEditAmount(record.totalAmount.toString());
-    setEditPaidDate(record.paidDate);
-  };
-
-  // Save edited record
-  const handleSaveEdit = () => {
-    if (!editingRecord) return;
-
-    const payments = getYearData<PaymentObligation[]>("payments", selectedYear, []) || [];
-    const amountDifference = parseFloat(editAmount) - editingRecord.totalAmount;
-    const oldPaidDate = editingRecord.paidDate;
-
-    // Update all employees in this record with new paid date and adjust amounts proportionally
-    const updatedPayments = payments.map(p => {
-      if (
-        p.status === "paid" &&
-        p.weekStartDate === editingRecord.weekStartDate &&
-        p.paidDate === oldPaidDate
-      ) {
-        return {
+  // Function to reload payment records from Supabase
+  const reloadPaymentRecords = async (showToast: boolean = false) => {
+    try {
+      setIsLoading(true);
+      const allPayments = await paymentsService.getAll();
+      
+      // Filter payments for selected year and include both paid and reversed entries
+      const yearPayments = (allPayments || [])
+        .filter((p: any) => {
+          const date = new Date(p.week_start_date);
+          return date.getFullYear() === selectedYear && 
+                 (p.status === "paid" || p.is_correction); // Include paid payments and reversal entries
+        })
+        .map((p: any) => ({
           ...p,
-          paidDate: editPaidDate,
-          amount: p.amount + (amountDifference * (p.amount / editingRecord.totalAmount)),
-        };
+          employee_name: p.employees?.name || p.employee_name || "Unknown Employee",
+          employee_position: p.employees?.position || p.employee_position,
+        })) as PaymentLedgerEntry[];
+
+      if (showToast && yearPayments.length > lastPaymentCount) {
+        toast({
+          title: "✓ Payment History Updated",
+          description: `${yearPayments.length - lastPaymentCount} new entry/entries added`,
+        });
       }
-      return p;
-    });
 
-    saveYearData("payments", selectedYear, updatedPayments);
-    setEditingRecord(null);
-    toast({
-      title: "✓ Payment Updated",
-      description: "Payment record has been updated successfully",
-    });
+      setLastPaymentCount(yearPayments.length);
+      return yearPayments;
+    } catch (error) {
+      console.error("Error loading payment records:", error);
+      toast({
+        title: "✗ Error Loading Payment History",
+        description: "Failed to load payment records from database",
+        variant: "destructive",
+      });
+      return [];
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  // Handle delete payment record
-  const handleDeleteRecord = (record: PaymentRecord) => {
-    setRecordToDelete(record);
-  };
-
-  // Confirm delete
-  const confirmDelete = () => {
-    if (!recordToDelete) return;
-
-    const payments = getYearData<PaymentObligation[]>("payments", selectedYear, []) || [];
-
-    // Remove all payments in this record
-    const updatedPayments = payments.filter(p => {
-      if (
-        p.status === "paid" &&
-        p.weekStartDate === recordToDelete.weekStartDate &&
-        p.paidDate === recordToDelete.paidDate
-      ) {
-        return false;
-      }
-      return true;
-    });
-
-    saveYearData("payments", selectedYear, updatedPayments);
-    setRecordToDelete(null);
-    toast({
-      title: "✓ Payment Deleted",
-      description: "Payment record has been removed",
-    });
-  };
-
-  // Load employees
+  // Load employees from localStorage for filter dropdown
   useEffect(() => {
     const emps = getYearData<Array<{ id: string; name: string }>>("employees", selectedYear, []) || [];
     setEmployees(emps);
@@ -233,100 +179,95 @@ export default function PaymentHistory() {
   };
 
   useEffect(() => {
-    const loadAndRefreshPaymentRecords = () => {
-      // Get all payments for this year
-      const payments = getYearData<PaymentObligation[]>("payments", selectedYear, []) || [];
-
-      // Filter only paid payments
-      let paidPayments = payments.filter(p => p.status === "paid");
+    const loadAndRefreshPaymentRecords = async () => {
+      // Get all payments for this year from Supabase
+      const yearPayments = await reloadPaymentRecords();
 
       // Apply employee filter
+      let filteredPayments = yearPayments;
       if (filterEmployee !== "all") {
-        paidPayments = paidPayments.filter(p => p.employeeId === filterEmployee);
+        filteredPayments = yearPayments.filter(p => p.employee_id === filterEmployee);
       }
 
       // Apply date range filter
       if (filterFromDate) {
-        paidPayments = paidPayments.filter(p => {
-          const paidDate = p.paidDate || p.weekStartDate;
+        filteredPayments = filteredPayments.filter(p => {
+          const paidDate = p.paid_date || p.week_start_date;
           return new Date(paidDate) >= new Date(filterFromDate);
         });
       }
 
       if (filterToDate) {
-        paidPayments = paidPayments.filter(p => {
-          const paidDate = p.paidDate || p.weekStartDate;
+        filteredPayments = filteredPayments.filter(p => {
+          const paidDate = p.paid_date || p.week_start_date;
           return new Date(paidDate) <= new Date(filterToDate);
         });
       }
 
-      // Group by week and paid date
+      // Group by week and paid date, but keep reversal entries separate
       const recordsMap = new Map<string, PaymentRecord>();
 
-      paidPayments.forEach(payment => {
-        const key = `${payment.weekStartDate}_${payment.paidDate || payment.weekStartDate}`;
+      filteredPayments.forEach(payment => {
+        const paidDate = payment.paid_date || payment.week_start_date || new Date().toISOString();
+        const weekStart = payment.week_start_date || paidDate;
+        const weekEnd = payment.week_end_date || paidDate;
+        
+        // Create unique key for grouping - include payment ID for reversals to keep them separate
+        const key = payment.is_correction 
+          ? `reversal_${payment.id}` 
+          : `${weekStart}_${paidDate}`;
 
         if (!recordsMap.has(key)) {
           recordsMap.set(key, {
-            weekStartDate: payment.weekStartDate,
-            weekEndDate: payment.weekEndDate,
-            paidDate: payment.paidDate || payment.weekStartDate,
-            employees: [],
+            weekStartDate: weekStart,
+            weekEndDate: weekEnd,
+            paidDate: paidDate,
+            entries: [],
             totalAmount: 0,
             reasons: [],
           });
         }
 
         const record = recordsMap.get(key)!;
-        record.employees.push(payment);
+        record.entries.push(payment);
         record.totalAmount += payment.amount || 0;
 
         // Collect unique reasons
-        if (payment.reason && !record.reasons.includes(payment.reason)) {
-          record.reasons.push(payment.reason);
+        const reason = payment.reversal_reason || payment.severance_reason || payment.notes;
+        if (reason && !record.reasons.includes(reason)) {
+          record.reasons.push(reason);
         }
       });
 
-      // Convert to array and sort by paid date (newest first)
-      const records = Array.from(recordsMap.values()).sort((a, b) =>
-        new Date(b.paidDate).getTime() - new Date(a.paidDate).getTime()
-      );
+      // Convert to array and sort by paid date (newest first), then by created_at
+      const records = Array.from(recordsMap.values()).sort((a, b) => {
+        const dateCompare = new Date(b.paidDate).getTime() - new Date(a.paidDate).getTime();
+        if (dateCompare !== 0) return dateCompare;
+        
+        // If same paid date, sort by creation time
+        const aCreated = a.entries[0]?.created_at || a.paidDate;
+        const bCreated = b.entries[0]?.created_at || b.paidDate;
+        return new Date(bCreated).getTime() - new Date(aCreated).getTime();
+      });
 
       setPaymentRecords(records);
-      setLastPaymentCount(paidPayments.length);
     };
 
     // Load initial records
     loadAndRefreshPaymentRecords();
 
-    // Set up listeners for auto-refresh
-    const handleStorageChange = () => {
-      console.log("📥 Payment history: localStorage changed - auto-refreshing");
-      loadAndRefreshPaymentRecords();
-    };
-
+    // Set up listeners for updates from Payments page
     const handlePaymentUpdate = () => {
-      console.log("🔄 Payment history: Payment update detected - auto-refreshing");
+      console.log("🔄 Payment history: Payment update detected - refreshing");
       loadAndRefreshPaymentRecords();
     };
-
-    // Listen for storage changes (from other tabs/windows)
-    window.addEventListener("storage", handleStorageChange);
 
     // Listen for custom events (from same tab - Payments page)
     window.addEventListener("paymentsUpdated", handlePaymentUpdate);
 
-    // Set up auto-refresh interval (every 2 seconds)
-    const refreshInterval = setInterval(() => {
-      loadAndRefreshPaymentRecords();
-    }, 2000);
-
     // Cleanup
     return () => {
-      console.log("🧹 Payment history: Cleaning up listeners");
-      window.removeEventListener("storage", handleStorageChange);
       window.removeEventListener("paymentsUpdated", handlePaymentUpdate);
-      clearInterval(refreshInterval);
     };
   }, [selectedYear, filterEmployee, filterFromDate, filterToDate]);
 
@@ -370,25 +311,26 @@ export default function PaymentHistory() {
     doc.setFont(undefined, 'normal');
     doc.setFontSize(8);
 
-    record.employees.forEach((employee) => {
+    record.entries.forEach((entry) => {
       if (y > 250) {
         doc.addPage();
         y = 15;
       }
 
-      doc.text(employee.employeeName.substring(0, 18), 15, y);
-      doc.text(employee.employeePosition.substring(0, 12), 50, y);
+      doc.text((entry.employee_name || 'Unknown').substring(0, 18), 15, y);
+      doc.text((entry.employee_position || '').substring(0, 12), 50, y);
       doc.text(
-        `$${(employee.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+        `$${(entry.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
         85,
         y
       );
-      doc.text(employee.reason ? employee.reason.substring(0, 12) : 'Regular', 110, y);
+      const reason = entry.reversal_reason || entry.severance_reason || entry.notes;
+      doc.text(reason ? reason.substring(0, 12) : (entry.is_correction ? 'Reversal' : 'Regular'), 110, y);
 
       // Combine payment method with check number
-      let methodDisplay = employee.paymentMethod?.substring(0, 20) || 'Unknown';
-      if (employee.paymentMethod === 'check' && employee.paidCheckNumber) {
-        methodDisplay = `Check #${employee.paidCheckNumber}`;
+      let methodDisplay = entry.payment_method?.substring(0, 20) || 'Unknown';
+      if (entry.payment_method === 'check' && entry.check_number) {
+        methodDisplay = `Check #${entry.check_number}`;
       }
       doc.text(methodDisplay, 140, y);
       y += 4;
@@ -465,6 +407,13 @@ export default function PaymentHistory() {
 
   return (
     <div className="space-y-6">
+      {isLoading && (
+        <div className="fixed top-4 right-4 bg-blue-500 text-white px-4 py-2 rounded-lg shadow-lg z-50 flex items-center gap-2">
+          <RefreshCw className="w-4 h-4 animate-spin" />
+          <span>Loading payment history...</span>
+        </div>
+      )}
+      
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 md:text-4xl">Payment Ledger</h1>
@@ -497,9 +446,9 @@ export default function PaymentHistory() {
               <p className="text-2xl font-bold text-blue-600">{paymentRecords.length}</p>
             </div>
             <div className="bg-white rounded-lg p-4 border border-slate-200">
-              <p className="text-sm text-slate-600 font-medium">Employees Paid</p>
+              <p className="text-sm text-slate-600 font-medium">Employees Affected</p>
               <p className="text-2xl font-bold text-purple-600">
-                {new Set(paymentRecords.flatMap(r => r.employees.map(e => e.employeeId))).size}
+                {new Set(paymentRecords.flatMap(r => r.entries.map(e => e.employee_id))).size}
               </p>
             </div>
             <div className="bg-white rounded-lg p-4 border border-slate-200">
@@ -586,11 +535,9 @@ export default function PaymentHistory() {
                   </Button>
                 )}
                 <Button
-                  onClick={() => {
+                  onClick={async () => {
                     setIsRefreshing(true);
-                    const payments = getYearData<PaymentObligation[]>("payments", selectedYear, []) || [];
-                    const paidPayments = payments.filter(p => p.status === "paid");
-                    setLastPaymentCount(paidPayments.length);
+                    await reloadPaymentRecords(true);
                     setTimeout(() => setIsRefreshing(false), 500);
                   }}
                   variant="outline"
@@ -629,16 +576,19 @@ export default function PaymentHistory() {
                 </thead>
                 <tbody>
                   {paymentRecords.map((record) => {
+                    // Check if this is a reversal entry
+                    const isReversal = record.entries.some(e => e.is_correction);
+                    
                     // Get unique payment methods and their check numbers
                     const paymentMethodsData = (() => {
                       const methods = new Map<string, string[]>();
-                      record.employees.forEach(emp => {
-                        const method = emp.paymentMethod || 'Unknown';
+                      record.entries.forEach(entry => {
+                        const method = entry.payment_method || 'Unknown';
                         if (!methods.has(method)) {
                           methods.set(method, []);
                         }
-                        if (emp.paidCheckNumber && method === 'check') {
-                          methods.get(method)!.push(`#${emp.paidCheckNumber}`);
+                        if (entry.check_number && method === 'check') {
+                          methods.get(method)!.push(`#${entry.check_number}`);
                         }
                       });
                       return Array.from(methods.entries()).map(([method, checks]) => {
@@ -650,10 +600,13 @@ export default function PaymentHistory() {
                     })();
 
                     return (
-                    <tr key={`${record.weekStartDate}_${record.paidDate}`} className="border-b border-slate-100 hover:bg-slate-50">
-                      <td className="p-3 whitespace-nowrap">{formatDateRange(record.weekStartDate, record.weekEndDate)}</td>
+                    <tr key={`${record.weekStartDate}_${record.paidDate}_${record.entries[0]?.id}`} className={`border-b border-slate-100 hover:bg-slate-50 ${isReversal ? 'bg-orange-50' : ''}`}>
+                      <td className="p-3 whitespace-nowrap">
+                        {isReversal && <RotateCcw className="w-4 h-4 text-orange-600 inline-block mr-2" />}
+                        {formatDateRange(record.weekStartDate, record.weekEndDate)}
+                      </td>
                       <td className="p-3">{new Date(record.paidDate).toLocaleDateString('en-US')}</td>
-                      <td className="p-3 font-medium">{record.employees.length}</td>
+                      <td className="p-3 font-medium">{record.entries.length}</td>
                       <td className="p-3 text-sm">
                         <div className="space-y-1">
                           {paymentMethodsData.map((method, idx) => (
@@ -664,54 +617,37 @@ export default function PaymentHistory() {
                         </div>
                       </td>
                       <td className="p-3 text-sm">
-                        {record.reasons.length > 0 ? (
-                          <div className="space-y-1">
-                            {record.reasons.map((reason, idx) => (
-                              <span key={idx} className="bg-blue-50 text-blue-700 px-2 py-1 rounded block text-xs whitespace-nowrap">
-                                {reason}
-                              </span>
-                            ))}
-                          </div>
-                        ) : (
-                          <span className="text-slate-400 text-xs">Regular Payment</span>
-                        )}
+                        <div className="space-y-1 max-h-24 overflow-y-auto">
+                          {record.entries.map((entry, idx) => {
+                            const entryReason = entry.reversal_reason || entry.severance_reason || entry.notes;
+                            const entryIsReversal = entry.is_correction;
+                            return entryReason ? (
+                              <div key={idx} className="flex items-start gap-1">
+                                <span className={`px-2 py-1 rounded text-xs flex-1 ${entryIsReversal ? 'bg-orange-100 text-orange-800' : 'bg-blue-50 text-blue-700'}`}>
+                                  {entryIsReversal && '🔄 '}{entryReason}
+                                </span>
+                              </div>
+                            ) : null;
+                          })}
+                          {!record.entries.some(e => e.reversal_reason || e.severance_reason || e.notes) && (
+                            <span className="text-slate-400 text-xs">{isReversal ? 'Reversal Entry' : 'Regular Payment'}</span>
+                          )}
+                        </div>
                       </td>
-                      <td className="p-3 font-semibold text-green-600">
+                      <td className={`p-3 font-semibold ${isReversal ? 'text-orange-600' : 'text-green-600'}`}>
                         ${record.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                       <td className="p-3">
-                        <div className="flex gap-2">
-                          <Button
-                            onClick={() => downloadPaymentReport(record)}
-                            variant="outline"
-                            size="sm"
-                            className="gap-2"
-                            title="Download payment report"
-                          >
-                            <Download className="w-4 h-4" />
-                            Download
-                          </Button>
-                          <Button
-                            onClick={() => handleEditRecord(record)}
-                            variant="outline"
-                            size="sm"
-                            className="gap-2"
-                            title="Edit payment record"
-                          >
-                            <Edit2 className="w-4 h-4" />
-                            Edit
-                          </Button>
-                          <Button
-                            onClick={() => handleDeleteRecord(record)}
-                            variant="outline"
-                            size="sm"
-                            className="gap-2 text-red-600 hover:bg-red-50"
-                            title="Delete payment record"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                            Delete
-                          </Button>
-                        </div>
+                        <Button
+                          onClick={() => downloadPaymentReport(record)}
+                          variant="outline"
+                          size="sm"
+                          className="gap-2"
+                          title="Download payment report"
+                        >
+                          <Download className="w-4 h-4" />
+                          Report
+                        </Button>
                       </td>
                     </tr>
                     );
@@ -723,16 +659,19 @@ export default function PaymentHistory() {
             {/* Mobile Card View */}
             <div className="md:hidden space-y-4">
               {paymentRecords.map((record) => {
-                 // Get unique payment methods and their check numbers
-                 const paymentMethodsData = (() => {
+                // Check if this is a reversal entry
+                const isReversal = record.entries.some(e => e.is_correction);
+                
+                // Get unique payment methods and their check numbers
+                const paymentMethodsData = (() => {
                   const methods = new Map<string, string[]>();
-                  record.employees.forEach(emp => {
-                    const method = emp.paymentMethod || 'Unknown';
+                  record.entries.forEach(entry => {
+                    const method = entry.payment_method || 'Unknown';
                     if (!methods.has(method)) {
                       methods.set(method, []);
                     }
-                    if (emp.paidCheckNumber && method === 'check') {
-                      methods.get(method)!.push(`#${emp.paidCheckNumber}`);
+                    if (entry.check_number && method === 'check') {
+                      methods.get(method)!.push(`#${entry.check_number}`);
                     }
                   });
                   return Array.from(methods.entries()).map(([method, checks]) => {
@@ -744,14 +683,17 @@ export default function PaymentHistory() {
                 })();
 
                 return (
-                  <div key={`${record.weekStartDate}_${record.paidDate}`} className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
-                    <div className="p-4 border-b border-slate-100 flex justify-between items-start">
+                  <div key={`${record.weekStartDate}_${record.paidDate}_${record.entries[0]?.id}`} className={`bg-white rounded-lg border shadow-sm overflow-hidden ${isReversal ? 'border-orange-300 bg-orange-50' : 'border-slate-200'}`}>
+                    <div className={`p-4 border-b flex justify-between items-start ${isReversal ? 'border-orange-200' : 'border-slate-100'}`}>
                       <div>
-                        <p className="font-semibold text-slate-900">Payment Batch</p>
+                        <div className="flex items-center gap-2 mb-1">
+                          {isReversal && <RotateCcw className="w-4 h-4 text-orange-600" />}
+                          <p className="font-semibold text-slate-900">{isReversal ? 'Reversal Entry' : 'Payment Batch'}</p>
+                        </div>
                         <p className="text-xs text-slate-500">{formatDateRange(record.weekStartDate, record.weekEndDate)}</p>
                       </div>
                       <div className="text-right">
-                         <span className="block font-bold text-green-600">
+                         <span className={`block font-bold ${isReversal ? 'text-orange-600' : 'text-green-600'}`}>
                           ${record.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                          </span>
                          <span className="text-xs text-slate-500">{new Date(record.paidDate).toLocaleDateString('en-US')}</span>
@@ -761,22 +703,25 @@ export default function PaymentHistory() {
                     <div className="p-4 space-y-3">
                       <div className="grid grid-cols-2 gap-2 text-xs text-slate-600">
                         <div>
-                          <span className="block text-slate-400">Employees Paid</span>
-                          <span className="font-medium text-slate-900">{record.employees.length}</span>
+                          <span className="block text-slate-400">Employees {isReversal ? 'Affected' : 'Paid'}</span>
+                          <span className="font-medium text-slate-900">{record.entries.length}</span>
                         </div>
                         <div>
                            <span className="block text-slate-400">Reason</span>
-                           {record.reasons.length > 0 ? (
-                             <div className="space-y-1 mt-1">
-                               {record.reasons.map((reason, idx) => (
-                                 <span key={idx} className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded block text-xs w-fit">
-                                   {reason}
+                           <div className="space-y-1 mt-1 max-h-20 overflow-y-auto">
+                             {record.entries.map((entry, idx) => {
+                               const entryReason = entry.reversal_reason || entry.severance_reason || entry.notes;
+                               const entryIsReversal = entry.is_correction;
+                               return entryReason ? (
+                                 <span key={idx} className={`px-2 py-0.5 rounded block text-xs ${entryIsReversal ? 'bg-orange-100 text-orange-800' : 'bg-blue-50 text-blue-700'}`}>
+                                   {entryIsReversal && '🔄 '}{entryReason}
                                  </span>
-                               ))}
-                             </div>
-                           ) : (
-                             <span>Regular</span>
-                           )}
+                               ) : null;
+                             })}
+                             {!record.entries.some(e => e.reversal_reason || e.severance_reason || e.notes) && (
+                               <span className="text-xs">{isReversal ? 'Reversal' : 'Regular'}</span>
+                             )}
+                           </div>
                         </div>
                       </div>
 
@@ -796,23 +741,9 @@ export default function PaymentHistory() {
                       <button
                         className="p-2 text-slate-600 hover:bg-slate-200 rounded-full"
                         onClick={() => downloadPaymentReport(record)}
-                        title="Download"
+                        title="Download Report"
                       >
                         <Download className="w-4 h-4" />
-                      </button>
-                      <button
-                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-full"
-                        onClick={() => handleEditRecord(record)}
-                        title="Edit"
-                      >
-                       <Edit2 className="w-4 h-4" />
-                      </button>
-                      <button
-                        className="p-2 text-red-600 hover:bg-red-50 rounded-full"
-                        onClick={() => handleDeleteRecord(record)}
-                        title="Delete"
-                      >
-                        <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
                   </div>
@@ -823,91 +754,15 @@ export default function PaymentHistory() {
         </Card>
       )}
 
-      {/* Edit Payment Dialog */}
-      <Dialog open={!!editingRecord} onOpenChange={(open) => !open && setEditingRecord(null)}>
-        <DialogContent className="sm:max-w-[400px]">
-          <DialogHeader>
-            <DialogTitle>Edit Payment Record</DialogTitle>
-            <DialogDescription>
-              Update the payment details for the week of {editingRecord && formatDateRange(editingRecord.weekStartDate, editingRecord.weekEndDate)}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label htmlFor="edit-paid-date" className="text-slate-700 font-medium">Payment Date</Label>
-              <Input
-                id="edit-paid-date"
-                type="date"
-                value={editPaidDate}
-                onChange={(e) => setEditPaidDate(e.target.value)}
-                className="border-slate-300 mt-2"
-              />
-            </div>
-            <div>
-              <Label htmlFor="edit-amount" className="text-slate-700 font-medium">Total Amount</Label>
-              <div className="flex items-center gap-2 mt-2">
-                <span className="text-slate-600">$</span>
-                <Input
-                  id="edit-amount"
-                  type="number"
-                  step="0.01"
-                  value={editAmount}
-                  onChange={(e) => setEditAmount(e.target.value)}
-                  className="border-slate-300"
-                />
-              </div>
-            </div>
-            {editingRecord && (
-              <div className="bg-slate-50 p-3 rounded border border-slate-200">
-                <p className="text-sm text-slate-600">
-                  <span className="font-medium">Employees in this batch:</span> {editingRecord.employees.length}
-                </p>
-              </div>
-            )}
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setEditingRecord(null)}
-              className="border-slate-300"
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleSaveEdit}
-              className="bg-blue-600 hover:bg-blue-700"
-            >
-              Save Changes
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete Confirmation Dialog */}
-      <AlertDialog open={!!recordToDelete} onOpenChange={(open) => !open && setRecordToDelete(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Payment Record</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete this payment record for {recordToDelete && formatDateRange(recordToDelete.weekStartDate, recordToDelete.weekEndDate)}?
-              <br />
-              <span className="font-semibold text-slate-900 block mt-2">
-                This will remove payment for {recordToDelete?.employees.length} employee(s) totaling ${recordToDelete?.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.
-              </span>
-              This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="flex gap-2 justify-end">
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={confirmDelete}
-              className="bg-red-600 hover:bg-red-700"
-            >
-              Delete
-            </AlertDialogAction>
-          </div>
-        </AlertDialogContent>
-      </AlertDialog>
+      {/* Immutable Ledger Notice */}
+      <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <h3 className="font-semibold text-blue-900 mb-2">📋 Immutable Payment Ledger</h3>
+        <p className="text-sm text-blue-800">
+          Payment records cannot be edited or deleted to maintain audit integrity.
+          If you need to correct a payment error, go to the <strong>Payments</strong> page
+          and create a <strong>reversal entry</strong> with a reason.
+        </p>
+      </div>
 
       <Toaster />
     </div>

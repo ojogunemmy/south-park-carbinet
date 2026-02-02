@@ -545,7 +545,8 @@ export default function Payments() {
   const [selectedCheckPaymentId, setSelectedCheckPaymentId] = useState<string | null>(null);
   const [isAllMarkedAsPaid, setIsAllMarkedAsPaid] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
-  const [selectedDeletePaymentId, setSelectedDeletePaymentId] = useState<string | null>(null);
+  const [selectedReversalPaymentId, setSelectedReversalPaymentId] = useState<string | null>(null);
+  const [reversalReason, setReversalReason] = useState<string>("");
   const [isCheckAttachmentModalOpen, setIsCheckAttachmentModalOpen] = useState(false);
   const [selectedPaymentForAttachment, setSelectedPaymentForAttachment] = useState<string | null>(null);
   const [isViewCheckAttachmentOpen, setIsViewCheckAttachmentOpen] = useState(false);
@@ -1087,37 +1088,46 @@ export default function Payments() {
     setIsCheckPrintModalOpen(true);
   };
 
-  const handleRemovePayment = (paymentId: string) => {
-    setSelectedDeletePaymentId(paymentId);
+  const handleReversePayment = (paymentId: string) => {
+    setSelectedReversalPaymentId(paymentId);
+    setReversalReason("");
     setIsDeleteConfirmOpen(true);
   };
 
   const [isClearAllConfirmOpen, setIsClearAllConfirmOpen] = useState(false);
 
-  const handleConfirmRemovePayment = async () => {
-    if (!selectedDeletePaymentId) return;
+  const handleConfirmReversePayment = async () => {
+    if (!selectedReversalPaymentId || !reversalReason.trim()) {
+      toast({
+        title: "Reversal Reason Required",
+        description: "Please provide a reason for reversing this payment.",
+        variant: "destructive",
+      });
+      return;
+    }
 
-    const paymentToRemove = payments.find(p => p.id === selectedDeletePaymentId);
+    const paymentToReverse = payments.find(p => p.id === selectedReversalPaymentId);
 
-    if (paymentToRemove) {
+    if (paymentToReverse) {
       try {
-        await paymentsService.delete(selectedDeletePaymentId);
+        await paymentsService.reversePayment(selectedReversalPaymentId, reversalReason);
         await loadFreshData();
         toast({
-          title: "Payment Removed",
-          description: `Payment for ${paymentToRemove.employee_name} (${new Date(paymentToRemove.week_start_date).toLocaleDateString()}) has been removed.`,
+          title: "Payment Reversed",
+          description: `Reversal entry created for ${paymentToReverse.employee_name}'s payment.`,
         });
-      } catch (error) {
-        console.error("Error deleting payment:", error);
+        setReversalReason("");
+      } catch (error: any) {
+        console.error("Error reversing payment:", error);
         toast({
           title: "Error",
-          description: "Failed to remove payment.",
+          description: error.message || "Failed to reverse payment.",
           variant: "destructive",
         });
       }
     }
     setIsDeleteConfirmOpen(false);
-    setSelectedDeletePaymentId(null);
+    setSelectedReversalPaymentId(null);
   };
 
   // Find the earliest pending payment date (coming week to pay)
@@ -1317,72 +1327,9 @@ export default function Payments() {
     }
   };
 
-  const handleMarkAllAsUnpaid = async () => {
-    // Only target paid payments currently displayed/filtered
-    const paidPaymentsToUnpay = filteredPayments.filter(p => p.status === "paid");
-
-    if (paidPaymentsToUnpay.length === 0) {
-      toast({ description: "No paid payments to mark as unpaid in current view." });
-      return;
-    }
-
-    if (window.confirm(`Are you sure you want to mark ${paidPaymentsToUnpay.length} paid payments as UNPAID (pending)?`)) {
-      try {
-        await Promise.all(paidPaymentsToUnpay.map(p => 
-          paymentsService.update(p.id, { status: "pending", paid_date: null, check_number: null })
-        ));
-        await loadFreshData();
-        toast({
-          title: "Marked as Unpaid",
-          description: `Successfully marked ${paidPaymentsToUnpay.length} payments as pending.`,
-        });
-      } catch (error) {
-         console.error("Error marking as unpaid:", error);
-         toast({
-          title: "Error",
-          description: "Failed to mark payments as unpaid.",
-          variant: "destructive"
-         });
-      }
-    }
-  };
-  
-  const handleDeleteAllPending = async () => {
-    // Target all payments in the current view (week)
-    const paymentsToDelete = filteredPayments;
-    
-    if (paymentsToDelete.length === 0) {
-      toast({ description: "No payments to delete in current view." });
-      return;
-    }
-    
-    setIsClearAllConfirmOpen(true);
-  };
-
-  const handleConfirmClearAll = async () => {
-    const paymentsToDelete = filteredPayments;
-    if (paymentsToDelete.length === 0) return;
-
-    try {
-      setIsSubmitting(true);
-      await Promise.all(paymentsToDelete.map(p => paymentsService.delete(p.id)));
-      await loadFreshData();
-      toast({
-        title: "Cleared Week",
-        description: `Successfully deleted ${paymentsToDelete.length} payments.`,
-      });
-      setIsClearAllConfirmOpen(false);
-    } catch (error) {
-       console.error("Error deleting payments:", error);
-       toast({
-        title: "Error",
-        description: "Failed to clear payments.",
-        variant: "destructive"
-       });
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+  // REMOVED: handleMarkAllAsUnpaid() - violates ledger immutability
+  // REMOVED: handleDeleteAllPending() - use reversals instead
+  // REMOVED: handleConfirmClearAll() - payments are append-only
 
   const isOverdue = (due_date: string) => {
     return new Date(due_date) < new Date() && new Date().toDateString() !== new Date(due_date).toDateString();
@@ -2149,22 +2096,6 @@ export default function Payments() {
                 >
                    ✓ Paid
                 </Button>
-                <Button
-                  variant="outline"
-                  onClick={handleMarkAllAsUnpaid}
-                  className="gap-2 border-slate-200 hover:bg-orange-50 hover:text-orange-700 hover:border-orange-200"
-                  title="Mark all visible paid payments as UNPAID"
-                >
-                   ✗ Unpaid
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={handleDeleteAllPending}
-                  className="gap-2 border-slate-200 text-red-600 hover:text-red-700 hover:bg-red-50"
-                  disabled={filteredPayments.length === 0}
-                >
-                  🗑 Clear Week
-                </Button>
               </div>
 
               {/*
@@ -2408,14 +2339,16 @@ export default function Payments() {
                               </button>
                           )}
 
-                          <button
-                            className="flex items-center gap-1 text-sm text-red-600 hover:text-red-800"
-                            onClick={() => handleRemovePayment(payment.id)}
-                            title="Remove payment"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                            <span>Remove</span>
-                          </button>
+                          {payment.status === "paid" && (
+                            <button
+                              className="flex items-center gap-1 text-sm text-orange-600 hover:text-orange-800"
+                              onClick={() => handleReversePayment(payment.id)}
+                              title="Create reversal entry for this payment"
+                            >
+                              <AlertCircle className="w-4 h-4" />
+                              <span>Reverse</span>
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -2567,13 +2500,15 @@ export default function Payments() {
                         </Button>
                       )}
                       
-                       <button
-                        className="p-2 text-red-600 hover:bg-red-50 rounded-full ml-auto"
-                        onClick={() => handleRemovePayment(payment.id)}
-                        title="Remove"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      {payment.status === "paid" && (
+                        <button
+                          className="p-2 text-orange-600 hover:bg-orange-50 rounded-full ml-auto"
+                          onClick={() => handleReversePayment(payment.id)}
+                          title="Reverse Payment"
+                        >
+                          <AlertCircle className="w-4 h-4" />
+                        </button>
+                      )}
                   </div>
                 </div>
               ))
@@ -3276,37 +3211,50 @@ export default function Payments() {
         );
       })()}
 
-      {isDeleteConfirmOpen && selectedDeletePaymentId && (() => {
-        const paymentToDelete = payments.find(p => p.id === selectedDeletePaymentId);
+      {isDeleteConfirmOpen && selectedReversalPaymentId && (() => {
+        const paymentToReverse = payments.find(p => p.id === selectedReversalPaymentId);
 
         return (
           <Dialog open={isDeleteConfirmOpen} onOpenChange={setIsDeleteConfirmOpen}>
             <DialogContent className="sm:max-w-md">
               <DialogHeader>
-                <DialogTitle>Remove Payment</DialogTitle>
+                <DialogTitle>🔄 Reverse Payment</DialogTitle>
                 <DialogDescription>
-                  Are you sure you want to remove this payment?
+                  Create a corrective reversal entry for this payment
                 </DialogDescription>
               </DialogHeader>
-              {paymentToDelete && (
+              {paymentToReverse && (
                 <div className="bg-slate-50 p-3 rounded border border-slate-200 space-y-2">
                   <p className="text-sm text-slate-600">
-                    <span className="font-medium">Employee:</span> {paymentToDelete.employee_name}
+                    <span className="font-medium">Employee:</span> {paymentToReverse.employee_name}
                   </p>
                   <p className="text-sm text-slate-600">
-                    <span className="font-medium">Week:</span> {new Date(paymentToDelete.week_start_date).toLocaleDateString()} to {new Date(paymentToDelete.week_end_date).toLocaleDateString()}
+                    <span className="font-medium">Week:</span> {new Date(paymentToReverse.week_start_date).toLocaleDateString()} to {new Date(paymentToReverse.week_end_date).toLocaleDateString()}
                   </p>
                   <p className="text-sm text-slate-600">
-                    <span className="font-medium">Amount:</span> ${(paymentToDelete.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    <span className="font-medium">Amount:</span> ${(paymentToReverse.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </p>
                   <p className="text-sm text-slate-600">
-                    <span className="font-medium">Status:</span> {paymentToDelete.status === "paid" ? "Paid" : paymentToDelete.status === "canceled" ? "Canceled" : "Pending"}
+                    <span className="font-medium">Status:</span> {paymentToReverse.status === "paid" ? "Paid" : paymentToReverse.status === "canceled" ? "Canceled" : "Pending"}
                   </p>
                 </div>
               )}
-              <div className="bg-red-50 p-3 rounded border border-red-200">
-                <p className="text-sm text-red-700">
-                  This action cannot be undone. The payment will be permanently removed.
+              <div className="bg-blue-50 p-3 rounded border border-blue-200">
+                <p className="text-sm text-blue-700 font-medium mb-2">
+                  Why are you reversing this payment?
+                </p>
+                <textarea
+                  className="w-full p-2 border border-blue-300 rounded text-sm"
+                  rows={3}
+                  placeholder="e.g., Marked paid in error, duplicate payment, incorrect amount..."
+                  value={reversalReason}
+                  onChange={(e) => setReversalReason(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="bg-amber-50 p-3 rounded border border-amber-200">
+                <p className="text-sm text-amber-800">
+                  ℹ️ This creates a corrective entry. The original transaction remains in the ledger for audit purposes.
                 </p>
               </div>
 
@@ -3315,17 +3263,19 @@ export default function Payments() {
                   variant="outline"
                   onClick={() => {
                     setIsDeleteConfirmOpen(false);
-                    setSelectedDeletePaymentId(null);
+                    setSelectedReversalPaymentId(null);
+                    setReversalReason("");
                   }}
                   className="border-slate-300"
                 >
                   Cancel
                 </Button>
                 <Button
-                  onClick={handleConfirmRemovePayment}
-                  className="bg-red-600 hover:bg-red-700"
+                  onClick={handleConfirmReversePayment}
+                  className="bg-orange-600 hover:bg-orange-700"
+                  disabled={!reversalReason.trim()}
                 >
-                  Remove Payment
+                  Create Reversal
                 </Button>
               </div>
             </DialogContent>
@@ -3692,33 +3642,7 @@ export default function Payments() {
         </DialogContent>
       </Dialog>
 
-      {/* Clear All Confirmation Dialog */}
-      <Dialog open={isClearAllConfirmOpen} onOpenChange={setIsClearAllConfirmOpen}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>Clear All Payments</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to delete {filteredPayments.length} payments from this week? This includes both pending and paid records. This action cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex justify-end gap-3 mt-4">
-            <Button
-              variant="outline"
-              onClick={() => setIsClearAllConfirmOpen(false)}
-              disabled={isSubmitting}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleConfirmClearAll}
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? "Clearing..." : "Yes, Clear All"}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* REMOVED: Clear All Confirmation Dialog - payments are immutable */}
 
       {/* Add Payment Modal */}
       <Dialog open={isAddPaymentModalOpen} onOpenChange={setIsAddPaymentModalOpen}>
