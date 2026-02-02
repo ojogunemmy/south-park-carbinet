@@ -1152,14 +1152,47 @@ export default function Payments() {
     return "2026-01-25"; // Approximate default
   }, [payments, availableWeeks]);
 
-  const [selectedWeek, setSelectedWeek] = useState<string>(defaultWeek);
+  // Persist selected week per year so view survives refresh
+  const selectedWeekStorageKey = `payments_selected_week_${selectedYear}`;
 
-  // Update selected week when default changes (initial load)
+  const [selectedWeek, setSelectedWeek] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem(`payments_selected_week_${selectedYear}`);
+      return saved ?? '';
+    } catch (e) {
+      return '';
+    }
+  });
+
+  // Restore saved week or use defaultWeek on initial load / when year changes
   useEffect(() => {
-    if (defaultWeek && !selectedWeek) {
+    try {
+      const saved = localStorage.getItem(selectedWeekStorageKey);
+      if (saved) {
+        setSelectedWeek(saved);
+        return;
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    if (defaultWeek) {
       setSelectedWeek(defaultWeek);
     }
-  }, [defaultWeek]);
+  }, [defaultWeek, selectedYear]);
+
+  // Save selectedWeek whenever it changes
+  useEffect(() => {
+    try {
+      if (selectedWeek) {
+        localStorage.setItem(selectedWeekStorageKey, selectedWeek);
+      } else {
+        localStorage.removeItem(selectedWeekStorageKey);
+      }
+    } catch (e) {
+      // ignore storage errors
+    }
+  }, [selectedWeek, selectedYear]);
 
   // Compute Yearly Stats for "All Payments" view
   const yearlyStats = useMemo(() => {
