@@ -573,6 +573,11 @@ export default function Payments() {
   const [selectedReversalPaymentId, setSelectedReversalPaymentId] = useState<string | null>(null);
   const [reversalReason, setReversalReason] = useState<string>("");
   const [customReversalReason, setCustomReversalReason] = useState<string>("");
+  const [isBulkReverseOpen, setIsBulkReverseOpen] = useState(false);
+  const [bulkReversalPayments, setBulkReversalPayments] = useState<PaymentObligation[]>([]);
+  const [selectedReversalPayments, setSelectedReversalPayments] = useState<Set<string>>(new Set());
+  const [bulkReversalReasons, setBulkReversalReasons] = useState<Record<string, string>>({});
+  const [bulkCustomReasons, setBulkCustomReasons] = useState<Record<string, string>>({});
   
   // Reversal reason templates for faster selection
   const REVERSAL_REASON_TEMPLATES = [
@@ -1137,6 +1142,104 @@ export default function Payments() {
     setReversalReason("");
     setCustomReversalReason("");
     setIsDeleteConfirmOpen(true);
+  };
+
+  const handleBulkReverseWeek = () => {
+    // Get all paid payments for the selected week that aren't already reversed or reversals
+    const paidPaymentsForWeek = filteredPayments.filter(
+      p => p.status === "paid" && 
+           !(p as any).is_correction && 
+           !(p as any).reversed_by_payment_id
+    );
+
+    if (paidPaymentsForWeek.length === 0) {
+      toast({
+        title: "No Payments to Reverse",
+        description: "There are no paid payments in this week that can be reversed.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setBulkReversalPayments(paidPaymentsForWeek);
+    // Initialize all payments as selected by default
+    setSelectedReversalPayments(new Set(paidPaymentsForWeek.map(p => p.id)));
+    // Initialize empty reasons for each payment
+    const initialReasons: Record<string, string> = {};
+    const initialCustom: Record<string, string> = {};
+    paidPaymentsForWeek.forEach(p => {
+      initialReasons[p.id] = "";
+      initialCustom[p.id] = "";
+    });
+    setBulkReversalReasons(initialReasons);
+    setBulkCustomReasons(initialCustom);
+    setIsBulkReverseOpen(true);
+  };
+
+  const handleConfirmBulkReverse = async () => {
+    if (selectedReversalPayments.size === 0) {
+      toast({
+        title: "No Payments Selected",
+        description: "Please select at least one payment to reverse.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Validate selected payments have reasons
+    const selectedPaymentsList = bulkReversalPayments.filter(p => selectedReversalPayments.has(p.id));
+    const missingReasons: string[] = [];
+    for (const payment of selectedPaymentsList) {
+      const selectedReason = bulkReversalReasons[payment.id] || "";
+      const customReason = bulkCustomReasons[payment.id] || "";
+      const finalReason = selectedReason === "" ? customReason.trim() : selectedReason.trim();
+      
+      if (!finalReason) {
+        missingReasons.push(payment.employee_name);
+      }
+    }
+
+    if (missingReasons.length > 0) {
+      toast({
+        title: "Missing Reversal Reasons",
+        description: `Please provide reasons for: ${missingReasons.join(", ")}`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsSubmitting(true);
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const payment of selectedPaymentsList) {
+      const selectedReason = bulkReversalReasons[payment.id] || "";
+      const customReason = bulkCustomReasons[payment.id] || "";
+      const finalReason = selectedReason === "" ? customReason.trim() : selectedReason.trim();
+      
+      try {
+        await paymentsService.reversePayment(payment.id, finalReason);
+        successCount++;
+      } catch (error) {
+        console.error(`Error reversing payment ${payment.id}:`, error);
+        failCount++;
+      }
+    }
+
+    setIsSubmitting(false);
+    await loadFreshData();
+
+    toast({
+      title: "Bulk Reversal Complete",
+      description: `Successfully reversed ${successCount} payment(s).${failCount > 0 ? ` ${failCount} failed.` : ""}`,
+      variant: failCount > 0 ? "destructive" : "default",
+    });
+
+    setIsBulkReverseOpen(false);
+    setBulkReversalPayments([]);
+    setSelectedReversalPayments(new Set());
+    setBulkReversalReasons({});
+    setBulkCustomReasons({});
   };
 
   const [isClearAllConfirmOpen, setIsClearAllConfirmOpen] = useState(false);
@@ -2119,35 +2222,84 @@ export default function Payments() {
             <CardTitle>Generate Payments</CardTitle>
           <CardDescription>Calculate and process payments</CardDescription>
           <div className="space-y-4 mt-4">
-            {/* 
-            <div className="flex gap-4 flex-wrap">
-              <Select value={filterStatus} onValueChange={(value: any) => setFilterStatus(value)}>
-                <SelectTrigger className="w-40 border-slate-300">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Status</SelectItem>
-                  <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="paid">Paid</SelectItem>
-                  <SelectItem value="canceled">Canceled</SelectItem>
-                </SelectContent>
-              </Select>
+            {/* Filters Section */}
+            <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
+              <h3 className="text-sm font-semibold text-slate-700 mb-3">Filter Payments</h3>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div>
+                  <Label htmlFor="status-filter" className="text-sm font-medium mb-2 block">Status</Label>
+                  <Select value={filterStatus} onValueChange={(value: any) => setFilterStatus(value)}>
+                    <SelectTrigger id="status-filter" className="w-full border-slate-300">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Status</SelectItem>
+                      <SelectItem value="pending">Pending</SelectItem>
+                      <SelectItem value="paid">Paid</SelectItem>
+                      <SelectItem value="canceled">Canceled</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
 
-              <Select value={filterEmployee} onValueChange={setFilterEmployee}>
-                <SelectTrigger className="w-40 border-slate-300">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Employees</SelectItem>
-                  {employees.map((emp) => (
-                    <SelectItem key={emp.id} value={emp.id}>
-                      {emp.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                <div>
+                  <Label htmlFor="employee-filter" className="text-sm font-medium mb-2 block">Employee</Label>
+                  <Select value={filterEmployee} onValueChange={setFilterEmployee}>
+                    <SelectTrigger id="employee-filter" className="w-full border-slate-300">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Employees</SelectItem>
+                      {employees.map((emp) => (
+                        <SelectItem key={emp.id} value={emp.id}>
+                          {emp.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label htmlFor="from-date-filter" className="text-sm font-medium mb-2 block">From Date</Label>
+                  <Input
+                    id="from-date-filter"
+                    type="date"
+                    value={filterFromDate}
+                    onChange={(e) => setFilterFromDate(e.target.value)}
+                    className="w-full border-slate-300"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="to-date-filter" className="text-sm font-medium mb-2 block">To Date</Label>
+                  <Input
+                    id="to-date-filter"
+                    type="date"
+                    value={filterToDate}
+                    onChange={(e) => setFilterToDate(e.target.value)}
+                    className="w-full border-slate-300"
+                  />
+                </div>
+              </div>
+
+              {(filterStatus !== "all" || filterEmployee !== "all" || filterFromDate || filterToDate) && (
+                <div className="mt-4">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setFilterStatus("all");
+                      setFilterEmployee("all");
+                      setFilterFromDate("");
+                      setFilterToDate("");
+                    }}
+                    className="gap-2"
+                  >
+                    <X className="w-4 h-4" />
+                    Clear All Filters
+                  </Button>
+                </div>
+              )}
             </div>
-            */}
 
             <div className="flex gap-4 items-center flex-wrap">
               <div className="flex items-center gap-2">
@@ -2179,6 +2331,16 @@ export default function Payments() {
                   title="Mark all visible pending payments as PAID"
                 >
                    ✓ Paid
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={handleBulkReverseWeek}
+                  className="gap-2 border-orange-200 hover:bg-orange-50 hover:text-orange-700 hover:border-orange-300"
+                  title="Reverse all paid payments for this week"
+                  disabled={filteredPayments.filter(p => p.status === "paid" && !(p as any).is_correction && !(p as any).reversed_by_payment_id).length === 0}
+                >
+                  <AlertCircle className="w-4 h-4" />
+                  Reverse Week
                 </Button>
               </div>
 
@@ -3400,6 +3562,171 @@ export default function Payments() {
           </Dialog>
         );
       })()}
+
+      {/* Bulk Reverse Week Dialog */}
+      <Dialog open={isBulkReverseOpen} onOpenChange={setIsBulkReverseOpen}>
+        <DialogContent className="sm:max-w-3xl max-h-[85vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertCircle className="w-5 h-5 text-orange-600" />
+              Reverse Entire Week's Payments
+            </DialogTitle>
+            <DialogDescription>
+              Provide individual reversal reasons for each payment
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="flex-1 overflow-y-auto space-y-4 pr-2">
+            <div className="bg-slate-50 p-3 rounded border border-slate-200">
+              <div className="flex items-center justify-between mb-2">
+                <p className="font-semibold text-slate-900">
+                  Selected: {selectedReversalPayments.size} of {bulkReversalPayments.length}
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    if (selectedReversalPayments.size === bulkReversalPayments.length) {
+                      setSelectedReversalPayments(new Set());
+                    } else {
+                      setSelectedReversalPayments(new Set(bulkReversalPayments.map(p => p.id)));
+                    }
+                  }}
+                  className="text-xs"
+                >
+                  {selectedReversalPayments.size === bulkReversalPayments.length ? "Deselect All" : "Select All"}
+                </Button>
+              </div>
+              <p className="text-sm text-slate-600">
+                Total Selected: ${bulkReversalPayments.filter(p => selectedReversalPayments.has(p.id)).reduce((sum, p) => sum + (p.amount || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              {bulkReversalPayments.map((payment, index) => (
+                <div key={payment.id} className={`bg-white p-4 rounded-lg border-2 transition-colors ${
+                  selectedReversalPayments.has(payment.id) 
+                    ? 'border-orange-300 bg-orange-50/30' 
+                    : 'border-slate-200'
+                }`}>
+                  <div className="flex items-center justify-between mb-3 pb-3 border-b border-slate-200">
+                    <div className="flex items-center gap-3 flex-1">
+                      <input
+                        type="checkbox"
+                        checked={selectedReversalPayments.has(payment.id)}
+                        onChange={(e) => {
+                          const newSet = new Set(selectedReversalPayments);
+                          if (e.target.checked) {
+                            newSet.add(payment.id);
+                          } else {
+                            newSet.delete(payment.id);
+                          }
+                          setSelectedReversalPayments(newSet);
+                        }}
+                        className="w-4 h-4 text-orange-600 rounded border-slate-300 focus:ring-orange-500"
+                      />
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="bg-slate-200 text-slate-700 px-2 py-0.5 rounded text-xs font-semibold">
+                            #{index + 1}
+                          </span>
+                          <p className="font-semibold text-slate-900">{payment.employee_name}</p>
+                        </div>
+                        <p className="text-xs text-slate-500 mt-1">{payment.employee_position || 'N/A'}</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-semibold text-green-600">
+                        ${(payment.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </p>
+                      <p className="text-xs text-slate-500 capitalize">
+                        {payment.payment_method?.replace(/_/g, ' ') || 'N/A'}
+                        {payment.check_number && ` #${payment.check_number}`}
+                      </p>
+                    </div>
+                  </div>
+
+                  {selectedReversalPayments.has(payment.id) && (
+                    <div className="space-y-2">
+                      <label className="text-xs text-slate-700 font-medium block">Reversal Reason:</label>
+                      <Select
+                        value={bulkReversalReasons[payment.id] || "custom"}
+                        onValueChange={(value) => {
+                        if (value === "custom") {
+                          setBulkReversalReasons(prev => ({ ...prev, [payment.id]: "" }));
+                          setBulkCustomReasons(prev => ({ ...prev, [payment.id]: "" }));
+                        } else {
+                          setBulkReversalReasons(prev => ({ ...prev, [payment.id]: value }));
+                          setBulkCustomReasons(prev => ({ ...prev, [payment.id]: "" }));
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="w-full bg-white">
+                        <SelectValue placeholder="Choose a reason..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {REVERSAL_REASON_TEMPLATES.map((template) => (
+                          <SelectItem 
+                            key={template} 
+                            value={template === "Custom reason..." ? "custom" : template}
+                          >
+                            {template}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {bulkReversalReasons[payment.id] === "" && (
+                      <textarea
+                        className="w-full p-2 border border-slate-300 rounded text-sm"
+                        rows={2}
+                        placeholder="Enter a custom reason..."
+                        value={bulkCustomReasons[payment.id] || ""}
+                        onChange={(e) => setBulkCustomReasons(prev => ({ ...prev, [payment.id]: e.target.value }))}
+                      />
+                    )}
+                  </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div className="bg-amber-50 p-3 rounded border border-amber-200">
+              <p className="text-sm text-amber-800 font-medium mb-2">
+                ⚠️ Important
+              </p>
+              <ul className="text-sm text-amber-800 space-y-1 list-disc list-inside">
+                <li>Each selected payment must have an individual reversal reason</li>
+                <li>All original transactions remain in the ledger for audit purposes</li>
+                <li>This action cannot be undone</li>
+              </ul>
+            </div>
+          </div>
+
+          <DialogFooter className="mt-4">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsBulkReverseOpen(false);
+                setBulkReversalPayments([]);
+                setSelectedReversalPayments(new Set());
+                setBulkReversalReasons({});
+                setBulkCustomReasons({});
+              }}
+              disabled={isSubmitting}
+              className="border-slate-300"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleConfirmBulkReverse}
+              className="bg-orange-600 hover:bg-orange-700"
+              disabled={isSubmitting || selectedReversalPayments.size === 0}
+            >
+              {isSubmitting ? "Processing..." : `Reverse ${selectedReversalPayments.size} Payment${selectedReversalPayments.size !== 1 ? 's' : ''}`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {isCheckAttachmentModalOpen && selectedPaymentForAttachment && (() => {
         const payment = payments.find(p => p.id === selectedPaymentForAttachment);

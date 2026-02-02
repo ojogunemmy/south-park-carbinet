@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Download, Calendar, FolderOpen, Printer, AlertCircle, RotateCcw, FileText } from "lucide-react";
+import { Download, Calendar, FolderOpen, Printer, AlertCircle, RotateCcw, FileText, X } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useYear } from "@/contexts/YearContext";
 import { getYearData, saveYearData } from "@/utils/yearStorage";
@@ -415,6 +415,73 @@ export default function PaymentHistory() {
           Print
         </Button>
       </div>
+
+      {/* Filters Card */}
+      <Card className="border-slate-200">
+        <CardHeader>
+          <CardTitle className="text-sm">Filter Payment History</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <Label htmlFor="employee-filter" className="text-sm font-medium mb-2 block">Employee</Label>
+              <Select value={filterEmployee} onValueChange={setFilterEmployee}>
+                <SelectTrigger id="employee-filter" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Employees</SelectItem>
+                  {employees.map((emp) => (
+                    <SelectItem key={emp.id} value={emp.id}>
+                      {emp.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label htmlFor="from-date" className="text-sm font-medium mb-2 block">From Date</Label>
+              <Input
+                id="from-date"
+                type="date"
+                value={filterFromDate}
+                onChange={(e) => setFilterFromDate(e.target.value)}
+                className="w-full"
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="to-date" className="text-sm font-medium mb-2 block">To Date</Label>
+              <Input
+                id="to-date"
+                type="date"
+                value={filterToDate}
+                onChange={(e) => setFilterToDate(e.target.value)}
+                className="w-full"
+              />
+            </div>
+          </div>
+
+          {(filterEmployee !== "all" || filterFromDate || filterToDate) && (
+            <div className="mt-4">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setFilterEmployee("all");
+                  setFilterFromDate("");
+                  setFilterToDate("");
+                }}
+                className="gap-2"
+              >
+                <X className="w-4 h-4" />
+                Clear Filters
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card className="border-slate-200 bg-gradient-to-r from-green-50 to-emerald-50">
         <CardHeader>
