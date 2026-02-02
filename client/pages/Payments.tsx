@@ -138,6 +138,31 @@ export default function Payments() {
     return Math.max(maxUsed + 1, startingNumber);
   };
 
+  // Validate check number is not duplicate
+  const validateCheckNumber = async (checkNum: string): Promise<boolean> => {
+    if (!checkNum || checkNum.trim() === "") return true;
+    
+    try {
+      const allPayments = await paymentsService.getAll();
+      const duplicate = allPayments.find(
+        (p: any) => p.check_number === checkNum && p.id !== selectedPaymentId
+      );
+      
+      if (duplicate) {
+        toast({
+          title: "Duplicate Check Number",
+          description: `Check #${checkNum} is already used. Please use a different number.`,
+          variant: "destructive",
+        });
+        return false;
+      }
+      return true;
+    } catch (error) {
+      console.error("Error validating check number:", error);
+      return true; // Allow if validation fails
+    }
+  };
+
   // Handle payment method selection with auto-increment for checks
   const handlePaymentMethodChange = (method: string) => {
     setSelectedPaymentMethod(method);
@@ -547,6 +572,19 @@ export default function Payments() {
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [selectedReversalPaymentId, setSelectedReversalPaymentId] = useState<string | null>(null);
   const [reversalReason, setReversalReason] = useState<string>("");
+  const [customReversalReason, setCustomReversalReason] = useState<string>("");
+  
+  // Reversal reason templates for faster selection
+  const REVERSAL_REASON_TEMPLATES = [
+    "Check bounced - needs reissue",
+    "Duplicate payment - correcting error",
+    "Wrong amount calculated",
+    "Payment issued to wrong employee",
+    "Check lost or stolen",
+    "Employee returned payment",
+    "Bank error - correction needed",
+    "Custom reason..."
+  ];
   const [isCheckAttachmentModalOpen, setIsCheckAttachmentModalOpen] = useState(false);
   const [selectedPaymentForAttachment, setSelectedPaymentForAttachment] = useState<string | null>(null);
   const [isViewCheckAttachmentOpen, setIsViewCheckAttachmentOpen] = useState(false);
@@ -768,6 +806,12 @@ export default function Payments() {
       console.error("❌ Payment not found");
       alert("Error: Payment not found");
       return;
+    }
+
+    // Validate check number if paying by check
+    if (selectedPaymentMethod === "check") {
+      const isValid = await validateCheckNumber(check_number);
+      if (!isValid) return;
     }
 
     try {
@@ -1091,13 +1135,19 @@ export default function Payments() {
   const handleReversePayment = (paymentId: string) => {
     setSelectedReversalPaymentId(paymentId);
     setReversalReason("");
+    setCustomReversalReason("");
     setIsDeleteConfirmOpen(true);
   };
 
   const [isClearAllConfirmOpen, setIsClearAllConfirmOpen] = useState(false);
 
   const handleConfirmReversePayment = async () => {
-    if (!selectedReversalPaymentId || !reversalReason.trim()) {
+    // Use custom reason if "Custom reason..." selected, otherwise use template
+    const finalReason = reversalReason === "Custom reason..." 
+      ? customReversalReason.trim()
+      : reversalReason.trim();
+
+    if (!selectedReversalPaymentId || !finalReason) {
       toast({
         title: "Reversal Reason Required",
         description: "Please provide a reason for reversing this payment.",
@@ -1110,13 +1160,14 @@ export default function Payments() {
 
     if (paymentToReverse) {
       try {
-        await paymentsService.reversePayment(selectedReversalPaymentId, reversalReason);
+        await paymentsService.reversePayment(selectedReversalPaymentId, finalReason);
         await loadFreshData();
         toast({
           title: "Payment Reversed",
           description: `Reversal entry created for ${paymentToReverse.employee_name}'s payment.`,
         });
         setReversalReason("");
+        setCustomReversalReason("");
       } catch (error: any) {
         console.error("Error reversing payment:", error);
         toast({
@@ -3272,18 +3323,52 @@ export default function Payments() {
                   </p>
                 </div>
               )}
-              <div className="bg-blue-50 p-3 rounded border border-blue-200">
-                <p className="text-sm text-blue-700 font-medium mb-2">
+              <div className="bg-blue-50 p-3 rounded border border-blue-200 space-y-3">
+                <p className="text-sm text-blue-700 font-medium">
                   Why are you reversing this payment?
                 </p>
-                <textarea
-                  className="w-full p-2 border border-blue-300 rounded text-sm"
-                  rows={3}
-                  placeholder="e.g., Marked paid in error, duplicate payment, incorrect amount..."
-                  value={reversalReason}
-                  onChange={(e) => setReversalReason(e.target.value)}
-                  required
-                />
+                <div>
+                  <label className="text-xs text-slate-600 block mb-1">Select Reason:</label>
+                  <Select
+                    value={reversalReason || "custom"}
+                    onValueChange={(value) => {
+                      if (value === "custom") {
+                        setReversalReason("");
+                        setCustomReversalReason("");
+                      } else {
+                        setReversalReason(value);
+                        setCustomReversalReason("");
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="w-full bg-white">
+                      <SelectValue placeholder="Choose a reason..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {REVERSAL_REASON_TEMPLATES.map((template) => (
+                        <SelectItem 
+                          key={template} 
+                          value={template === "Custom reason..." ? "custom" : template}
+                        >
+                          {template}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {reversalReason === "" && (
+                  <div>
+                    <label className="text-xs text-slate-600 block mb-1">Custom Reason:</label>
+                    <textarea
+                      className="w-full p-2 border border-blue-300 rounded text-sm"
+                      rows={3}
+                      placeholder="Enter a custom reason for this reversal..."
+                      value={customReversalReason}
+                      onChange={(e) => setCustomReversalReason(e.target.value)}
+                      required
+                    />
+                  </div>
+                )}
               </div>
               <div className="bg-amber-50 p-3 rounded border border-amber-200">
                 <p className="text-sm text-amber-800">

@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Download, Calendar, FolderOpen, RefreshCw, Save, Archive, Trash2, Printer, Edit2, AlertCircle, RotateCcw } from "lucide-react";
+import { Download, Calendar, FolderOpen, RefreshCw, Save, Archive, Trash2, Printer, Edit2, AlertCircle, RotateCcw, FileText } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useYear } from "@/contexts/YearContext";
 import { getYearData, saveYearData } from "@/utils/yearStorage";
@@ -64,6 +64,15 @@ interface PaymentHistoryArchive {
   totalAmount: number;
 }
 
+interface AuditLogEntry {
+  id: string;
+  payment_id: string;
+  action: string;
+  user_id: string | null;
+  reason: string | null;
+  created_at: string;
+}
+
 export default function PaymentHistory() {
   const { selectedYear } = useYear();
   const { toast } = useToast();
@@ -77,6 +86,11 @@ export default function PaymentHistory() {
   const [savedArchives, setSavedArchives] = useState<PaymentHistoryArchive[]>([]);
   const [showArchives, setShowArchives] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [auditTrailOpen, setAuditTrailOpen] = useState(false);
+  const [selectedAuditPayment, setSelectedAuditPayment] = useState<PaymentLedgerEntry | null>(null);
+  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
+  const [employeeSelectionOpen, setEmployeeSelectionOpen] = useState(false);
+  const [employeeSelectionList, setEmployeeSelectionList] = useState<PaymentLedgerEntry[]>([]);
 
   // Function to reload payment records from Supabase
   const reloadPaymentRecords = async (showToast: boolean = false) => {
@@ -176,6 +190,35 @@ export default function PaymentHistory() {
       title: "✓ Archive Deleted",
       description: "Payment history archive has been removed",
     });
+  };
+
+  // View audit trail for a payment entry
+  const viewAuditTrail = async (entry: PaymentLedgerEntry) => {
+    try {
+      setSelectedAuditPayment(entry);
+      const logs = await paymentsService.getAuditTrail(entry.id);
+      setAuditLogs(logs || []);
+      setAuditTrailOpen(true);
+    } catch (error) {
+      console.error("Error fetching audit trail:", error);
+      toast({
+        title: "✗ Error Loading Audit Trail",
+        description: "Failed to fetch audit logs for this payment",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Open employee selection modal for multiple entries
+  const openEmployeeSelection = (entries: PaymentLedgerEntry[]) => {
+    setEmployeeSelectionList(entries);
+    setEmployeeSelectionOpen(true);
+  };
+
+  // Handle employee selection from modal
+  const handleEmployeeSelection = (entry: PaymentLedgerEntry) => {
+    setEmployeeSelectionOpen(false);
+    viewAuditTrail(entry);
   };
 
   useEffect(() => {
@@ -579,6 +622,14 @@ export default function PaymentHistory() {
                     // Check if this is a reversal entry
                     const isReversal = record.entries.some(e => e.is_correction);
                     
+                    // Check if this payment has been reversed (has a reversal entry pointing to it)
+                    const isReversed = record.entries.some(e => 
+                      e.reversed_by_payment_id || 
+                      paymentRecords.some(r => 
+                        r.entries.some(re => re.reverses_payment_id === e.id)
+                      )
+                    );
+                    
                     // Get unique payment methods and their check numbers
                     const paymentMethodsData = (() => {
                       const methods = new Map<string, string[]>();
@@ -634,20 +685,60 @@ export default function PaymentHistory() {
                           )}
                         </div>
                       </td>
-                      <td className={`p-3 font-semibold ${isReversal ? 'text-orange-600' : 'text-green-600'}`}>
-                        ${record.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      <td className={`p-3 font-semibold ${isReversal ? 'text-orange-600' : isReversed ? 'text-red-600' : 'text-green-600'}`}>
+                        <div className="flex flex-col gap-1">
+                          <span>
+                            ${record.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                          {isReversed && !isReversal && (
+                            <span className="text-xs text-red-500 font-normal flex items-center gap-1">
+                              <AlertCircle className="w-3 h-3" />
+                              Reversed
+                            </span>
+                          )}
+                          {isReversal && (
+                            <span className="text-xs text-orange-500 font-normal">
+                              Reversal Entry
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="p-3">
-                        <Button
-                          onClick={() => downloadPaymentReport(record)}
-                          variant="outline"
-                          size="sm"
-                          className="gap-2"
-                          title="Download payment report"
-                        >
-                          <Download className="w-4 h-4" />
-                          Report
-                        </Button>
+                        <div className="flex gap-2">
+                          <Button
+                            onClick={() => downloadPaymentReport(record)}
+                            variant="outline"
+                            size="sm"
+                            className="gap-2"
+                            title="Download payment report"
+                          >
+                            <Download className="w-4 h-4" />
+                            Report
+                          </Button>
+                          {record.entries.length === 1 ? (
+                            <Button
+                              onClick={() => viewAuditTrail(record.entries[0])}
+                              variant="outline"
+                              size="sm"
+                              className="gap-2"
+                              title="View audit trail"
+                            >
+                              <FileText className="w-4 h-4" />
+                              Audit
+                            </Button>
+                          ) : (
+                            <Button
+                              onClick={() => openEmployeeSelection(record.entries)}
+                              variant="outline"
+                              size="sm"
+                              className="gap-2"
+                              title="View audit trail - select employee"
+                            >
+                              <FileText className="w-4 h-4" />
+                              Audit ({record.entries.length})
+                            </Button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                     );
@@ -745,6 +836,24 @@ export default function PaymentHistory() {
                       >
                         <Download className="w-4 h-4" />
                       </button>
+                      {record.entries.length === 1 ? (
+                        <button
+                          className="p-2 text-blue-600 hover:bg-blue-100 rounded-full"
+                          onClick={() => viewAuditTrail(record.entries[0])}
+                          title="View Audit Trail"
+                        >
+                          <FileText className="w-4 h-4" />
+                        </button>
+                      ) : (
+                        <button
+                          className="px-3 py-2 text-blue-600 hover:bg-blue-100 rounded text-sm flex items-center gap-1"
+                          onClick={() => openEmployeeSelection(record.entries)}
+                          title="View Audit Trail - Select Employee"
+                        >
+                          <FileText className="w-4 h-4" />
+                          {record.entries.length}
+                        </button>
+                      )}
                     </div>
                   </div>
                 );
@@ -763,6 +872,154 @@ export default function PaymentHistory() {
           and create a <strong>reversal entry</strong> with a reason.
         </p>
       </div>
+
+      {/* Employee Selection Modal */}
+      <Dialog open={employeeSelectionOpen} onOpenChange={setEmployeeSelectionOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="w-5 h-5 text-blue-600" />
+              Select Employee to View Audit Trail
+            </DialogTitle>
+            <DialogDescription>
+              Choose which employee's payment record you want to view
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 max-h-96 overflow-y-auto">
+            {employeeSelectionList.map((entry, idx) => (
+              <button
+                key={idx}
+                onClick={() => handleEmployeeSelection(entry)}
+                className="w-full p-4 text-left border border-slate-200 rounded-lg hover:bg-blue-50 hover:border-blue-300 transition-colors"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-semibold text-slate-900">{entry.employee_name}</p>
+                    {entry.employee_position && (
+                      <p className="text-xs text-slate-500 mt-1">{entry.employee_position}</p>
+                    )}
+                  </div>
+                  <div className="text-right">
+                    <p className="font-semibold text-green-600">
+                      ${(entry.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </p>
+                    {entry.payment_method && (
+                      <p className="text-xs text-slate-500 mt-1 capitalize">
+                        {entry.payment_method.replace(/_/g, ' ')}
+                        {entry.check_number && ` #${entry.check_number}`}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setEmployeeSelectionOpen(false)} variant="outline">
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Audit Trail Dialog */}
+      <Dialog open={auditTrailOpen} onOpenChange={setAuditTrailOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="w-5 h-5 text-blue-600" />
+              Payment Audit Trail
+            </DialogTitle>
+            <DialogDescription>
+              Complete history of actions taken on this payment
+            </DialogDescription>
+          </DialogHeader>
+          {selectedAuditPayment && (
+            <div className="space-y-4">
+              <div className="bg-slate-50 p-4 rounded border border-slate-200">
+                <h4 className="font-semibold text-slate-900 mb-2">Payment Details</h4>
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div>
+                    <span className="text-slate-600">Employee:</span>
+                    <p className="font-medium">{selectedAuditPayment.employee_name}</p>
+                  </div>
+                  <div>
+                    <span className="text-slate-600">Amount:</span>
+                    <p className="font-medium text-green-600">
+                      ${(selectedAuditPayment.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-slate-600">Week:</span>
+                    <p className="font-medium">
+                      {new Date(selectedAuditPayment.week_start_date).toLocaleDateString()} - {new Date(selectedAuditPayment.week_end_date).toLocaleDateString()}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-slate-600">Payment Method:</span>
+                    <p className="font-medium capitalize">{selectedAuditPayment.payment_method || 'Unspecified'}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <h4 className="font-semibold text-slate-900 mb-3">Audit History</h4>
+                {auditLogs.length === 0 ? (
+                  <p className="text-slate-500 text-sm italic p-4 bg-slate-50 rounded">
+                    No audit logs available for this payment
+                  </p>
+                ) : (
+                  <div className="space-y-2 max-h-96 overflow-y-auto">
+                    {auditLogs.map((log) => {
+                      const actionColors: Record<string, string> = {
+                        created: 'bg-green-50 border-green-200 text-green-800',
+                        reversed: 'bg-orange-50 border-orange-200 text-orange-800',
+                        attempted_edit: 'bg-red-50 border-red-200 text-red-800',
+                        attempted_delete: 'bg-red-50 border-red-200 text-red-800',
+                      };
+                      const actionIcons: Record<string, string> = {
+                        created: '✓',
+                        reversed: '🔄',
+                        attempted_edit: '⚠️',
+                        attempted_delete: '⚠️',
+                      };
+                      const colorClass = actionColors[log.action] || 'bg-slate-50 border-slate-200 text-slate-800';
+
+                      return (
+                        <div key={log.id} className={`p-3 rounded border ${colorClass}`}>
+                          <div className="flex items-start justify-between mb-1">
+                            <span className="font-semibold text-sm">
+                              {actionIcons[log.action]} {log.action.replace(/_/g, ' ').toUpperCase()}
+                            </span>
+                            <span className="text-xs opacity-75">
+                              {new Date(log.created_at).toLocaleString()}
+                            </span>
+                          </div>
+                          {log.reason && (
+                            <p className="text-sm mt-2 bg-white bg-opacity-50 p-2 rounded">
+                              <span className="font-medium">Reason:</span> {log.reason}
+                            </p>
+                          )}
+                          {log.user_id && (
+                            <p className="text-xs mt-1 opacity-75">
+                              User ID: {log.user_id}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button onClick={() => setAuditTrailOpen(false)} variant="outline">
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Toaster />
     </div>
