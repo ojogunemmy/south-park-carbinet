@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Download, Calendar, FolderOpen, RefreshCw, Save, Archive, Trash2, Printer, Edit2, AlertCircle, RotateCcw, FileText } from "lucide-react";
+import { Download, Calendar, FolderOpen, Printer, AlertCircle, RotateCcw, FileText } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useYear } from "@/contexts/YearContext";
 import { getYearData, saveYearData } from "@/utils/yearStorage";
@@ -82,9 +82,6 @@ export default function PaymentHistory() {
   const [filterToDate, setFilterToDate] = useState<string>("");
   const [employees, setEmployees] = useState<Array<{ id: string; name: string }>>([]);
   const [lastPaymentCount, setLastPaymentCount] = useState<number>(0);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [savedArchives, setSavedArchives] = useState<PaymentHistoryArchive[]>([]);
-  const [showArchives, setShowArchives] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [auditTrailOpen, setAuditTrailOpen] = useState(false);
   const [selectedAuditPayment, setSelectedAuditPayment] = useState<PaymentLedgerEntry | null>(null);
@@ -138,59 +135,6 @@ export default function PaymentHistory() {
     const emps = getYearData<Array<{ id: string; name: string }>>("employees", selectedYear, []) || [];
     setEmployees(emps);
   }, [selectedYear]);
-
-  // Load saved archives
-  useEffect(() => {
-    const saved = localStorage.getItem(`paymentHistoryArchives_${selectedYear}`);
-    if (saved) {
-      try {
-        setSavedArchives(JSON.parse(saved));
-      } catch (e) {
-        console.error("Error loading archives:", e);
-      }
-    }
-  }, [selectedYear]);
-
-  // Save current payment history as archive
-  const savePaymentHistoryArchive = () => {
-    if (paymentRecords.length === 0) {
-      toast({
-        title: "✗ No data to save",
-        description: "Payment history is empty",
-      });
-      return;
-    }
-
-    const totalAmount = paymentRecords.reduce((sum, r) => sum + r.totalAmount, 0);
-    const archive: PaymentHistoryArchive = {
-      id: `archive-${Date.now()}`,
-      year: selectedYear,
-      savedDate: new Date().toISOString().split('T')[0],
-      paymentRecords: paymentRecords,
-      totalRecords: paymentRecords.length,
-      totalAmount: totalAmount,
-    };
-
-    const newArchives = [...savedArchives, archive];
-    setSavedArchives(newArchives);
-    localStorage.setItem(`paymentHistoryArchives_${selectedYear}`, JSON.stringify(newArchives));
-
-    toast({
-      title: "✓ Payment History Archived",
-      description: `Saved ${paymentRecords.length} payment record(s) on ${archive.savedDate}`,
-    });
-  };
-
-  // Delete an archive
-  const deleteArchive = (archiveId: string) => {
-    const newArchives = savedArchives.filter(a => a.id !== archiveId);
-    setSavedArchives(newArchives);
-    localStorage.setItem(`paymentHistoryArchives_${selectedYear}`, JSON.stringify(newArchives));
-    toast({
-      title: "✓ Archive Deleted",
-      description: "Payment history archive has been removed",
-    });
-  };
 
   // View audit trail for a payment entry
   const viewAuditTrail = async (entry: PaymentLedgerEntry) => {
@@ -452,7 +396,7 @@ export default function PaymentHistory() {
     <div className="space-y-6">
       {isLoading && (
         <div className="fixed top-4 right-4 bg-blue-500 text-white px-4 py-2 rounded-lg shadow-lg z-50 flex items-center gap-2">
-          <RefreshCw className="w-4 h-4 animate-spin" />
+          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
           <span>Loading payment history...</span>
         </div>
       )}
@@ -504,39 +448,6 @@ export default function PaymentHistory() {
         </CardContent>
       </Card>
 
-      {showArchives && savedArchives.length > 0 && (
-        <Card className="border-slate-200 bg-blue-50 border-blue-200">
-          <CardHeader>
-            <CardTitle className="text-blue-900">Saved Payment History Archives</CardTitle>
-            <CardDescription>View and manage archived payment history snapshots</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {savedArchives.map((archive) => (
-                <div key={archive.id} className="flex items-center justify-between bg-white p-3 rounded border border-slate-200">
-                  <div className="flex-1">
-                    <p className="font-medium text-slate-900">
-                      Saved on {new Date(archive.savedDate).toLocaleDateString('en-US')}
-                    </p>
-                    <p className="text-sm text-slate-600">
-                      {archive.totalRecords} payment record(s) • ${archive.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </p>
-                  </div>
-                  <Button
-                    onClick={() => deleteArchive(archive.id)}
-                    variant="ghost"
-                    size="sm"
-                    className="text-red-600 hover:bg-red-50"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
       {paymentRecords.length === 0 ? (
         <Card className="border-slate-200">
           <CardContent className="pt-6">
@@ -556,41 +467,6 @@ export default function PaymentHistory() {
                 <CardDescription>All paid payments for {selectedYear}</CardDescription>
               </div>
               <div className="flex gap-2 flex-wrap">
-                <Button
-                  onClick={savePaymentHistoryArchive}
-                  variant="outline"
-                  size="sm"
-                  className="gap-2"
-                  title="Save current payment history as archive"
-                >
-                  <Save className="w-4 h-4" />
-                  Save Archive
-                </Button>
-                {savedArchives.length > 0 && (
-                  <Button
-                    onClick={() => setShowArchives(!showArchives)}
-                    variant="outline"
-                    size="sm"
-                    className="gap-2"
-                  >
-                    <Archive className="w-4 h-4" />
-                    Archives ({savedArchives.length})
-                  </Button>
-                )}
-                <Button
-                  onClick={async () => {
-                    setIsRefreshing(true);
-                    await reloadPaymentRecords(true);
-                    setTimeout(() => setIsRefreshing(false), 500);
-                  }}
-                  variant="outline"
-                  size="sm"
-                  className="gap-2"
-                  disabled={isRefreshing}
-                >
-                  <RefreshCw className={`w-4 h-4 ${isRefreshing ? "animate-spin" : ""}`} />
-                  {isRefreshing ? "Refreshing..." : "Refresh"}
-                </Button>
                 {paymentRecords.length > 0 && (
                   <Button
                     onClick={downloadAllReports}
