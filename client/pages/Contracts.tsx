@@ -125,6 +125,15 @@ interface DownPayment {
   method: string;
   description?: string;
   receipt_attachment?: string;
+  // Additional fields for different payment methods
+  bank_name?: string;
+  routing_number?: string;
+  account_number?: string;
+  account_type?: string;
+  check_number?: string;
+  check_attachment?: string;
+  transaction_reference?: string;
+  credit_card_last4?: string;
 }
 
 interface CostTracking {
@@ -222,7 +231,15 @@ export default function Contracts() {
     date: "",
     method: "wire_transfer",
     description: "",
-    receipt_attachment: ""
+    receipt_attachment: "",
+    bank_name: "",
+    routing_number: "",
+    account_number: "",
+    account_type: "checking",
+    check_number: "",
+    check_attachment: "",
+    transaction_reference: "",
+    credit_card_last4: ""
   });
   const [editingDownPaymentId, setEditingDownPaymentId] = useState<string | null>(null);
   const [paymentForm, setPaymentForm] = useState<Payment>({
@@ -930,7 +947,15 @@ export default function Contracts() {
         date: "",
         method: "wire_transfer",
         description: "",
-        receipt_attachment: ""
+        receipt_attachment: "",
+        bank_name: "",
+        routing_number: "",
+        account_number: "",
+        account_type: "checking",
+        check_number: "",
+        check_attachment: "",
+        transaction_reference: "",
+        credit_card_last4: ""
       });
       setEditingDownPaymentId(null);
       fetchData();
@@ -956,7 +981,15 @@ export default function Contracts() {
           date: "",
           method: "wire_transfer",
           description: "",
-          receipt_attachment: ""
+          receipt_attachment: "",
+          bank_name: "",
+          routing_number: "",
+          account_number: "",
+          account_type: "checking",
+          check_number: "",
+          check_attachment: "",
+          transaction_reference: "",
+          credit_card_last4: ""
         });
         setEditingDownPaymentId(null);
         fetchData();
@@ -3195,25 +3228,25 @@ export default function Contracts() {
                   </SelectContent>
                 </Select>
 
-                <div className="flex flex-col gap-2 w-full md:w-auto">
+                <div className="flex gap-3 items-center">
                   <Label className="text-sm text-slate-600 whitespace-nowrap">Due Date Range:</Label>
-                  <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto sm:items-center">
-                    <Input
-                      type="date"
-                      placeholder="From"
-                      value={filterFromDate ?? ""}
-                      onChange={(e) => setFilterFromDate(e.target.value)}
-                      className="border-slate-300 w-full sm:w-auto"
-                    />
-                    <span className="text-slate-500 text-sm text-center sm:text-left">to</span>
-                    <Input
-                      type="date"
-                      placeholder="To"
-                      value={filterToDate ?? ""}
-                      onChange={(e) => setFilterToDate(e.target.value)}
-                      className="border-slate-300 w-full sm:w-auto"
-                    />
-                  </div>
+                  <Input
+                    id="filterFromDate"
+                    type="date"
+                    placeholder="From"
+                    value={filterFromDate ?? ""}
+                    onChange={(e) => setFilterFromDate(e.target.value)}
+                    className="border-slate-300 w-40"
+                  />
+                  <span className="text-slate-500 text-sm">to</span>
+                  <Input
+                    id="filterToDate"
+                    type="date"
+                    placeholder="To"
+                    value={filterToDate ?? ""}
+                    onChange={(e) => setFilterToDate(e.target.value)}
+                    className="border-slate-300 w-40"
+                  />
                 </div>
               </div>
             </CardHeader>
@@ -4615,7 +4648,16 @@ export default function Contracts() {
                           amount: 0,
                           date: "",
                           method: "wire_transfer",
-                          description: ""
+                          description: "",
+                          receipt_attachment: "",
+                          bank_name: "",
+                          routing_number: "",
+                          account_number: "",
+                          account_type: "checking",
+                          check_number: "",
+                          check_attachment: "",
+                          transaction_reference: "",
+                          credit_card_last4: ""
                         });
                         setEditingDownPaymentId(null);
                         setIsDownPaymentModalOpen(true);
@@ -4876,6 +4918,139 @@ export default function Contracts() {
                 </SelectContent>
               </Select>
             </div>
+
+            {downPaymentForm.method === "check" && (
+              <div className="space-y-2">
+                <Label htmlFor="downPaymentCheckNumber">Check Number</Label>
+                <Input
+                  id="downPaymentCheckNumber"
+                  type="text"
+                  value={downPaymentForm.check_number || ""}
+                  onChange={(e) =>
+                    setDownPaymentForm({
+                      ...downPaymentForm,
+                      check_number: e.target.value
+                    })
+                  }
+                  placeholder="e.g., 1001"
+                  className="border-slate-300"
+                />
+              </div>
+            )}
+
+            {downPaymentForm.method && (downPaymentForm.method === "direct_deposit" || downPaymentForm.method === "bank_transfer" || downPaymentForm.method === "wire_transfer") && (
+              <div className="border-t pt-4 space-y-2">
+                <p className="text-sm font-semibold text-slate-700 mb-3">Bank Transfer Details</p>
+                <div className="space-y-2">
+                  <Label htmlFor="downPaymentBankName">Bank Name</Label>
+                  <Input
+                    id="downPaymentBankName"
+                    type="text"
+                    value={downPaymentForm.bank_name || ""}
+                    onChange={(e) =>
+                      setDownPaymentForm({
+                        ...downPaymentForm,
+                        bank_name: e.target.value
+                      })
+                    }
+                    placeholder="e.g., Wells Fargo, Chase Bank"
+                    className="border-slate-300"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="downPaymentRoutingNumber">Routing Number</Label>
+                  <Input
+                    id="downPaymentRoutingNumber"
+                    type="text"
+                    value={downPaymentForm.routing_number || ""}
+                    onChange={(e) =>
+                      setDownPaymentForm({
+                        ...downPaymentForm,
+                        routing_number: e.target.value
+                      })
+                    }
+                    placeholder="9-digit routing number"
+                    className="border-slate-300"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="downPaymentAccountNumber">Account Number</Label>
+                  <Input
+                    id="downPaymentAccountNumber"
+                    type="password"
+                    value={downPaymentForm.account_number || ""}
+                    onChange={(e) =>
+                      setDownPaymentForm({
+                        ...downPaymentForm,
+                        account_number: e.target.value
+                      })
+                    }
+                    placeholder="Account number (masked for security)"
+                    className="border-slate-300"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="downPaymentAccountType">Account Type</Label>
+                  <Select
+                    value={downPaymentForm.account_type || ""}
+                    onValueChange={(value) =>
+                      setDownPaymentForm({
+                        ...downPaymentForm,
+                        account_type: value as "checking" | "savings"
+                      })
+                    }
+                  >
+                    <SelectTrigger className="border-slate-300">
+                      <SelectValue placeholder="Select account type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="checking">Checking</SelectItem>
+                      <SelectItem value="savings">Savings</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="downPaymentTransactionReference">Transaction Reference</Label>
+                  <Input
+                    id="downPaymentTransactionReference"
+                    type="text"
+                    value={downPaymentForm.transaction_reference || ""}
+                    onChange={(e) =>
+                      setDownPaymentForm({
+                        ...downPaymentForm,
+                        transaction_reference: e.target.value
+                      })
+                    }
+                    placeholder="e.g., TXN123456789"
+                    className="border-slate-300"
+                  />
+                </div>
+              </div>
+            )}
+
+            {downPaymentForm.method === "credit_card" && (
+              <div className="border-t pt-4 space-y-2">
+                <p className="text-sm font-semibold text-slate-700 mb-3">Card Details</p>
+                <div className="space-y-2">
+                  <Label htmlFor="downPaymentCreditCardLast4">Card Last 4 Digits</Label>
+                  <Input
+                    id="downPaymentCreditCardLast4"
+                    type="text"
+                    maxLength={4}
+                    value={downPaymentForm.credit_card_last4 || ""}
+                    onChange={(e) =>
+                      setDownPaymentForm({
+                        ...downPaymentForm,
+                        credit_card_last4: e.target.value.replace(/\D/g, "")
+                      })
+                    }
+                    placeholder="e.g., 4242"
+                    className="border-slate-300"
+                  />
+                  <p className="text-xs text-slate-500">Last 4 digits of the card used</p>
+                </div>
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label htmlFor="downPaymentDescription">Description (Optional)</Label>
