@@ -1184,7 +1184,7 @@ export default function Bills() {
             </Card>
           )}
 
-          <Card className="border-slate-200">
+          <Card className="border-slate-200" data-print-section>
             <CardHeader className="flex flex-row items-center justify-between">
               <div>
                 <CardTitle>Bills & Expenses</CardTitle>

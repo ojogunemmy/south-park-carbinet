@@ -128,6 +128,7 @@
     font-family: Arial, sans-serif;
     margin: 0;
     padding: 10mm;
+    line-height: 1.4;
   }
 
   /* Hide sidebar, navigation, buttons, and interactive elements */
@@ -145,25 +146,44 @@
   [class*="dropdown"],
   [class*="menu"],
   .flex.gap-2:has(button),
-  .flex.gap-3:has(button) {
+  .flex.gap-3:has(button),
+  .sticky,
+  .fixed {
     display: none !important;
   }
 
-  /* Show only the employee list section */
+  /* Show only the main content sections */
   [data-print-section],
   [data-print-section] * {
     display: block !important;
     visibility: visible !important;
   }
 
-  /* Page setup */
+  /* Page setup - adjust based on content */
   @page {
+    size: A4;
+    margin: 10mm;
+  }
+
+  /* For wide tables (5+ columns), use landscape */
+  [data-print-section]:has(table th:nth-child(5)) {
+    page: landscape-page;
+  }
+
+  @page landscape-page {
     size: A4 landscape;
     margin: 10mm;
   }
 
-  /* Hide filter controls in the card header */
-  [data-print-section] > div > div > div > div {
+  @page :first {
+    margin-top: 15mm;
+  }
+
+  /* Hide filter controls and action buttons in the card header */
+  [data-print-section] [class*="gap-"]:has(button),
+  [data-print-section] .flex:has(select),
+  [data-print-section] .grid:has(input),
+  [data-print-section] .border-b:has(button) {
     display: none !important;
   }
 
@@ -172,6 +192,7 @@
     border: none !important;
     box-shadow: none !important;
     page-break-inside: avoid;
+    margin-bottom: 20px;
   }
 
   [data-print-section] > div:first-child {
@@ -180,53 +201,61 @@
   }
 
   /* Card title and description */
+  [data-print-section] h1,
+  [data-print-section] h2,
   [data-print-section] h3,
   [data-print-section] > div:first-child h3 {
-    font-size: 18px;
-    font-weight: bold;
-    margin: 0 0 5px 0;
-    color: black;
+    font-size: 18px !important;
+    font-weight: bold !important;
+    margin: 0 0 8px 0 !important;
+    color: black !important;
+    page-break-after: avoid;
   }
 
   [data-print-section] p,
   [data-print-section] > div:first-child p {
-    font-size: 12px;
-    margin: 0;
-    color: #333;
+    font-size: 12px !important;
+    margin: 0 0 10px 0 !important;
+    color: #333 !important;
   }
 
   /* Table styling */
   table {
     width: 100% !important;
     border-collapse: collapse !important;
-    margin-top: 15px;
-    font-size: 10px !important;
+    margin-top: 15px !important;
+    font-size: 9px !important;
+    page-break-inside: auto;
   }
 
   thead {
     background-color: #333 !important;
     color: white !important;
-    display: table-header-group;
+    display: table-header-group !important;
   }
 
   thead tr {
-    page-break-inside: avoid;
+    page-break-inside: avoid !important;
+    page-break-after: avoid !important;
   }
 
   th {
-    text-align: left;
-    padding: 8px !important;
+    text-align: left !important;
+    padding: 6px !important;
     font-weight: bold !important;
     border: 1px solid #000 !important;
     background-color: #333 !important;
     color: white !important;
+    font-size: 9px !important;
   }
 
   td {
-    padding: 8px !important;
+    padding: 6px !important;
     border: 1px solid #ccc !important;
     color: black !important;
     background-color: white !important;
+    font-size: 9px !important;
+    vertical-align: top !important;
   }
 
   tbody tr:nth-child(odd) td {
@@ -234,26 +263,86 @@
   }
 
   tbody tr:nth-child(even) td {
-    background-color: #f5f5f5 !important;
+    background-color: #f9f9f9 !important;
   }
 
   tbody tr {
-    page-break-inside: avoid;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
   }
 
-  /* Hide Action column (last column) */
+  /* Improve table layout for print */
+  table {
+    table-layout: fixed !important;
+  }
+
+  /* Better column width distribution */
+  th:first-child,
+  td:first-child {
+    width: 20% !important;
+  }
+
+  th:nth-child(2),
+  td:nth-child(2) {
+    width: 15% !important;
+  }
+
+  th:nth-child(3),
+  td:nth-child(3) {
+    width: 15% !important;
+  }
+
+  th:nth-child(4),
+  td:nth-child(4) {
+    width: 25% !important;
+  }
+
+  th:nth-child(5),
+  td:nth-child(5) {
+    width: 15% !important;
+  }
+
+  /* Ensure long text wraps properly */
+  td {
+    word-wrap: break-word !important;
+    overflow-wrap: break-word !important;
+    white-space: normal !important;
+  }
+
+  /* Hide Action column (usually last column) */
   th:last-child,
   td:last-child {
     display: none !important;
   }
 
+  /* Hide download/attachment buttons in table cells */
+  td button,
+  td [class*="cursor-pointer"],
+  td [role="button"] {
+    display: none !important;
+  }
+
   /* Status badge styling for print */
   [class*="bg-green-"],
-  [class*="bg-yellow-"],
-  [class*="bg-red-"] {
+  [class*="bg-yellow-"], 
+  [class*="bg-orange-"],
+  [class*="bg-red-"],
+  [class*="bg-blue-"],
+  [class*="bg-purple-"] {
     background-color: white !important;
     border: 1px solid #333 !important;
     color: black !important;
+    padding: 2px 6px !important;
+    border-radius: 3px !important;
+    font-size: 8px !important;
+  }
+
+  /* Payment method pills */
+  .payment-method-pill,
+  [class*="bg-purple-50"] {
+    background-color: #f0f0f0 !important;
+    color: black !important;
+    border: 1px solid #999 !important;
   }
 
   /* Prevent overflow of content */
@@ -264,23 +353,55 @@
   }
 
   /* Remove spacing and margin adjustments */
-  .space-y-6 {
+  .space-y-6,
+  .space-y-4 {
     margin: 0 !important;
   }
 
   /* Ensure all text is visible */
   * {
     color: black !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 
-  /* Footer note */
-  body::after {
-    content: "Generated: " attr(data-date);
-    display: block;
-    margin-top: 20px;
-    font-size: 10px;
-    color: #666;
-    border-top: 1px solid #ccc;
-    padding-top: 10px;
+  /* Mobile card view elements - hide for print */
+  .md\\:hidden {
+    display: none !important;
+  }
+
+  /* Show desktop table view for print */
+  .hidden.md\\:block,
+  .hidden.lg\\:block {
+    display: block !important;
+  }
+
+  /* Summary cards - format for print */
+  [data-print-section] .grid > div {
+    border: 1px solid #ccc !important;
+    padding: 10px !important;
+    margin-bottom: 10px !important;
+  }
+
+  /* Page header with company info and context */
+  body::before {
+    content: "South Park Cabinet Management System - Printed: " attr(data-print-date) "\APage: " attr(data-current-page);
+    display: block !important;
+    text-align: center !important;
+    font-weight: bold !important;
+    font-size: 10px !important;
+    margin-bottom: 20px !important;
+    padding-bottom: 10px !important;
+    border-bottom: 2px solid #333 !important;
+    white-space: pre-line !important;
+  }
+
+  /* Page numbers */
+  @page {
+    @bottom-center {
+      content: "Page " counter(page) " of " counter(pages);
+      font-size: 9px;
+      color: #666;
+    }
   }
 }
