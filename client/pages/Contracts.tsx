@@ -926,7 +926,7 @@ export default function Contracts() {
       }
     }
 
-    if (downPaymentForm.method && (downPaymentForm.method === "direct_deposit" || downPaymentForm.method === "bank_transfer")) {
+    if (downPaymentForm.method === "bank_transfer") {
       if (!downPaymentForm.bank_name?.trim() || !downPaymentForm.routing_number?.trim() || !downPaymentForm.account_number?.trim()) {
         alert("Please fill in all required bank transfer details (Bank Name, Routing Number, Account Number)");
         return;
@@ -935,6 +935,18 @@ export default function Contracts() {
 
     if (downPaymentForm.method === "credit_card" && !downPaymentForm.credit_card_last4?.trim()) {
       alert("Please enter the last 4 digits of the credit card");
+      return;
+    }
+
+    if (downPaymentForm.method === "direct_deposit") {
+      if (!downPaymentForm.bank_name?.trim() || !downPaymentForm.routing_number?.trim() || !downPaymentForm.account_number?.trim()) {
+        alert("Please fill in all required direct deposit details (Bank Name, Routing Number, Account Number)");
+        return;
+      }
+    }
+
+    if (downPaymentForm.method === "zelle" && !downPaymentForm.transaction_reference?.trim()) {
+      alert("Please enter the Zelle transaction reference");
       return;
     }
 
@@ -4950,34 +4962,38 @@ export default function Contracts() {
                   <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
                   <SelectItem value="credit_card">Credit Card</SelectItem>
                   <SelectItem value="direct_deposit">Direct Deposit</SelectItem>
+                  <SelectItem value="zelle">Zelle</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
             {downPaymentForm.method === "check" && (
-              <div className="space-y-2">
-                <Label htmlFor="downPaymentCheckNumber">Check Number</Label>
-                <Input
-                  id="downPaymentCheckNumber"
-                  type="text"
-                  value={downPaymentForm.check_number || ""}
-                  onChange={(e) =>
-                    setDownPaymentForm({
-                      ...downPaymentForm,
-                      check_number: e.target.value
-                    })
-                  }
-                  placeholder="e.g., 1001"
-                  className="border-slate-300"
-                />
+              <div className="border-t pt-4 space-y-2">
+                <p className="text-sm font-semibold text-slate-700 mb-3">Check Details</p>
+                <div className="space-y-2">
+                  <Label htmlFor="downPaymentCheckNumber">Check Number *</Label>
+                  <Input
+                    id="downPaymentCheckNumber"
+                    type="text"
+                    value={downPaymentForm.check_number || ""}
+                    onChange={(e) =>
+                      setDownPaymentForm({
+                        ...downPaymentForm,
+                        check_number: e.target.value
+                      })
+                    }
+                    placeholder="e.g., 1001"
+                    className="border-slate-300"
+                  />
+                </div>
               </div>
             )}
 
-            {["direct_deposit", "bank_transfer"].includes(downPaymentForm.method) && (
+            {downPaymentForm.method === "bank_transfer" && (
               <div className="border-t pt-4 space-y-2">
                 <p className="text-sm font-semibold text-slate-700 mb-3">Bank Transfer Details</p>
                 <div className="space-y-2">
-                  <Label htmlFor="downPaymentBankName">Bank Name</Label>
+                  <Label htmlFor="downPaymentBankName">Bank Name *</Label>
                   <Input
                     id="downPaymentBankName"
                     type="text"
@@ -4993,7 +5009,7 @@ export default function Contracts() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="downPaymentRoutingNumber">Routing Number</Label>
+                  <Label htmlFor="downPaymentRoutingNumber">Routing Number *</Label>
                   <Input
                     id="downPaymentRoutingNumber"
                     type="text"
@@ -5010,7 +5026,7 @@ export default function Contracts() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="downPaymentAccountNumber">Account Number</Label>
+                  <Label htmlFor="downPaymentAccountNumber">Account Number *</Label>
                   <Input
                     id="downPaymentAccountNumber"
                     type="password"
@@ -5091,7 +5107,7 @@ export default function Contracts() {
               <div className="border-t pt-4 space-y-2">
                 <p className="text-sm font-semibold text-slate-700 mb-3">Card Details</p>
                 <div className="space-y-2">
-                  <Label htmlFor="downPaymentCreditCardLast4">Card Last 4 Digits</Label>
+                  <Label htmlFor="downPaymentCreditCardLast4">Card Last 4 Digits *</Label>
                   <Input
                     id="downPaymentCreditCardLast4"
                     type="text"
@@ -5107,6 +5123,104 @@ export default function Contracts() {
                     className="border-slate-300"
                   />
                   <p className="text-xs text-slate-500">Last 4 digits of the card used</p>
+                </div>
+              </div>
+            )}
+
+            {downPaymentForm.method === "direct_deposit" && (
+              <div className="border-t pt-4 space-y-2">
+                <p className="text-sm font-semibold text-slate-700 mb-3">Direct Deposit Details</p>
+                <div className="space-y-2">
+                  <Label htmlFor="downPaymentBankName">Bank Name *</Label>
+                  <Input
+                    id="downPaymentBankName"
+                    type="text"
+                    value={downPaymentForm.bank_name || ""}
+                    onChange={(e) =>
+                      setDownPaymentForm({
+                        ...downPaymentForm,
+                        bank_name: e.target.value
+                      })
+                    }
+                    placeholder="e.g., Wells Fargo, Chase Bank"
+                    className="border-slate-300"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="downPaymentRoutingNumber">Routing Number *</Label>
+                  <Input
+                    id="downPaymentRoutingNumber"
+                    type="text"
+                    maxLength={9}
+                    value={downPaymentForm.routing_number || ""}
+                    onChange={(e) =>
+                      setDownPaymentForm({
+                        ...downPaymentForm,
+                        routing_number: e.target.value.replace(/\D/g, "")
+                      })
+                    }
+                    placeholder="9-digit routing number"
+                    className="border-slate-300"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="downPaymentAccountNumber">Account Number *</Label>
+                  <Input
+                    id="downPaymentAccountNumber"
+                    type="password"
+                    value={downPaymentForm.account_number || ""}
+                    onChange={(e) =>
+                      setDownPaymentForm({
+                        ...downPaymentForm,
+                        account_number: e.target.value
+                      })
+                    }
+                    placeholder="Account number (masked for security)"
+                    className="border-slate-300"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="downPaymentAccountType">Account Type</Label>
+                  <Select
+                    value={downPaymentForm.account_type || ""}
+                    onValueChange={(value) =>
+                      setDownPaymentForm({
+                        ...downPaymentForm,
+                        account_type: value as "checking" | "savings"
+                      })
+                    }
+                  >
+                    <SelectTrigger className="border-slate-300">
+                      <SelectValue placeholder="Select account type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="checking">Checking</SelectItem>
+                      <SelectItem value="savings">Savings</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            )}
+
+            {downPaymentForm.method === "zelle" && (
+              <div className="border-t pt-4 space-y-2">
+                <p className="text-sm font-semibold text-slate-700 mb-3">Zelle Details</p>
+                <div className="space-y-2">
+                  <Label htmlFor="downPaymentZelleReference">Transaction Reference *</Label>
+                  <Input
+                    id="downPaymentZelleReference"
+                    type="text"
+                    value={downPaymentForm.transaction_reference || ""}
+                    onChange={(e) =>
+                      setDownPaymentForm({
+                        ...downPaymentForm,
+                        transaction_reference: e.target.value
+                      })
+                    }
+                    placeholder="e.g., ZELLE123456789"
+                    className="border-slate-300"
+                  />
+                  <p className="text-xs text-slate-500">Zelle transaction confirmation number</p>
                 </div>
               </div>
             )}
