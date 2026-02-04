@@ -368,10 +368,18 @@ This letter is issued for ${employee.name}'s use in personal matters and is vali
 
   const handleSaveCustomContent = () => {
     if (selectedEmployeeForEdit) {
-      setEmployeeCustomContent(prev => ({
-        ...prev,
-        [selectedEmployeeForEdit.id]: customLetterContent
-      }));
+      const defaultContent = getDefaultLetterContent(selectedEmployeeForEdit);
+      const isDefaultOrEmpty = !customLetterContent.trim() || customLetterContent.trim() === defaultContent.trim();
+
+      setEmployeeCustomContent(prev => {
+        const newContent = { ...prev };
+        if (isDefaultOrEmpty) {
+          delete newContent[selectedEmployeeForEdit.id];
+        } else {
+          newContent[selectedEmployeeForEdit.id] = customLetterContent;
+        }
+        return newContent;
+      });
       setIsEditOpen(false);
       setSelectedEmployeeForEdit(null);
     }
