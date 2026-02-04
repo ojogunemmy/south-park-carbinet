@@ -6,7 +6,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { FileText, Download } from "lucide-react";
+import { FileText, Download, Edit } from "lucide-react";
 import jsPDF from "jspdf";
 import { useState, useEffect } from "react";
 import { useYear } from "@/contexts/YearContext";
@@ -28,6 +28,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 
 interface Employee {
   id: string;
@@ -121,6 +122,11 @@ export default function WorkLetters() {
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [selectedEmployeeForPreview, setSelectedEmployeeForPreview] =
     useState<Employee | null>(null);
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [selectedEmployeeForEdit, setSelectedEmployeeForEdit] =
+    useState<Employee | null>(null);
+  const [customLetterContent, setCustomLetterContent] = useState<string>("");
+  const [employeeCustomContent, setEmployeeCustomContent] = useState<Record<string, string>>({});
 
   // Map DB employee shape to UI Employee
   const mapDbEmployee = (dbEmp: any): Employee => {
@@ -287,18 +293,21 @@ export default function WorkLetters() {
 
     // Body of letter
     doc.setFontSize(10);
-    const bodyText = [
-      `This letter is to certify that ${employee.name} has been employed as a ${employee.position}.`,
-      "",
-      `Employment Status: Full-time Employee`,
-      `Start Date: ${formatDateLocal(employee.startDate)}`,
-      `Current Position: ${employee.position}`,
-      `Annual Compensation: $${(employee.weeklyRate * 52).toLocaleString("en-US", { maximumFractionDigits: 2 })}`,
-      "",
-      `${employee.name} has been a valuable and responsible member of our team. The information provided in this letter is accurate to the best of our knowledge.`,
-      "",
-      `This letter is issued for ${employee.name}'s use in personal matters and is valid for official purposes. Please feel free to contact us should you require any additional information.`,
-    ];
+    const customContent = employeeCustomContent[employee.id];
+    const bodyText = customContent 
+      ? customContent.split('\n')
+      : [
+          `This letter is to certify that ${employee.name} has been employed as a ${employee.position}.`,
+          "",
+          `Employment Status: Full-time Employee`,
+          `Start Date: ${formatDateLocal(employee.startDate)}`,
+          `Current Position: ${employee.position}`,
+          `Annual Compensation: $${(employee.weeklyRate * 52).toLocaleString("en-US", { maximumFractionDigits: 2 })}`,
+          "",
+          `${employee.name} has been a valuable and responsible member of our team. The information provided in this letter is accurate to the best of our knowledge.`,
+          "",
+          `This letter is issued for ${employee.name}'s use in personal matters and is valid for official purposes. Please feel free to contact us should you require any additional information.`,
+        ];
 
     bodyText.forEach((line) => {
       if (line === "") {
@@ -336,6 +345,47 @@ export default function WorkLetters() {
   const handlePreviewLetter = (employee: Employee) => {
     setSelectedEmployeeForPreview(employee);
     setIsPreviewOpen(true);
+  };
+
+  const handleEditLetter = (employee: Employee) => {
+    setSelectedEmployeeForEdit(employee);
+    setCustomLetterContent(employeeCustomContent[employee.id] || getDefaultLetterContent(employee));
+    setIsEditOpen(true);
+  };
+
+  const getDefaultLetterContent = (employee: Employee): string => {
+    return `This letter is to certify that ${employee.name} has been employed as a ${employee.position}.
+
+Employment Status: Full-time Employee
+Start Date: ${formatDateLocal(employee.startDate)}
+Current Position: ${employee.position}
+Annual Compensation: $${(employee.weeklyRate * 52).toLocaleString("en-US", { maximumFractionDigits: 2 })}
+
+${employee.name} has been a valuable and responsible member of our team. The information provided in this letter is accurate to the best of our knowledge.
+
+This letter is issued for ${employee.name}'s use in personal matters and is valid for official purposes. Please feel free to contact us should you require any additional information.`;
+  };
+
+  const handleSaveCustomContent = () => {
+    if (selectedEmployeeForEdit) {
+      setEmployeeCustomContent(prev => ({
+        ...prev,
+        [selectedEmployeeForEdit.id]: customLetterContent
+      }));
+      setIsEditOpen(false);
+      setSelectedEmployeeForEdit(null);
+    }
+  };
+
+  const handleRemoveCustomContent = () => {
+    if (selectedEmployeeForEdit) {
+      setEmployeeCustomContent(prev => {
+        const newContent = { ...prev };
+        delete newContent[selectedEmployeeForEdit.id];
+        return newContent;
+      });
+      setCustomLetterContent("");
+    }
   };
 
   return (
@@ -451,13 +501,18 @@ export default function WorkLetters() {
                         >
                           {employee.paymentStatus || "active"}
                         </Badge>
+                        {employeeCustomContent[employee.id] && (
+                          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                            Custom Letter
+                          </Badge>
+                        )}
                       </div>
 
-                      <div className="flex gap-2 pt-3">
+                      <div className="grid grid-cols-3 gap-2 pt-3">
                         <Button
                           size="sm"
                           variant="outline"
-                          className="flex-1 border-slate-300"
+                          className="border-slate-300"
                           onClick={() => handlePreviewLetter(employee)}
                         >
                           <FileText className="w-3.5 h-3.5 mr-1.5" />
@@ -465,7 +520,16 @@ export default function WorkLetters() {
                         </Button>
                         <Button
                           size="sm"
-                          className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
+                          variant="outline"
+                          className="border-slate-300"
+                          onClick={() => handleEditLetter(employee)}
+                        >
+                          <Edit className="w-3.5 h-3.5 mr-1.5" />
+                          Edit
+                        </Button>
+                        <Button
+                          size="sm"
+                          className="bg-blue-600 hover:bg-blue-700 text-white"
                           onClick={() => generateWorkLetter(employee)}
                         >
                           <Download className="w-3.5 h-3.5 mr-1.5" />
@@ -536,48 +600,56 @@ export default function WorkLetters() {
               <p className="mb-6">To Whom It May Concern,</p>
 
               <div className="space-y-4 text-sm leading-relaxed">
-                <p>
-                  This letter is to certify that{" "}
-                  {selectedEmployeeForPreview.name} has been employed as a{" "}
-                  {selectedEmployeeForPreview.position}.
-                </p>
+                {employeeCustomContent[selectedEmployeeForPreview.id] ? (
+                  <div className="whitespace-pre-line">
+                    {employeeCustomContent[selectedEmployeeForPreview.id]}
+                  </div>
+                ) : (
+                  <>
+                    <p>
+                      This letter is to certify that{" "}
+                      {selectedEmployeeForPreview.name} has been employed as a{" "}
+                      {selectedEmployeeForPreview.position}.
+                    </p>
 
-                <div className="bg-slate-50 p-4 rounded">
-                  <p>
-                    <span className="font-semibold">Employment Status:</span>{" "}
-                    Full-time Employee
-                  </p>
-                  <p>
-                    <span className="font-semibold">Start Date:</span>{" "}
-                    {formatDateLocal(selectedEmployeeForPreview.startDate)}
-                  </p>
-                  <p>
-                    <span className="font-semibold">Current Position:</span>{" "}
-                    {selectedEmployeeForPreview.position}
-                  </p>
-                  <p>
-                    <span className="font-semibold">Annual Compensation:</span>{" "}
-                    $
-                    {(
-                      selectedEmployeeForPreview.weeklyRate * 52
-                    ).toLocaleString("en-US", {
-                      maximumFractionDigits: 2,
-                    })}
-                  </p>
-                </div>
+                    <div className="bg-slate-50 p-4 rounded">
+                      <p>
+                        <span className="font-semibold">Employment Status:</span>{" "}
+                        Full-time Employee
+                      </p>
+                      <p>
+                        <span className="font-semibold">Start Date:</span>{" "}
+                        {formatDateLocal(selectedEmployeeForPreview.startDate)}
+                      </p>
+                      <p>
+                        <span className="font-semibold">Current Position:</span>{" "}
+                        {selectedEmployeeForPreview.position}
+                      </p>
+                      <p>
+                        <span className="font-semibold">Annual Compensation:</span>{" "}
+                        $
+                        {(
+                          selectedEmployeeForPreview.weeklyRate * 52
+                        ).toLocaleString("en-US", {
+                          maximumFractionDigits: 2,
+                        })}
+                      </p>
+                    </div>
 
-                <p>
-                  {selectedEmployeeForPreview.name} has been a valuable and
-                  responsible member of our team. The information provided in
-                  this letter is accurate to the best of our knowledge.
-                </p>
+                    <p>
+                      {selectedEmployeeForPreview.name} has been a valuable and
+                      responsible member of our team. The information provided in
+                      this letter is accurate to the best of our knowledge.
+                    </p>
 
-                <p>
-                  This letter is issued for {selectedEmployeeForPreview.name}'s
-                  use in personal matters and is valid for official purposes.
-                  Please feel free to contact us should you require any
-                  additional information.
-                </p>
+                    <p>
+                      This letter is issued for {selectedEmployeeForPreview.name}'s
+                      use in personal matters and is valid for official purposes.
+                      Please feel free to contact us should you require any
+                      additional information.
+                    </p>
+                  </>
+                )}
               </div>
 
               <div className="mt-8">
@@ -611,6 +683,72 @@ export default function WorkLetters() {
                 Download PDF
               </Button>
             )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Letter Modal */}
+      <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit Work Letter</DialogTitle>
+            <DialogDescription>
+              {selectedEmployeeForEdit &&
+                `Customize the letter content for ${selectedEmployeeForEdit.name}`}
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedEmployeeForEdit && (
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm font-medium text-slate-700 block mb-2">
+                  Letter Content
+                </label>
+                <Textarea
+                  value={customLetterContent}
+                  onChange={(e) => setCustomLetterContent(e.target.value)}
+                  placeholder="Enter custom letter content..."
+                  className="min-h-[300px] font-mono text-sm"
+                />
+                <p className="text-xs text-slate-500 mt-1">
+                  Use line breaks for paragraphs. The content will be formatted in the PDF.
+                </p>
+              </div>
+
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCustomLetterContent(getDefaultLetterContent(selectedEmployeeForEdit))}
+                >
+                  Reset to Default
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleRemoveCustomContent}
+                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                >
+                  Remove Custom Content
+                </Button>
+              </div>
+            </div>
+          )}
+
+          <div className="flex gap-3 mt-6">
+            <Button
+              variant="outline"
+              className="flex-1 border-slate-300"
+              onClick={() => setIsEditOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
+              onClick={handleSaveCustomContent}
+            >
+              Save Changes
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
