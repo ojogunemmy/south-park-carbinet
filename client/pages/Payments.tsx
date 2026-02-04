@@ -317,11 +317,8 @@ export default function Payments() {
       doc.setFont(undefined, 'normal');
       doc.text(`Generated: ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`, margin, y);
       y += 6;
-      
-      if (filterFromDate && filterToDate) {
-        doc.text(`Period: ${new Date(filterFromDate).toLocaleDateString()} - ${new Date(filterToDate).toLocaleDateString()}`, margin, y);
-        y += 6;
-      }
+      doc.text(`Week: ${new Date(selectedWeek).toLocaleDateString()}`, margin, y);
+      y += 6;
 
       y += 10;
 
@@ -569,8 +566,6 @@ export default function Payments() {
   const [editingPaymentMethod, setEditingPaymentMethod] = useState<string>("");
   const [filterStatus, setFilterStatus] = useState<"all" | "pending" | "paid">("all");
   const [filterEmployee, setFilterEmployee] = useState<string>("all");
-  const [filterFromDate, setFilterFromDate] = useState<string>("");
-  const [filterToDate, setFilterToDate] = useState<string>("");
   const [isCheckPrintModalOpen, setIsCheckPrintModalOpen] = useState(false);
   const [selectedCheckPaymentId, setSelectedCheckPaymentId] = useState<string | null>(null);
   const [isAllMarkedAsPaid, setIsAllMarkedAsPaid] = useState(false);
@@ -1653,24 +1648,8 @@ export default function Payments() {
       const statusMatch = filterStatus === "all" || p.status === filterStatus;
       const employeeMatch = filterEmployee === "all" || p.employee_id === filterEmployee;
 
-      let dateMatch = true;
-
-      // If user set manual date filters, use those
-      if (filterFromDate || filterToDate) {
-        const paymentDate = parseLocalDate(p.due_date);
-
-        if (filterFromDate) {
-          const from_date = parseLocalDate(filterFromDate);
-          if (paymentDate < from_date) dateMatch = false;
-        }
-        if (filterToDate) {
-          const to_date = parseLocalDate(filterToDate);
-          if (paymentDate > to_date) dateMatch = false;
-        }
-      } else {
-        // Strict Week Filtering
-        dateMatch = p.week_start_date === selectedWeek;
-      }
+      // Strict Week Filtering
+      const dateMatch = p.week_start_date === selectedWeek;
 
       // Filter out pending or canceled payments for laid-off employees unless it's severance
       let laidOffFilter = true;
@@ -2523,31 +2502,9 @@ export default function Payments() {
                     </SelectContent>
                   </Select>
                 </div>
-
-                <div>
-                  <Label htmlFor="from-date-filter" className="text-sm font-medium mb-2 block">From Date</Label>
-                  <Input
-                    id="from-date-filter"
-                    type="date"
-                    value={filterFromDate}
-                    onChange={(e) => setFilterFromDate(e.target.value)}
-                    className="w-full border-slate-300"
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="to-date-filter" className="text-sm font-medium mb-2 block">To Date</Label>
-                  <Input
-                    id="to-date-filter"
-                    type="date"
-                    value={filterToDate}
-                    onChange={(e) => setFilterToDate(e.target.value)}
-                    className="w-full border-slate-300"
-                  />
-                </div>
               </div>
 
-              {(filterStatus !== "all" || filterEmployee !== "all" || filterFromDate || filterToDate) && (
+              {(filterStatus !== "all" || filterEmployee !== "all") && (
                 <div className="mt-4">
                   <Button
                     variant="outline"
@@ -2555,8 +2512,6 @@ export default function Payments() {
                     onClick={() => {
                       setFilterStatus("all");
                       setFilterEmployee("all");
-                      setFilterFromDate("");
-                      setFilterToDate("");
                     }}
                     className="gap-2"
                   >

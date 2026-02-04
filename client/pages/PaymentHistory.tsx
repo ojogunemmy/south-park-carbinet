@@ -77,9 +77,10 @@ export default function PaymentHistory() {
   const { selectedYear } = useYear();
   const { toast } = useToast();
   const [paymentRecords, setPaymentRecords] = useState<PaymentRecord[]>([]);
-  const [filterEmployee, setFilterEmployee] = useState<string>("all");
   const [filterFromDate, setFilterFromDate] = useState<string>("");
   const [filterToDate, setFilterToDate] = useState<string>("");
+  const [filterReason, setFilterReason] = useState<string>("all");
+  const [availableReasons, setAvailableReasons] = useState<string[]>([]);
   const [employees, setEmployees] = useState<Array<{ id: string; name: string }>>([]);
   const [lastPaymentCount, setLastPaymentCount] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -130,7 +131,7 @@ export default function PaymentHistory() {
     }
   };
 
-  // Load employees from localStorage for filter dropdown
+  // Load employees from localStorage for display purposes
   useEffect(() => {
     const emps = getYearData<Array<{ id: string; name: string }>>("employees", selectedYear, []) || [];
     setEmployees(emps);
@@ -170,10 +171,29 @@ export default function PaymentHistory() {
       // Get all payments for this year from Supabase
       const yearPayments = await reloadPaymentRecords();
 
-      // Apply employee filter
+      // Apply reason filter
       let filteredPayments = yearPayments;
-      if (filterEmployee !== "all") {
-        filteredPayments = yearPayments.filter(p => p.employee_id === filterEmployee);
+      if (filterReason !== "all") {
+        const PREDEFINED_REASONS = [
+          "Check bounced - needs reissue",
+          "Duplicate payment - correcting error", 
+          "Wrong amount calculated",
+          "Payment issued to wrong employee",
+          "Check lost or stolen",
+          "Employee returned payment",
+          "Bank error - correction needed",
+          "Severance",
+          "Weekly Salary"
+        ];
+
+        filteredPayments = yearPayments.filter(p => {
+          const reason = p.reversal_reason || p.severance_reason || p.notes;
+          if (filterReason === "Others") {
+            return reason && !PREDEFINED_REASONS.includes(reason);
+          } else {
+            return reason === filterReason;
+          }
+        });
       }
 
       // Apply date range filter
@@ -226,6 +246,48 @@ export default function PaymentHistory() {
         }
       });
 
+      // Collect unique reasons for filtering
+      const allReasons = new Set<string>();
+      yearPayments.forEach(payment => {
+        const reason = payment.reversal_reason || payment.severance_reason || payment.notes;
+        if (reason) {
+          allReasons.add(reason);
+        }
+      });
+
+      // Define predefined reasons
+      const PREDEFINED_REASONS = [
+        "Check bounced - needs reissue",
+        "Duplicate payment - correcting error", 
+        "Wrong amount calculated",
+        "Payment issued to wrong employee",
+        "Check lost or stolen",
+        "Employee returned payment",
+        "Bank error - correction needed",
+        "Severance",
+        "Weekly Salary"
+      ];
+
+      // Categorize reasons
+      const predefinedReasons: string[] = [];
+      const customReasons: string[] = [];
+
+      Array.from(allReasons).forEach(reason => {
+        if (PREDEFINED_REASONS.includes(reason)) {
+          predefinedReasons.push(reason);
+        } else {
+          customReasons.push(reason);
+        }
+      });
+
+      // Create final list: predefined reasons first, then "Others" if there are custom reasons
+      const finalReasons = [...predefinedReasons.sort()];
+      if (customReasons.length > 0) {
+        finalReasons.push("Others");
+      }
+
+      setAvailableReasons(finalReasons);
+
       // Convert to array and sort by paid date (newest first), then by created_at
       const records = Array.from(recordsMap.values()).sort((a, b) => {
         const dateCompare = new Date(b.paidDate).getTime() - new Date(a.paidDate).getTime();
@@ -256,7 +318,7 @@ export default function PaymentHistory() {
     return () => {
       window.removeEventListener("paymentsUpdated", handlePaymentUpdate);
     };
-  }, [selectedYear, filterEmployee, filterFromDate, filterToDate]);
+  }, [selectedYear, filterReason, filterFromDate, filterToDate]);
 
   const generatePaymentPDF = (record: PaymentRecord): { data: Uint8Array; fileName: string } => {
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
@@ -459,16 +521,16 @@ export default function PaymentHistory() {
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <Label htmlFor="employee-filter" className="text-sm font-medium mb-2 block">Employee</Label>
-              <Select value={filterEmployee} onValueChange={setFilterEmployee}>
-                <SelectTrigger id="employee-filter" className="w-full">
+              <Label htmlFor="reason-filter" className="text-sm font-medium mb-2 block">Reason</Label>
+              <Select value={filterReason} onValueChange={setFilterReason}>
+                <SelectTrigger id="reason-filter" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Employees</SelectItem>
-                  {employees.map((emp) => (
-                    <SelectItem key={emp.id} value={emp.id}>
-                      {emp.name}
+                  <SelectItem value="all">All Reasons</SelectItem>
+                  {availableReasons.map((reason) => (
+                    <SelectItem key={reason} value={reason}>
+                      {reason}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -498,13 +560,13 @@ export default function PaymentHistory() {
             </div>
           </div>
 
-          {(filterEmployee !== "all" || filterFromDate || filterToDate) && (
+          {(filterReason !== "all" || filterFromDate || filterToDate) && (
             <div className="mt-4">
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  setFilterEmployee("all");
+                  setFilterReason("all");
                   setFilterFromDate("");
                   setFilterToDate("");
                 }}
