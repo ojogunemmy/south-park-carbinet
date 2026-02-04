@@ -913,6 +913,24 @@ export default function Contracts() {
       return;
     }
 
+    // Validate conditional fields based on payment method
+    if (downPaymentForm.method === "check" && !downPaymentForm.check_number?.trim()) {
+      alert("Please enter a check number");
+      return;
+    }
+
+    if (downPaymentForm.method && (downPaymentForm.method === "direct_deposit" || downPaymentForm.method === "bank_transfer" || downPaymentForm.method === "wire_transfer")) {
+      if (!downPaymentForm.bank_name?.trim() || !downPaymentForm.routing_number?.trim() || !downPaymentForm.account_number?.trim()) {
+        alert("Please fill in all required bank transfer details (Bank Name, Routing Number, Account Number)");
+        return;
+      }
+    }
+
+    if (downPaymentForm.method === "credit_card" && !downPaymentForm.credit_card_last4?.trim()) {
+      alert("Please enter the last 4 digits of the credit card");
+      return;
+    }
+
     try {
       const contract = contracts.find(c => c.id === detailsContractId);
       if (!contract) return;
@@ -4898,12 +4916,22 @@ export default function Contracts() {
               <Label htmlFor="downPaymentMethod">Payment Method *</Label>
               <Select
                 value={downPaymentForm.method}
-                onValueChange={(value) =>
+                onValueChange={(value) => {
+                  const newMethod = value as DownPayment["method"];
+                  // Clear conditional fields when payment method changes
                   setDownPaymentForm({
                     ...downPaymentForm,
-                    method: value as DownPayment["method"]
-                  })
-                }
+                    method: newMethod,
+                    // Clear all conditional fields
+                    check_number: "",
+                    bank_name: "",
+                    routing_number: "",
+                    account_number: "",
+                    account_type: "checking",
+                    transaction_reference: "",
+                    credit_card_last4: ""
+                  });
+                }}
               >
                 <SelectTrigger className="border-slate-300">
                   <SelectValue />
@@ -4938,7 +4966,7 @@ export default function Contracts() {
               </div>
             )}
 
-            {downPaymentForm.method && (downPaymentForm.method === "direct_deposit" || downPaymentForm.method === "bank_transfer" || downPaymentForm.method === "wire_transfer") && (
+            {["direct_deposit", "bank_transfer", "wire_transfer"].includes(downPaymentForm.method) && (
               <div className="border-t pt-4 space-y-2">
                 <p className="text-sm font-semibold text-slate-700 mb-3">Bank Transfer Details</p>
                 <div className="space-y-2">
@@ -4962,11 +4990,12 @@ export default function Contracts() {
                   <Input
                     id="downPaymentRoutingNumber"
                     type="text"
+                    maxLength={9}
                     value={downPaymentForm.routing_number || ""}
                     onChange={(e) =>
                       setDownPaymentForm({
                         ...downPaymentForm,
-                        routing_number: e.target.value
+                        routing_number: e.target.value.replace(/\D/g, "")
                       })
                     }
                     placeholder="9-digit routing number"
