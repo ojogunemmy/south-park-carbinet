@@ -919,7 +919,14 @@ export default function Contracts() {
       return;
     }
 
-    if (downPaymentForm.method && (downPaymentForm.method === "direct_deposit" || downPaymentForm.method === "bank_transfer" || downPaymentForm.method === "wire_transfer")) {
+    if (downPaymentForm.method === "wire_transfer") {
+      if (!downPaymentForm.transaction_reference?.trim()) {
+        alert("Please enter the TRN (Transaction Reference Number) for wire transfer");
+        return;
+      }
+    }
+
+    if (downPaymentForm.method && (downPaymentForm.method === "direct_deposit" || downPaymentForm.method === "bank_transfer")) {
       if (!downPaymentForm.bank_name?.trim() || !downPaymentForm.routing_number?.trim() || !downPaymentForm.account_number?.trim()) {
         alert("Please fill in all required bank transfer details (Bank Name, Routing Number, Account Number)");
         return;
@@ -4966,7 +4973,7 @@ export default function Contracts() {
               </div>
             )}
 
-            {["direct_deposit", "bank_transfer", "wire_transfer"].includes(downPaymentForm.method) && (
+            {["direct_deposit", "bank_transfer"].includes(downPaymentForm.method) && (
               <div className="border-t pt-4 space-y-2">
                 <p className="text-sm font-semibold text-slate-700 mb-3">Bank Transfer Details</p>
                 <div className="space-y-2">
@@ -5053,6 +5060,29 @@ export default function Contracts() {
                     placeholder="e.g., TXN123456789"
                     className="border-slate-300"
                   />
+                </div>
+              </div>
+            )}
+
+            {downPaymentForm.method === "wire_transfer" && (
+              <div className="border-t pt-4 space-y-2">
+                <p className="text-sm font-semibold text-slate-700 mb-3">Wire Transfer Details</p>
+                <div className="space-y-2">
+                  <Label htmlFor="downPaymentWireTRN">TRN (Transaction Reference Number) *</Label>
+                  <Input
+                    id="downPaymentWireTRN"
+                    type="text"
+                    value={downPaymentForm.transaction_reference || ""}
+                    onChange={(e) =>
+                      setDownPaymentForm({
+                        ...downPaymentForm,
+                        transaction_reference: e.target.value
+                      })
+                    }
+                    placeholder="e.g., WIRE123456789"
+                    className="border-slate-300"
+                  />
+                  <p className="text-xs text-slate-500">Required for wire transfer verification</p>
                 </div>
               </div>
             )}
