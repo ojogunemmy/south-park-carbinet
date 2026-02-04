@@ -407,7 +407,10 @@ export default function PaymentHistory() {
           <p className="text-slate-600 text-sm md:text-base mt-1">Review and archive payment records</p>
         </div>
         <Button
-          onClick={() => window.print()}
+          onClick={() => {
+            document.body.setAttribute('data-current-page', `Payment Ledger - ${selectedYear}`);
+            window.print();
+          }}
           className="gap-2 bg-slate-700 hover:bg-slate-800"
           title="Print payment ledger"
         >
@@ -526,7 +529,7 @@ export default function PaymentHistory() {
           </CardContent>
         </Card>
       ) : (
-        <Card className="border-slate-200">
+        <Card className="border-slate-200" data-print-section>
           <CardHeader>
             <div className="flex items-center justify-between flex-wrap gap-4">
               <div>

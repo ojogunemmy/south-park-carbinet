@@ -17,6 +17,7 @@ import {
   type EmployeeAbsence,
   type Settings,
 } from "@/lib/supabase-service";
+import { supabase } from "@/lib/supabase";
 import {
   Dialog,
   DialogContent,
@@ -36,6 +37,7 @@ import {
 } from "@/components/ui/select";
 import { Toaster } from "sonner";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 
 interface CheckAttachment {
   id: string;
@@ -139,13 +141,14 @@ export default function Payments() {
   };
 
   // Validate check number is not duplicate
-  const validateCheckNumber = async (checkNum: string): Promise<boolean> => {
+  const validateCheckNumber = async (checkNum: string, excludePaymentId?: string): Promise<boolean> => {
     if (!checkNum || checkNum.trim() === "") return true;
     
     try {
       const allPayments = await paymentsService.getAll();
+      const exclusionId = excludePaymentId || selectedPaymentId;
       const duplicate = allPayments.find(
-        (p: any) => p.check_number === checkNum && p.id !== selectedPaymentId
+        (p: any) => p.check_number === checkNum && p.id !== exclusionId
       );
       
       if (duplicate) {
@@ -562,6 +565,8 @@ export default function Payments() {
   const [isEditAmountOpen, setIsEditAmountOpen] = useState(false);
   const [editingPaymentId, setEditingPaymentId] = useState<string | null>(null);
   const [editingAmount, setEditingAmount] = useState<number>(0);
+  const [editingCheckNumber, setEditingCheckNumber] = useState<string>("");
+  const [editingPaymentMethod, setEditingPaymentMethod] = useState<string>("");
   const [filterStatus, setFilterStatus] = useState<"all" | "pending" | "paid">("all");
   const [filterEmployee, setFilterEmployee] = useState<string>("all");
   const [filterFromDate, setFilterFromDate] = useState<string>("");
@@ -641,7 +646,23 @@ export default function Payments() {
   
   // Submission state to prevent double clicks
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Bulk reversal progress tracking
+  const [bulkReverseProgress, setBulkReverseProgress] = useState<{
+    processed: number;
+    total: number;
+    success: number;
+    failed: number;
+  } | null>(null);
   const [viewMode, setViewMode] = useState<"weekly" | "yearly">("weekly");
+
+  // Bulk Check Edit modal state
+  const [isBulkCheckEditOpen, setIsBulkCheckEditOpen] = useState(false);
+  const [bulkCheckPayments, setBulkCheckPayments] = useState<PaymentObligation[]>([]);
+  const [bulkCheckNumbers, setBulkCheckNumbers] = useState<Record<string, string>>({});
+  const [bulkPaymentMethods, setBulkPaymentMethods] = useState<Record<string, string>>({});
+  const [bulkAmounts, setBulkAmounts] = useState<Record<string, number>>({});
+  const [bulkCheckStartNumber, setBulkCheckStartNumber] = useState<string>("");
+  const [bulkCheckAutoAssign, setBulkCheckAutoAssign] = useState(true);
 
   // Batch Mark Paid modal state
   const [isBatchMarkPaidModalOpen, setIsBatchMarkPaidModalOpen] = useState(false);
@@ -820,51 +841,68 @@ export default function Payments() {
     }
 
     try {
-      await paymentsService.update(selectedPaymentId, {
-        status: "paid",
-        paid_date,
-        payment_method: selectedPaymentMethod,
-        deduction_amount: paidDeduction,
-        check_number: selectedPaymentMethod === "check" ? check_number : undefined,
-        account_last_four: account_number ? account_number.slice(-4) : payment?.account_last_four,
-        bank_name: bank_name || payment?.bank_name,
-      });
+      // Direct Supabase update for allowed mutable fields (status, paid_date, payment details)
+      const { error } = await supabase
+        .from('payments')
+        .update({
+          status: "paid",
+          paid_date,
+          payment_method: selectedPaymentMethod,
+          deduction_amount: paidDeduction,
+          check_number: selectedPaymentMethod === "check" ? check_number : undefined,
+          account_last_four: account_number ? account_number.slice(-4) : payment?.account_last_four,
+          bank_name: bank_name || payment?.bank_name,
+        })
+        .eq('id', selectedPaymentId);
+
+      if (error) {
+        console.error("❌ Supabase error:", error);
+        throw error;
+      }
+
+      console.log("✅ Payment updated in database");
       await loadFreshData();
-    } catch (error) {
-      console.error("Error updating payment:", error);
+
+      // Capture values before resetting for toast message
+      const checkNumberVal = check_number;
+      const method = selectedPaymentMethod;
+
+      // Close modal
+      setIsPaymentModalOpen(false);
+      setSelectedPaymentId(null);
+      setPaidDate("");
+      setPaidDeduction(0);
+      setPaidCheckNumber("");
+      setBankName("");
+      setRoutingNumber("");
+      setAccountNumber("");
+      setSelectedPaymentMethod("");
+
+      toast({
+        title: "✓ Payment Confirmed",
+        description: `Payment marked as paid via ${method}${method === 'check' ? ` (Check #${checkNumberVal})` : ''}`,
+      });
+
+      console.log("✅ handleConfirmPayment COMPLETED SUCCESSFULLY");
+    } catch (error: any) {
+      console.error("❌ Error updating payment:", error);
       toast({
         title: "Error",
-        description: "Failed to update payment in Supabase.",
+        description: error?.message || "Failed to update payment in Supabase.",
         variant: "destructive",
       });
+      // Don't close modal on error so user can retry
     }
-
-    // Capture values before resetting for toast message
-    const checkNumberVal = check_number;
-    const method = selectedPaymentMethod;
-
-    // Close modal
-    setIsPaymentModalOpen(false);
-    setSelectedPaymentId(null);
-    setPaidDate("");
-    setPaidDeduction(0);
-    setPaidCheckNumber("");
-    setBankName("");
-    setRoutingNumber("");
-    setAccountNumber("");
-    setSelectedPaymentMethod("");
-
-    toast({
-      title: "✓ Payment Confirmed",
-      description: `Payment marked as paid via ${method}${method === 'check' ? ` (Check #${checkNumberVal})` : ''}`,
-    });
-
-    console.log("✅ handleConfirmPayment COMPLETED SUCCESSFULLY");
   };
 
   const handleMarkAsPending = async (payment_id: string) => {
     try {
-      await paymentsService.update(payment_id, { status: "pending", paid_date: null });
+      const { error } = await supabase
+        .from('payments')
+        .update({ status: "pending", paid_date: null })
+        .eq('id', payment_id);
+
+      if (error) throw error;
       await loadFreshData();
       toast({
         title: "✓ Status Updated",
@@ -880,28 +918,59 @@ export default function Payments() {
     if (payment) {
       setEditingPaymentId(paymentId);
       setEditingAmount(payment.amount);
+      setEditingCheckNumber(payment.check_number || "");
+      setEditingPaymentMethod(payment.payment_method || "");
       setIsEditAmountOpen(true);
     }
   };
 
   const handleConfirmAmountEdit = async () => {
-    if (!editingPaymentId || editingAmount < 0) {
-      alert("Please enter a valid amount");
+    if (!editingPaymentId) {
+      toast({
+        title: "Invalid Payment",
+        description: "Please select a payment to edit.",
+        variant: "destructive",
+      });
       return;
     }
 
+    // Validate check number if payment method is check
+    if (editingPaymentMethod === "check" && editingCheckNumber.trim()) {
+      const isValid = await validateCheckNumber(editingCheckNumber, editingPaymentId);
+      if (!isValid) {
+        return;
+      }
+    }
+
     try {
-      await paymentsService.update(editingPaymentId, { amount: editingAmount });
+      const updateData: any = { 
+        amount: editingAmount,
+        payment_method: editingPaymentMethod
+      };
+      
+      // Only update check_number if payment method is check
+      if (editingPaymentMethod === "check") {
+        updateData.check_number = editingCheckNumber || null;
+      } else {
+        updateData.check_number = null;
+      }
+
+      const { error } = await supabase
+        .from('payments')
+        .update(updateData)
+        .eq('id', editingPaymentId);
+
+      if (error) throw error;
       await loadFreshData();
       toast({
-        title: "✓ Amount Updated",
-        description: "Payment amount has been updated.",
+        title: "✓ Payment Updated",
+        description: "Payment details have been updated.",
       });
     } catch (error) {
-      console.error("Error updating payment amount:", error);
+      console.error("Error updating payment:", error);
       toast({
         title: "Error",
-        description: "Failed to update payment amount.",
+        description: "Failed to update payment.",
         variant: "destructive",
       });
     }
@@ -909,6 +978,8 @@ export default function Payments() {
     setIsEditAmountOpen(false);
     setEditingPaymentId(null);
     setEditingAmount(0);
+    setEditingCheckNumber("");
+    setEditingPaymentMethod("");
   };
 
   const handleEditDays = (paymentId: string) => {
@@ -942,10 +1013,15 @@ export default function Payments() {
     const newAmount = dailyRate * editingDaysWorked;
 
     try {
-      await paymentsService.update(editingDaysPaymentId, {
-        days_worked: editingDaysWorked,
-        amount: newAmount || payment.amount,
-      });
+      const { error } = await supabase
+        .from('payments')
+        .update({
+          days_worked: editingDaysWorked,
+          amount: newAmount || payment.amount,
+        })
+        .eq('id', editingDaysPaymentId);
+
+      if (error) throw error;
       await loadFreshData();
       toast({
         title: "✓ Days Worked Updated",
@@ -991,11 +1067,8 @@ export default function Payments() {
       return;
     }
 
-    if (editingDownPaymentAmount < 0) {
-      console.error("❌ Invalid down payment amount:", editingDownPaymentAmount);
-      alert("Please enter a valid down payment amount (0 or more)");
-      return;
-    }
+    // Allow negative amounts for reversal entries
+    // Down payment amounts can be negative for corrections
 
     const payment = payments.find(p => p.id === editingDownPaymentPaymentId);
     if (!payment) {
@@ -1009,7 +1082,12 @@ export default function Payments() {
     const down_payment_amount = editingDownPaymentAmount;
 
     try {
-      await paymentsService.update(editingDownPaymentPaymentId, { down_payment: down_payment_amount });
+      const { error } = await supabase
+        .from('payments')
+        .update({ down_payment: down_payment_amount })
+        .eq('id', editingDownPaymentPaymentId);
+
+      if (error) throw error;
       await loadFreshData();
       toast({
         title: "✅ Success",
@@ -1064,10 +1142,15 @@ export default function Payments() {
       const dailyRate = weekly_rate > 0 ? weekly_rate / 5 : 0;
       const newAmount = dailyRate * bulkDaysValue;
 
-      return paymentsService.update(p.id, {
-        days_worked: bulkDaysValue,
-        amount: newAmount || p.amount, // Fallback to original amount if calculation fails
-      });
+      const { error } = await supabase
+        .from('payments')
+        .update({
+          days_worked: bulkDaysValue,
+          amount: newAmount || p.amount, // Fallback to original amount if calculation fails
+        })
+        .eq('id', p.id);
+
+      if (error) throw error;
     });
 
     try {
@@ -1098,17 +1181,21 @@ export default function Payments() {
 
     // Restore the previous state by updating each payment individually
     const revertUpdates = lastBulkOperation.paymentsSnapshot.map(async (p) => {
-      return paymentsService.update(p.id, {
-        days_worked: p.days_worked,
-        amount: p.amount,
-        status: p.status,
-        paid_date: p.paid_date,
-        deduction_amount: p.deduction_amount,
-        check_number: p.check_number,
-        account_last_four: p.account_last_four,
-        bank_name: p.bank_name,
-        // Add other fields that might have been changed by bulk operation
-      });
+      const { error } = await supabase
+        .from('payments')
+        .update({
+          days_worked: p.days_worked,
+          amount: p.amount,
+          status: p.status,
+          paid_date: p.paid_date,
+          deduction_amount: p.deduction_amount,
+          check_number: p.check_number,
+          account_last_four: p.account_last_four,
+          bank_name: p.bank_name,
+        })
+        .eq('id', p.id);
+
+      if (error) throw error;
     });
 
     try {
@@ -1130,7 +1217,158 @@ export default function Payments() {
     }
   };
 
+  // Bulk Check Editing Functions
+  const handleBulkEditChecks = () => {
+    // Get all pending/paid payments for the current week
+    const weekPayments = filteredPayments.filter(
+      p => (p.status === "pending" || p.status === "paid")
+    );
 
+    if (weekPayments.length === 0) {
+      toast({
+        title: "No Payments Found",
+        description: "No payments found for this week.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setBulkCheckPayments(weekPayments);
+    
+    // Initialize check numbers and payment methods with existing values
+    const initialCheckNumbers: Record<string, string> = {};
+    const initialPaymentMethods: Record<string, string> = {};
+    weekPayments.forEach(p => {
+      initialCheckNumbers[p.id] = p.check_number || "";
+      initialPaymentMethods[p.id] = p.payment_method || "cash";
+    });
+    setBulkCheckNumbers(initialCheckNumbers);
+    setBulkPaymentMethods(initialPaymentMethods);
+
+    // Set starting number for auto-assignment
+    const nextCheck = getNextCheckNumber();
+    setBulkCheckStartNumber(nextCheck.toString());
+    setBulkCheckAutoAssign(true);
+    
+    setIsBulkCheckEditOpen(true);
+  };
+
+  const handleAutoAssignCheckNumbers = () => {
+    if (!bulkCheckStartNumber || isNaN(parseInt(bulkCheckStartNumber))) {
+      toast({
+        title: "Invalid Starting Number",
+        description: "Please enter a valid starting check number.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    let currentNumber = parseInt(bulkCheckStartNumber);
+    const newCheckNumbers: Record<string, string> = { ...bulkCheckNumbers };
+    
+    // Assign sequential numbers only to payments with check payment method
+    bulkCheckPayments.forEach(payment => {
+      const paymentMethod = bulkPaymentMethods[payment.id] || payment.payment_method;
+      if (paymentMethod === "check" && !payment.check_number) {
+        newCheckNumbers[payment.id] = currentNumber.toString();
+        currentNumber++;
+      } else if (paymentMethod !== "check") {
+        // Clear check number if payment method is not check
+        newCheckNumbers[payment.id] = "";
+      }
+    });
+
+    setBulkCheckNumbers(newCheckNumbers);
+    
+    toast({
+      title: "✓ Check Numbers Assigned",
+      description: `Assigned sequential check numbers starting from ${bulkCheckStartNumber}`,
+    });
+  };
+
+  const handleConfirmBulkCheckEdit = async () => {
+    setIsSubmitting(true);
+
+    try {
+      // Validate check numbers are unique and only for check payment methods
+      const checkPayments = bulkCheckPayments.filter(p => bulkPaymentMethods[p.id] === "check");
+      const checkNumberValues = checkPayments
+        .map(p => bulkCheckNumbers[p.id])
+        .filter(num => num && num.trim() !== "");
+      
+      const uniqueNumbers = new Set(checkNumberValues);
+      
+      if (checkNumberValues.length !== uniqueNumbers.size) {
+        toast({
+          title: "Duplicate Check Numbers",
+          description: "Each check number must be unique. Please review and fix duplicates.",
+          variant: "destructive",
+        });
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Validate against existing check numbers in the database
+      for (const payment of checkPayments) {
+        const checkNumber = bulkCheckNumbers[payment.id]?.trim();
+        if (checkNumber && !(await validateCheckNumber(checkNumber, payment.id))) {
+          setIsSubmitting(false);
+          return; // validateCheckNumber shows its own error toast
+        }
+      }
+
+      // Update all payments using direct Supabase calls
+      const updatePromises = bulkCheckPayments.map(async (payment) => {
+        const newPaymentMethod = bulkPaymentMethods[payment.id] || payment.payment_method;
+        const newCheckNumber = newPaymentMethod === "check" ? (bulkCheckNumbers[payment.id]?.trim() || null) : null;
+        const newAmount = bulkAmounts[payment.id] !== undefined ? bulkAmounts[payment.id] : payment.amount;
+        
+        if (newPaymentMethod !== payment.payment_method || newCheckNumber !== payment.check_number || newAmount !== payment.amount) {
+          const { error } = await supabase
+            .from('payments')
+            .update({
+              payment_method: newPaymentMethod,
+              check_number: newCheckNumber,
+              amount: newAmount
+            })
+            .eq('id', payment.id);
+          
+          if (error) throw error;
+        }
+      });
+
+      await Promise.all(updatePromises);
+      await loadFreshData(); // Reload all data
+
+      const updatedCount = bulkCheckPayments.filter(
+        p => bulkPaymentMethods[p.id] !== p.payment_method || 
+             (bulkPaymentMethods[p.id] === "check" && bulkCheckNumbers[p.id]?.trim() !== (p.check_number || "")) ||
+             (bulkAmounts[p.id] !== undefined && bulkAmounts[p.id] !== p.amount)
+      ).length;
+
+      toast({
+        title: "✓ Payments Updated",
+        description: `Successfully updated ${updatedCount} payment(s)`,
+      });
+
+      setIsBulkCheckEditOpen(false);
+      setBulkCheckPayments([]);
+      setBulkCheckNumbers({});
+      setBulkPaymentMethods({});
+      setBulkAmounts({});
+      setBulkCheckStartNumber("");
+
+    } catch (error) {
+      console.error("Error updating bulk payment details:", error);
+      toast({
+        title: "Error",
+        description: "Failed to update payment details. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const handlePrintCheck = (paymentId: string) => {
     setSelectedCheckPaymentId(paymentId);
@@ -1209,10 +1447,13 @@ export default function Payments() {
     }
 
     setIsSubmitting(true);
+    // Progress tracking
+    setBulkReverseProgress({ processed: 0, total: selectedPaymentsList.length, success: 0, failed: 0 });
+
     let successCount = 0;
     let failCount = 0;
 
-    for (const payment of selectedPaymentsList) {
+    for (const [idx, payment] of selectedPaymentsList.entries()) {
       const selectedReason = bulkReversalReasons[payment.id] || "";
       const customReason = bulkCustomReasons[payment.id] || "";
       const finalReason = selectedReason === "" ? customReason.trim() : selectedReason.trim();
@@ -1224,9 +1465,18 @@ export default function Payments() {
         console.error(`Error reversing payment ${payment.id}:`, error);
         failCount++;
       }
+
+      // update progress after each attempt
+      setBulkReverseProgress(prev => ({
+        processed: (prev?.processed || 0) + 1,
+        total: selectedPaymentsList.length,
+        success: successCount,
+        failed: failCount,
+      }));
     }
 
     setIsSubmitting(false);
+    // ensure we refresh data after all reversals
     await loadFreshData();
 
     toast({
@@ -1240,6 +1490,7 @@ export default function Payments() {
     setSelectedReversalPayments(new Set());
     setBulkReversalReasons({});
     setBulkCustomReasons({});
+    setBulkReverseProgress(null);
   };
 
   const [isClearAllConfirmOpen, setIsClearAllConfirmOpen] = useState(false);
@@ -1492,7 +1743,13 @@ export default function Payments() {
           updateData.check_number = (nextCheckNum + index).toString();
         }
 
-        return paymentsService.update(id, updateData);
+        const { error } = await supabase
+          .from('payments')
+          .update(updateData)
+          .eq('id', id);
+
+        if (error) throw error;
+        return { id };
       }));
 
       await loadFreshData();
@@ -1533,7 +1790,7 @@ export default function Payments() {
       return;
     }
 
-    if (addPaymentAmount <= 0) {
+    if (isNaN(addPaymentAmount)) {
       alert("Please enter a valid amount");
       return;
     }
@@ -1834,7 +2091,7 @@ export default function Payments() {
     if (!emp) return;
 
     const amount = parseFloat(inlinePaymentAmount);
-    if (isNaN(amount) || amount <= 0) return;
+    if (isNaN(amount)) return;
 
     setQueuedAdditionalPayments(prev => [...prev, {
       id: `q-${Date.now()}`,
@@ -2026,11 +2283,17 @@ export default function Payments() {
     if (!checkDetailsPaymentId) return;
 
     try {
-      await paymentsService.update(checkDetailsPaymentId, {
-        check_number: checkDetailsNumber,
-        bank_name: checkDetailsBankName,
-        account_last_four: checkDetailsAccountLast4,
-      });
+      const { supabase } = await import('@/lib/supabase');
+      const { error } = await supabase
+        .from('payments')
+        .update({
+          check_number: checkDetailsNumber,
+          bank_name: checkDetailsBankName,
+          account_last_four: checkDetailsAccountLast4,
+        })
+        .eq('id', checkDetailsPaymentId);
+
+      if (error) throw error;
       await loadFreshData();
       
       setIsCheckDetailsModalOpen(false);
@@ -2121,7 +2384,10 @@ export default function Payments() {
             {viewMode === "weekly" ? "Yearly Earnings" : "All Payments"}
           </Button>
           <Button
-            onClick={() => window.print()}
+            onClick={() => {
+              document.body.setAttribute('data-current-page', `Payroll - ${viewMode === "weekly" ? "Weekly Payments" : "Yearly Earnings"}`);
+              window.print();
+            }}
             className="gap-2 bg-slate-700 hover:bg-slate-800"
             title="Print payroll information"
           >
@@ -2174,7 +2440,7 @@ export default function Payments() {
       </div>
 
       {viewMode === "yearly" ? (
-        <Card className="border-slate-200">
+        <Card className="border-slate-200" data-print-section>
           <CardHeader>
             <CardTitle>Yearly Earnings Summary</CardTitle>
             <CardDescription>Consolidated payments for 2026</CardDescription>
@@ -2217,7 +2483,7 @@ export default function Payments() {
           </CardContent>
         </Card>
       ) : (
-        <Card className="border-slate-200">
+        <Card className="border-slate-200" data-print-section>
           <CardHeader>
             <CardTitle>Generate Payments</CardTitle>
           <CardDescription>Calculate and process payments</CardDescription>
@@ -2341,6 +2607,16 @@ export default function Payments() {
                 >
                   <AlertCircle className="w-4 h-4" />
                   Reverse Week
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={handleBulkEditChecks}
+                  className="gap-2 border-blue-200 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-300"
+                  title="Edit payment methods and check numbers for payments in this week"
+                  disabled={filteredPayments.filter(p => (p.status === "pending" || p.status === "paid")).length === 0}
+                >
+                  <Edit2 className="w-4 h-4" />
+                  Edit Week Payments
                 </Button>
               </div>
 
@@ -2496,22 +2772,28 @@ export default function Payments() {
                       </td>
                       <td className="p-3 text-slate-700 whitespace-nowrap">
                         {payment.status === "paid" && payment.payment_method === "check" ? (
-                          <div
-                            className="px-3 py-1.5 rounded-full inline-block text-sm font-medium whitespace-nowrap bg-purple-100 text-purple-700"
+                          <button
+                            onClick={() => handleEditAmount(payment.id)}
+                            className="px-3 py-1.5 rounded-full inline-block text-sm font-medium whitespace-nowrap bg-purple-100 text-purple-700 hover:bg-purple-200 transition-colors cursor-pointer"
+                            title="Click to edit payment details"
                           >
                             <span>{getPaymentMethodDisplay(payment.payment_method, payment)}</span>
-                          </div>
+                          </button>
                         ) : (
-                          <div className={`px-3 py-1.5 rounded-full inline-block text-sm font-medium whitespace-nowrap ${
-                            payment.payment_method === 'direct_deposit' ? 'bg-blue-100 text-blue-700' :
-                            payment.payment_method === 'check' ? 'bg-purple-100 text-purple-700' :
-                            payment.payment_method === 'cash' ? 'bg-green-100 text-green-700' :
-                            payment.payment_method === 'ach' ? 'bg-teal-100 text-teal-700' :
-                            payment.payment_method === 'wire' ? 'bg-orange-100 text-orange-700' :
-                            'bg-slate-100 text-slate-700'
-                          }`}>
+                          <button
+                            onClick={() => handleEditAmount(payment.id)}
+                            className={`px-3 py-1.5 rounded-full inline-block text-sm font-medium whitespace-nowrap cursor-pointer transition-colors ${
+                              payment.payment_method === 'direct_deposit' ? 'bg-blue-100 text-blue-700 hover:bg-blue-200' :
+                              payment.payment_method === 'check' ? 'bg-purple-100 text-purple-700 hover:bg-purple-200' :
+                              payment.payment_method === 'cash' ? 'bg-green-100 text-green-700 hover:bg-green-200' :
+                              payment.payment_method === 'ach' ? 'bg-teal-100 text-teal-700 hover:bg-teal-200' :
+                              payment.payment_method === 'wire' ? 'bg-orange-100 text-orange-700 hover:bg-orange-200' :
+                              'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                            }`}
+                            title="Click to edit payment details"
+                          >
                             <span>{getPaymentMethodDisplay(payment.payment_method, payment)}</span>
-                          </div>
+                          </button>
                         )}
                       </td>
                       <td className="p-3 whitespace-nowrap">
@@ -2699,7 +2981,13 @@ export default function Payments() {
                       </div>
                       <div>
                          <span className="block text-slate-400">Method</span>
-                         <span>{getPaymentMethodDisplay(payment.payment_method, payment)}</span>
+                         <button 
+                           onClick={() => handleEditAmount(payment.id)}
+                           className="text-blue-600 hover:text-blue-800 underline cursor-pointer text-left"
+                           title="Click to edit payment details"
+                         >
+                           {getPaymentMethodDisplay(payment.payment_method, payment)}
+                         </button>
                       </div>
                     </div>
                   </div>
@@ -2894,7 +3182,6 @@ export default function Payments() {
                   <Input
                     id="paidDeduction"
                     type="number"
-                    min="0"
                     step="0.01"
                     value={paidDeduction}
                     onChange={(e) => setPaidDeduction(parseFloat(e.target.value) || 0)}
@@ -2949,9 +3236,9 @@ export default function Payments() {
           <Dialog open={isEditAmountOpen} onOpenChange={setIsEditAmountOpen}>
             <DialogContent className="sm:max-w-md">
               <DialogHeader>
-                <DialogTitle>Edit Payment Amount</DialogTitle>
+                <DialogTitle>Edit Payment Details</DialogTitle>
                 <DialogDescription>
-                  {payment && `Adjust amount for ${payment.employee_name}`}
+                  {payment && `Edit payment details for ${payment.employee_name}`}
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-4 py-4">
@@ -2968,12 +3255,12 @@ export default function Payments() {
                         <span className="font-medium">Days Worked:</span> {payment.days_worked}/5
                       </p>
                     </div>
+                    
                     <div className="space-y-2">
                       <Label htmlFor="editAmount">Payment Amount ($)</Label>
                       <Input
                         id="editAmount"
                         type="number"
-                        min="0"
                         step="0.01"
                         value={editingAmount}
                         onChange={(e) => setEditingAmount(parseFloat(e.target.value) || 0)}
@@ -2983,6 +3270,39 @@ export default function Payments() {
                         Original amount: ${(payment.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </p>
                     </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="editPaymentMethod">Payment Method</Label>
+                      <Select value={editingPaymentMethod} onValueChange={setEditingPaymentMethod}>
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Select payment method" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="check">Check</SelectItem>
+                          <SelectItem value="direct_deposit">Direct Deposit</SelectItem>
+                          <SelectItem value="cash">Cash</SelectItem>
+                          <SelectItem value="ach">ACH Transfer</SelectItem>
+                          <SelectItem value="wire">Wire Transfer</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {editingPaymentMethod === "check" && (
+                      <div className="space-y-2">
+                        <Label htmlFor="editCheckNumber">Check Number</Label>
+                        <Input
+                          id="editCheckNumber"
+                          type="text"
+                          value={editingCheckNumber}
+                          onChange={(e) => setEditingCheckNumber(e.target.value)}
+                          placeholder="e.g., 1001"
+                          className="border-slate-300"
+                        />
+                        <p className="text-xs text-slate-500">
+                          {payment.check_number ? `Original: #${payment.check_number}` : "No check number set"}
+                        </p>
+                      </div>
+                    )}
                   </>
                 )}
               </div>
@@ -2994,6 +3314,8 @@ export default function Payments() {
                     setIsEditAmountOpen(false);
                     setEditingPaymentId(null);
                     setEditingAmount(0);
+                    setEditingCheckNumber("");
+                    setEditingPaymentMethod("");
                   }}
                   className="border-slate-300"
                 >
@@ -3003,7 +3325,7 @@ export default function Payments() {
                   onClick={handleConfirmAmountEdit}
                   className="bg-blue-600 hover:bg-blue-700"
                 >
-                  Update Amount
+                  Update Payment
                 </Button>
               </div>
             </DialogContent>
@@ -3138,7 +3460,6 @@ export default function Payments() {
                       <Input
                         id="editDownPayment"
                         type="number"
-                        min="0"
                         step="0.01"
                         value={editingDownPaymentAmount}
                         onChange={(e) => setEditingDownPaymentAmount(parseFloat(e.target.value) || 0)}
@@ -3563,6 +3884,154 @@ export default function Payments() {
         );
       })()}
 
+      {/* Bulk Check Edit Dialog */}
+      <Dialog open={isBulkCheckEditOpen} onOpenChange={setIsBulkCheckEditOpen}>
+        <DialogContent className="sm:max-w-4xl max-h-[85vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Edit2 className="w-5 h-5 text-blue-600" />
+              Edit Week Payments
+            </DialogTitle>
+            <DialogDescription>
+              Update amounts, payment methods, and check numbers for payments in this week
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-y-auto space-y-4">
+            {/* Auto-assign section */}
+            <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="font-semibold text-blue-900">Auto-assign Check Numbers</h4>
+                <Checkbox 
+                  checked={bulkCheckAutoAssign} 
+                  onCheckedChange={(checked) => setBulkCheckAutoAssign(checked === true)}
+                />
+              </div>
+              
+              {bulkCheckAutoAssign && (
+                <div className="flex items-center gap-3">
+                  <Label htmlFor="startingNumber" className="text-sm font-medium">Starting Number:</Label>
+                  <Input
+                    id="startingNumber"
+                    type="number"
+                    value={bulkCheckStartNumber}
+                    onChange={(e) => setBulkCheckStartNumber(e.target.value)}
+                    className="w-32"
+                    placeholder="1001"
+                  />
+                  <Button
+                    onClick={handleAutoAssignCheckNumbers}
+                    variant="outline"
+                    size="sm"
+                    className="text-blue-700 border-blue-300"
+                  >
+                    Auto-assign Check Numbers
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            {/* Individual payment method and check number assignments */}
+            <div className="space-y-3">
+              <h4 className="font-semibold text-slate-900">Payment Details</h4>
+              <div className="grid gap-3">
+                {bulkCheckPayments.map((payment) => (
+                  <div key={payment.id} className="p-3 bg-slate-50 rounded-lg border space-y-3">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <p className="font-medium text-slate-900">{payment.employee_name}</p>
+                        <p className="text-sm text-slate-600">
+                          Week {new Date(payment.week_start_date).toLocaleDateString()}
+                        </p>
+                      </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <div className="flex flex-col gap-1.5">
+                        <Label htmlFor={`amount-${payment.id}`} className="text-sm">Amount ($)</Label>
+                        <Input
+                          id={`amount-${payment.id}`}
+                          type="number"
+                          step="0.01"
+                          value={bulkAmounts[payment.id] !== undefined ? bulkAmounts[payment.id] : payment.amount || 0}
+                          onChange={(e) => {
+                            const value = parseFloat(e.target.value);
+                            setBulkAmounts(prev => ({
+                              ...prev,
+                              [payment.id]: isNaN(value) ? 0 : value
+                            }));
+                          }}
+                          className="w-full"
+                          placeholder="0.00"
+                        />
+                        <p className="text-xs text-slate-500">Use negative amounts for reversals</p>
+                      </div>
+                      
+                      <div className="flex flex-col gap-1.5">
+                        <Label htmlFor={`method-${payment.id}`} className="text-sm">Payment Method</Label>
+                        <Select 
+                          value={bulkPaymentMethods[payment.id] || payment.payment_method || "cash"}
+                          onValueChange={(value) => setBulkPaymentMethods(prev => ({
+                            ...prev,
+                            [payment.id]: value
+                          }))}
+                        >
+                          <SelectTrigger className="w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="cash">Cash</SelectItem>
+                            <SelectItem value="check">Check</SelectItem>
+                            <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                            <SelectItem value="direct_deposit">Direct Deposit</SelectItem>
+                            <SelectItem value="credit_card">Credit Card</SelectItem>
+                            <SelectItem value="debit_card">Debit Card</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      
+                      {(bulkPaymentMethods[payment.id] === "check" || (!bulkPaymentMethods[payment.id] && payment.payment_method === "check")) && (
+                        <div className="flex flex-col gap-1.5">
+                          <Label htmlFor={`check-${payment.id}`} className="text-sm">Check Number</Label>
+                          <Input
+                            id={`check-${payment.id}`}
+                            type="text"
+                            value={bulkCheckNumbers[payment.id] || ""}
+                            onChange={(e) => setBulkCheckNumbers(prev => ({
+                              ...prev,
+                              [payment.id]: e.target.value
+                            }))}
+                            className="w-full"
+                            placeholder="1001"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-3 pt-4 border-t">
+            <Button
+              variant="outline"
+              onClick={() => setIsBulkCheckEditOpen(false)}
+              disabled={isSubmitting}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleConfirmBulkCheckEdit}
+              className="bg-blue-600 hover:bg-blue-700"
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? "Updating..." : "Update Payments"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Bulk Reverse Week Dialog */}
       <Dialog open={isBulkReverseOpen} onOpenChange={setIsBulkReverseOpen}>
         <DialogContent className="sm:max-w-3xl max-h-[85vh] overflow-hidden flex flex-col">
@@ -3576,6 +4045,23 @@ export default function Payments() {
             </DialogDescription>
           </DialogHeader>
           
+          {/* Progress indicator shown while reversing */}
+          {bulkReverseProgress && (
+            <div className="px-4">
+              <div className="text-sm font-medium text-slate-700 mb-2">Reversal Progress</div>
+              <div className="w-full bg-slate-200 rounded h-2 overflow-hidden">
+                <div
+                  className="h-2 bg-orange-500"
+                  style={{ width: `${Math.round((bulkReverseProgress.processed / Math.max(1, bulkReverseProgress.total)) * 100)}%` }}
+                />
+              </div>
+              <div className="flex justify-between text-xs text-slate-600 mt-2">
+                <div>Processed: {bulkReverseProgress.processed}/{bulkReverseProgress.total}</div>
+                <div>Success: {bulkReverseProgress.success} • Failed: {bulkReverseProgress.failed}</div>
+              </div>
+            </div>
+          )}
+
           <div className="flex-1 overflow-y-auto space-y-4 pr-2">
             <div className="bg-slate-50 p-3 rounded border border-slate-200">
               <div className="flex items-center justify-between mb-2">
@@ -4141,7 +4627,6 @@ export default function Payments() {
                 onChange={(e) => setAddPaymentAmount(parseFloat(e.target.value) || 0)}
                 className="border-slate-300"
                 step="0.01"
-                min="0"
               />
             </div>
 
@@ -4238,8 +4723,6 @@ export default function Payments() {
                          <Input
                            id={`days-${emp.id}`}
                            type="number"
-                           min="0"
-                           max="7"
                            step="0.5"
                            value={employeeDays[emp.id] ?? 5}
                            onChange={(e) => {
