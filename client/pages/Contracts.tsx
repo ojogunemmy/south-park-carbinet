@@ -3398,188 +3398,220 @@ export default function Contracts() {
         </Card>
       </div>
 
-      {filteredContracts.length > 0 && (
-        <>
-          {(() => {
-            const overdueContracts = filteredContracts.filter((c) => isOverdue(c.due_date));
-            if (overdueContracts.length > 0) {
-              return (
-                <Card className="border-red-200 bg-red-50">
-                  <CardContent className="pt-6 flex items-start gap-3">
-                    <AlertCircle className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" />
-                    <div>
-                      <p className="font-semibold text-red-900">{overdueContracts.length} Overdue Contract{overdueContracts.length !== 1 ? "s" : ""}</p>
-                      <p className="text-sm text-red-800">
-                        {overdueContracts.map((c) => `${c.id} (${c.client_name})`).join(", ")}
-                      </p>
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            }
-            return null;
-          })()}
+      <>
+        {(() => {
+          const getYearFromISODate = (dateStr?: string) => {
+            if (!dateStr) return null;
+            const parts = String(dateStr).split("-");
+            const year = parseInt(parts[0] ?? "", 10);
+            return Number.isFinite(year) ? year : null;
+          };
 
-          <Card className="border-slate-200">
-            <CardHeader>
-              <CardTitle>Active Contracts</CardTitle>
-              <CardDescription>
-                All client contracts with deposit and payment schedule tracking
-              </CardDescription>
-              <div className="flex flex-col lg:flex-row gap-4 mt-4 items-start lg:items-center flex-wrap">
-                <Select value={filterStatus} onValueChange={(value: any) => setFilterStatus(value)}>
-                  <SelectTrigger className="w-full sm:w-40 border-slate-300">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Status</SelectItem>
-                    <SelectItem value="in-progress">In Progress</SelectItem>
-                    <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="completed">Completed</SelectItem>
-                  </SelectContent>
-                </Select>
+          // Keep this visible even when filters yield 0 matches
+          const overdueContracts = contracts
+            .filter((c) => {
+              const contractYear = getYearFromISODate(c.due_date) ?? getYearFromISODate(c.start_date);
+              return contractYear ? contractYear === selectedYear : true;
+            })
+            .filter((c) => !!c.due_date && isOverdue(c.due_date));
 
-                <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 items-start sm:items-center w-full lg:w-auto">
-                  <Label className="text-sm text-slate-600 whitespace-nowrap">Due Date Range:</Label>
-                  <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr] items-center gap-2 w-full sm:w-auto">
-                    <Input
-                      id="filterFromDate"
-                      type="date"
-                      placeholder="From"
-                      value={filterFromDate ?? ""}
-                      onChange={(e) => setFilterFromDate(e.target.value)}
-                      className="border-slate-300 w-full sm:w-40"
-                    />
-                    <span className="hidden sm:inline text-slate-500 text-sm">to</span>
-                    <Input
-                      id="filterToDate"
-                      type="date"
-                      placeholder="To"
-                      value={filterToDate ?? ""}
-                      onChange={(e) => setFilterToDate(e.target.value)}
-                      className="border-slate-300 w-full sm:w-40"
-                    />
-                  </div>
+          if (overdueContracts.length === 0) return null;
+
+          return (
+            <Card className="border-red-200 bg-red-50">
+              <CardContent className="pt-6 flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="font-semibold text-red-900">
+                    {overdueContracts.length} Overdue Contract{overdueContracts.length !== 1 ? "s" : ""}
+                  </p>
+                  <p className="text-sm text-red-800">
+                    {overdueContracts.map((c) => `${c.id} (${c.client_name})`).join(", ")}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })()}
+
+        <Card className="border-slate-200">
+          <CardHeader>
+            <CardTitle>Active Contracts</CardTitle>
+            <CardDescription>
+              All client contracts with deposit and payment schedule tracking
+            </CardDescription>
+            <div className="flex flex-col lg:flex-row gap-4 mt-4 items-start lg:items-center flex-wrap">
+              <Select value={filterStatus} onValueChange={(value: any) => setFilterStatus(value)}>
+                <SelectTrigger className="w-full sm:w-40 border-slate-300">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="in-progress">In Progress</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="completed">Completed</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 items-start sm:items-center w-full lg:w-auto">
+                <Label className="text-sm text-slate-600 whitespace-nowrap">Due Date Range:</Label>
+                <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr] items-center gap-2 w-full sm:w-auto">
+                  <Input
+                    id="filterFromDate"
+                    type="date"
+                    placeholder="From"
+                    value={filterFromDate ?? ""}
+                    onChange={(e) => setFilterFromDate(e.target.value)}
+                    className="border-slate-300 w-full sm:w-40"
+                  />
+                  <span className="hidden sm:inline text-slate-500 text-sm">to</span>
+                  <Input
+                    id="filterToDate"
+                    type="date"
+                    placeholder="To"
+                    value={filterToDate ?? ""}
+                    onChange={(e) => setFilterToDate(e.target.value)}
+                    className="border-slate-300 w-full sm:w-40"
+                  />
                 </div>
               </div>
-            </CardHeader>
-            <CardContent>
-              <div className="hidden lg:block overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="border-b border-slate-200 bg-slate-50">
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="hidden lg:block overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="border-b border-slate-200 bg-slate-50">
+                  <tr>
+                    <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">ID</th>
+                    <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Client</th>
+                    <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Project</th>
+                    <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Value</th>
+                    <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Deposit</th>
+                    <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Paid</th>
+                    <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Due</th>
+                    <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Due Date</th>
+                    <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Status</th>
+                    <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredContracts.length === 0 ? (
                     <tr>
-                      <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">ID</th>
-                      <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Client</th>
-                      <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Project</th>
-                      <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Value</th>
-                      <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Deposit</th>
-                      <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Paid</th>
-                      <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Due</th>
-                      <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Due Date</th>
-                      <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Status</th>
-                      <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Actions</th>
+                      <td colSpan={10} className="p-6 text-center text-slate-600">
+                        No contracts match the current filters.
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {filteredContracts.map((contract, idx) => {
-                      const amountPaid = (contract.payment_schedule || []).filter((p: any) => p.status === 'paid').reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
-                      const amountDue = (contract.payment_schedule || []).filter((p: any) => p.status === 'pending').reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
-                      
-                      return (
-                      <tr key={contract.id} className={idx % 2 === 0 ? "bg-white" : "bg-slate-50"}>
-                        <td className={`p-3 text-slate-700 font-medium whitespace-nowrap border-l-4 ${
-                          (contract.payment_schedule?.filter(p => p.status === 'paid').length || 0) === 0
-                            ? "border-l-red-500"
-                            : "border-l-yellow-500"
-                        }`}>
-                          <button
-                            onClick={() => setDetailsContractId(contract.id)}
-                            className="text-blue-600 hover:text-blue-800 hover:underline transition-colors cursor-pointer font-semibold pl-2"
-                            title="View contract details"
-                          >
-                            {contract.id}
-                          </button>
-                        </td>
-                        <td className="p-3 text-slate-700 text-xs whitespace-nowrap">{contract.client_name}</td>
-                        <td className="p-3 text-slate-700 whitespace-nowrap">{contract.project_name}</td>
-                        <td className="p-3 text-slate-700 font-medium whitespace-nowrap">${contract.total_value.toLocaleString()}</td>
-                        <td className="p-3 text-slate-700 whitespace-nowrap">${contract.deposit_amount.toLocaleString()}</td>
-                        <td className="p-3 text-green-600 font-semibold whitespace-nowrap">${amountPaid.toLocaleString()}</td>
-                        <td className="p-3 text-orange-600 font-semibold whitespace-nowrap">${amountDue.toLocaleString()}</td>
-                        <td className={`p-3 whitespace-nowrap ${isOverdue(contract.due_date) ? "text-red-600 font-semibold" : "text-slate-700"}`}>
-                          {formatDateString(contract.due_date)}
-                          {isOverdue(contract.due_date) && " ⚠️"}
-                        </td>
-                        <td className="p-3 whitespace-nowrap">
-                          <div className="flex flex-col items-start gap-1">
-                            <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${getStatusBadge(contract.status)}`}>
-                              {contract.status.replace("-", " ")}
-                            </span>
-                            {(() => {
-                              const totalPayments = contract.payment_schedule?.length || 0;
-                              const paidPayments = contract.payment_schedule?.filter(p => p.status === 'paid').length || 0;
-                              const badgeColor = paidPayments === 0 
-                                ? "bg-red-100 text-red-700 border-red-200" 
-                                : "bg-yellow-100 text-yellow-700 border-yellow-200";
-                              
-                              return (
-                                <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium border ${badgeColor}`}>
-                                  {paidPayments}/{totalPayments} payments
-                                </span>
-                              );
-                            })()}
-                          </div>
-                        </td>
-                        <td className="p-3 flex gap-2">
-                          <button
-                            onClick={() => setSelectedContractId(contract.id)}
-                            className="text-green-600 hover:text-green-800 p-1.5 hover:bg-green-50 rounded transition-colors"
-                            title="View payment schedule"
-                          >
-                            <CircleDollarSign className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => setPdfSelectContractId(contract.id)}
-                            className="text-indigo-600 hover:text-indigo-800 p-1.5 hover:bg-indigo-50 rounded transition-colors"
-                            title="Download PDF"
-                          >
-                            <Download className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => handleEditContract(contract)}
-                            className="text-blue-600 hover:text-blue-800 p-1.5 hover:bg-blue-50 rounded transition-colors"
-                            title="Edit contract"
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteContract(contract.id)}
-                            className="text-red-600 hover:text-red-800 p-1.5 hover:bg-red-50 rounded transition-colors"
-                            title="Delete contract"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </td>
-                      </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                  ) : (
+                    filteredContracts.map((contract, idx) => {
+                      const amountPaid = (contract.payment_schedule || []).filter((p: any) => p.status === "paid").reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
+                      const amountDue = (contract.payment_schedule || []).filter((p: any) => p.status === "pending").reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
 
-              {/* Mobile Card View */}
-              <div className="lg:hidden space-y-4">
-                {filteredContracts.map((contract) => (
+                      return (
+                        <tr key={contract.id} className={idx % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+                          <td
+                            className={`p-3 text-slate-700 font-medium whitespace-nowrap border-l-4 ${
+                              (contract.payment_schedule?.filter((p) => p.status === "paid").length || 0) === 0
+                                ? "border-l-red-500"
+                                : "border-l-yellow-500"
+                            }`}
+                          >
+                            <button
+                              onClick={() => setDetailsContractId(contract.id)}
+                              className="text-blue-600 hover:text-blue-800 hover:underline transition-colors cursor-pointer font-semibold pl-2"
+                              title="View contract details"
+                            >
+                              {contract.id}
+                            </button>
+                          </td>
+                          <td className="p-3 text-slate-700 text-xs whitespace-nowrap">{contract.client_name}</td>
+                          <td className="p-3 text-slate-700 whitespace-nowrap">{contract.project_name}</td>
+                          <td className="p-3 text-slate-700 font-medium whitespace-nowrap">${contract.total_value.toLocaleString()}</td>
+                          <td className="p-3 text-slate-700 whitespace-nowrap">${contract.deposit_amount.toLocaleString()}</td>
+                          <td className="p-3 text-green-600 font-semibold whitespace-nowrap">${amountPaid.toLocaleString()}</td>
+                          <td className="p-3 text-orange-600 font-semibold whitespace-nowrap">${amountDue.toLocaleString()}</td>
+                          <td className={`p-3 whitespace-nowrap ${isOverdue(contract.due_date) ? "text-red-600 font-semibold" : "text-slate-700"}`}>
+                            {formatDateString(contract.due_date)}
+                            {isOverdue(contract.due_date) && " ⚠️"}
+                          </td>
+                          <td className="p-3 whitespace-nowrap">
+                            <div className="flex flex-col items-start gap-1">
+                              <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${getStatusBadge(contract.status)}`}>
+                                {contract.status.replace("-", " ")}
+                              </span>
+                              {(() => {
+                                const totalPayments = contract.payment_schedule?.length || 0;
+                                const paidPayments = contract.payment_schedule?.filter((p) => p.status === "paid").length || 0;
+                                const badgeColor = paidPayments === 0
+                                  ? "bg-red-100 text-red-700 border-red-200"
+                                  : "bg-yellow-100 text-yellow-700 border-yellow-200";
+
+                                return (
+                                  <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium border ${badgeColor}`}>
+                                    {paidPayments}/{totalPayments} payments
+                                  </span>
+                                );
+                              })()}
+                            </div>
+                          </td>
+                          <td className="p-3 flex gap-2">
+                            <button
+                              onClick={() => setSelectedContractId(contract.id)}
+                              className="text-green-600 hover:text-green-800 p-1.5 hover:bg-green-50 rounded transition-colors"
+                              title="View payment schedule"
+                            >
+                              <CircleDollarSign className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => setPdfSelectContractId(contract.id)}
+                              className="text-indigo-600 hover:text-indigo-800 p-1.5 hover:bg-indigo-50 rounded transition-colors"
+                              title="Download PDF"
+                            >
+                              <Download className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleEditContract(contract)}
+                              className="text-blue-600 hover:text-blue-800 p-1.5 hover:bg-blue-50 rounded transition-colors"
+                              title="Edit contract"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteContract(contract.id)}
+                              className="text-red-600 hover:text-red-800 p-1.5 hover:bg-red-50 rounded transition-colors"
+                              title="Delete contract"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile Card View */}
+            <div className="lg:hidden space-y-4">
+              {filteredContracts.length === 0 ? (
+                <div className="p-6 text-center text-slate-600 bg-white rounded-lg border border-slate-200">
+                  No contracts match the current filters.
+                </div>
+              ) : (
+                filteredContracts.map((contract) => (
                   <div key={contract.id} className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
-                    <div className={`p-4 border-b border-slate-100 flex justify-between items-start border-l-4 ${
-                         (contract.payment_schedule?.filter(p => p.status === 'paid').length || 0) === 0
-                            ? "border-l-red-500"
-                            : "border-l-yellow-500"
-                    }`}>
+                    <div
+                      className={`p-4 border-b border-slate-100 flex justify-between items-start border-l-4 ${
+                        (contract.payment_schedule?.filter((p) => p.status === "paid").length || 0) === 0
+                          ? "border-l-red-500"
+                          : "border-l-yellow-500"
+                      }`}
+                    >
                       <div>
                         <button
-                            onClick={() => setDetailsContractId(contract.id)}
-                            className="text-blue-600 hover:text-blue-800 hover:underline transition-colors cursor-pointer font-bold text-lg"
+                          onClick={() => setDetailsContractId(contract.id)}
+                          className="text-blue-600 hover:text-blue-800 hover:underline transition-colors cursor-pointer font-bold text-lg"
+                          title="View contract details"
                         >
                           {contract.project_name}
                         </button>
@@ -3587,7 +3619,7 @@ export default function Contracts() {
                       </div>
                       <div className="flex flex-col items-end gap-1">
                         <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap ${getStatusBadge(contract.status)}`}>
-                              {contract.status.replace("-", " ")}
+                          {contract.status.replace("-", " ")}
                         </span>
                         {isOverdue(contract.due_date) && (
                           <span className="text-xs text-red-600 font-bold flex items-center gap-1">
@@ -3596,13 +3628,11 @@ export default function Contracts() {
                         )}
                       </div>
                     </div>
-                    
+
                     <div className="p-4 space-y-3">
                       <div className="flex justify-between items-center text-sm">
                         <span className="text-slate-500">Contract Value</span>
-                        <span className="font-bold text-slate-900 text-lg">
-                          ${contract.total_value.toLocaleString()}
-                        </span>
+                        <span className="font-bold text-slate-900 text-lg">${contract.total_value.toLocaleString()}</span>
                       </div>
 
                        <div className="grid grid-cols-2 gap-2 text-xs">
@@ -3684,7 +3714,7 @@ export default function Contracts() {
                           </button>
                     </div>
                   </div>
-                ))}
+                )))}
               </div>
             </CardContent>
           </Card>
@@ -3796,8 +3826,7 @@ export default function Contracts() {
               </CardContent>
             </Card>
           )}
-        </>
-      )}
+      </>
 
       {isPaymentModalOpen && selectedContractId && (
         <Dialog open={isPaymentModalOpen} onOpenChange={setIsPaymentModalOpen}>
