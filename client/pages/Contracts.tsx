@@ -1950,8 +1950,9 @@ export default function Contracts() {
       pdf.setFont(undefined, "bold");
       pdf.setFontSize(9);
       pdf.text("Date", margin, yPosition);
-      pdf.text("Description", margin + 30, yPosition);
-      pdf.text("Method", margin + 90, yPosition);
+      pdf.text("Description", margin + 25, yPosition);
+      pdf.text("Method", margin + 85, yPosition);
+      pdf.text("Txn #", margin + 125, yPosition);
       pdf.text("Amount", margin + contentWidth, yPosition, { align: "right" });
       yPosition += lineHeight + 4;
 
@@ -2012,12 +2013,31 @@ export default function Contracts() {
         const description = payment.description || "Payment";
         const amountText = `$${payment.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 
+        // Prefer an explicit transaction/reference number if provided; otherwise fall back to method-specific fields
+        const transactionNumberRaw =
+          payment.transaction_reference ||
+          payment.ach_transaction_id ||
+          payment.wire_reference_number ||
+          payment.zelle_confirmation_number ||
+          payment.authorization_code ||
+          payment.deposit_reference_number ||
+          payment.receipt_number ||
+          payment.check_number ||
+          "";
+
+        // Truncate transaction number if too long
+        const transactionNumber =
+          String(transactionNumberRaw).length > 16
+            ? String(transactionNumberRaw).substring(0, 16)
+            : String(transactionNumberRaw);
+
         // Truncate description if too long
-        const truncatedDesc = description.length > 30 ? description.substring(0, 27) + "..." : description;
+        const truncatedDesc = description.length > 25 ? description.substring(0, 22) + "..." : description;
 
         pdf.text(paymentDate, margin, yPosition);
-        pdf.text(truncatedDesc, margin + 30, yPosition);
-        pdf.text(methodLabel, margin + 90, yPosition);
+        pdf.text(truncatedDesc, margin + 25, yPosition);
+        pdf.text(methodLabel, margin + 85, yPosition);
+        pdf.text(transactionNumber, margin + 125, yPosition);
         pdf.text(amountText, margin + contentWidth, yPosition, { align: "right" });
 
         totalPaidAmount += payment.amount;

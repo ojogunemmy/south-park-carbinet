@@ -13,7 +13,9 @@ type ContractStatus = 'pending' | 'in-progress' | 'completed';
 interface MaterialItem {
   id: string;
   name: string;
-  unitPrice: number;
+  // Contracts page persists as snake_case; keep camelCase for backward compatibility
+  unit_price?: number;
+  unitPrice?: number;
   quantity: number;
   unit: string;
 }
@@ -26,7 +28,19 @@ interface MiscellaneousItem {
 
 interface CostTracking {
   materials: MaterialItem[];
-  laborCost: {
+  // Contracts page persists as snake_case; keep camelCase for backward compatibility
+  labor_cost?: {
+    calculation_method: "manual" | "daily" | "monthly" | "hours";
+    amount: number;
+    daily_rate?: number;
+    days?: number;
+    monthly_rate?: number;
+    months?: number;
+    hourly_rate?: number;
+    hours?: number;
+    description: string;
+  };
+  laborCost?: {
     calculationMethod: "manual" | "daily" | "monthly" | "hours";
     amount: number;
     dailyRate?: number;
@@ -38,7 +52,8 @@ interface CostTracking {
     description: string;
   };
   miscellaneous: MiscellaneousItem[];
-  profitMarginPercent: number;
+  profit_margin_percent?: number;
+  profitMarginPercent?: number;
 }
 
 // exampleContracts removed, data is now in Supabase
@@ -68,23 +83,47 @@ export default function Costs() {
     fetchContracts();
   }, [selectedYear]);
 
-  const calculateMaterialCost = (materials: MaterialItem[]) => {
-    return materials.reduce((sum, m) => sum + (Number(m.quantity) || 0) * (Number(m.unitPrice) || 0), 0);
+  const calculateMaterialCost = (materials: Array<Partial<MaterialItem> & Record<string, any>>) => {
+    return materials.reduce((sum, m) => {
+      const quantity = Number(m.quantity) || 0;
+      const unitPrice = Number(m.unit_price ?? m.unitPrice) || 0;
+      return sum + quantity * unitPrice;
+    }, 0);
   };
 
-  const calculateMiscCost = (misc: MiscellaneousItem[]) => {
+  const calculateMiscCost = (misc: Array<Partial<MiscellaneousItem> & Record<string, any>>) => {
     return misc.reduce((sum, m) => sum + (Number(m.amount) || 0), 0);
   };
 
-  const calculateLaborCost = (laborCost: any) => {
-    return Number(laborCost?.amount) || 0;
+  const calculateLaborCost = (labor: any) => {
+    // Prefer explicit amount, but gracefully handle either snake_case or camelCase shapes
+    const amount = Number(labor?.amount);
+    if (!Number.isNaN(amount) && amount !== 0) return amount;
+
+    // Fallback: compute if only rates/units were provided
+    const method = labor?.calculation_method ?? labor?.calculationMethod;
+    if (method === "daily") return (Number(labor?.daily_rate ?? labor?.dailyRate) || 0) * (Number(labor?.days) || 0);
+    if (method === "monthly") return (Number(labor?.monthly_rate ?? labor?.monthlyRate) || 0) * (Number(labor?.months) || 0);
+    if (method === "hours") return (Number(labor?.hourly_rate ?? labor?.hourlyRate) || 0) * (Number(labor?.hours) || 0);
+    return 0;
+  };
+
+  const getCostTracking = (contract: Contract): CostTracking | Record<string, any> => {
+    const ct = (contract.cost_tracking || {}) as any;
+    return {
+      ...ct,
+      materials: Array.isArray(ct.materials) ? ct.materials : [],
+      miscellaneous: Array.isArray(ct.miscellaneous) ? ct.miscellaneous : (Array.isArray(ct.misc) ? ct.misc : []),
+      labor_cost: ct.labor_cost,
+      laborCost: ct.laborCost,
+    };
   };
 
   const calculateProfit = (contract: Contract) => {
-    const costTracking = contract.cost_tracking as CostTracking;
-    const materialCost = calculateMaterialCost(costTracking?.materials || []);
-    const laborCost = calculateLaborCost(costTracking?.laborCost);
-    const miscCost = calculateMiscCost(costTracking?.miscellaneous || []);
+    const costTracking = getCostTracking(contract) as any;
+    const materialCost = calculateMaterialCost(costTracking.materials || []);
+    const laborCost = calculateLaborCost(costTracking.labor_cost ?? costTracking.laborCost);
+    const miscCost = calculateMiscCost(costTracking.miscellaneous || []);
     const totalCosts = materialCost + laborCost + miscCost;
     return (contract.total_value || 0) - totalCosts;
   };
@@ -135,9 +174,18 @@ export default function Costs() {
     });
 
   const totalContractValue = filteredContracts.reduce((sum, c) => sum + (c.total_value || 0), 0);
-  const totalMaterialCosts = filteredContracts.reduce((sum, c) => sum + calculateMaterialCost((c.cost_tracking as CostTracking)?.materials || []), 0);
-  const totalLaborCosts = filteredContracts.reduce((sum, c) => sum + calculateLaborCost((c.cost_tracking as CostTracking)?.laborCost), 0);
-  const totalMiscCosts = filteredContracts.reduce((sum, c) => sum + calculateMiscCost((c.cost_tracking as CostTracking)?.miscellaneous || []), 0);
+  const totalMaterialCosts = filteredContracts.reduce((sum, c) => {
+    const ct = getCostTracking(c) as any;
+    return sum + calculateMaterialCost(ct.materials || []);
+  }, 0);
+  const totalLaborCosts = filteredContracts.reduce((sum, c) => {
+    const ct = getCostTracking(c) as any;
+    return sum + calculateLaborCost(ct.labor_cost ?? ct.laborCost);
+  }, 0);
+  const totalMiscCosts = filteredContracts.reduce((sum, c) => {
+    const ct = getCostTracking(c) as any;
+    return sum + calculateMiscCost(ct.miscellaneous || []);
+  }, 0);
   const totalCosts = totalMaterialCosts + totalLaborCosts + totalMiscCosts;
   const totalProfit = totalContractValue - totalCosts;
   const overallProfitMargin = totalContractValue > 0 ? (totalProfit / totalContractValue) * 100 : 0;
@@ -165,10 +213,10 @@ export default function Costs() {
     const csvRows = [headers.join(",")];
 
     filteredContracts.forEach(contract => {
-      const costTracking = contract.cost_tracking as CostTracking;
-      const materialCost = calculateMaterialCost(costTracking?.materials || []);
-      const laborCost = calculateLaborCost(costTracking?.laborCost);
-      const miscCost = calculateMiscCost(costTracking?.miscellaneous || []);
+      const costTracking = getCostTracking(contract) as any;
+      const materialCost = calculateMaterialCost(costTracking.materials || []);
+      const laborCost = calculateLaborCost(costTracking.labor_cost ?? costTracking.laborCost);
+      const miscCost = calculateMiscCost(costTracking.miscellaneous || []);
       const totalCost = materialCost + laborCost + miscCost;
       const profit = calculateProfit(contract);
       const margin = calculateProfitMargin(contract);
@@ -282,10 +330,10 @@ export default function Costs() {
           yPosition = 15;
         }
 
-        const costTracking = contract.cost_tracking as CostTracking;
-        const materialCost = calculateMaterialCost(costTracking?.materials || []);
-        const laborCost = calculateLaborCost(costTracking?.laborCost);
-        const miscCost = calculateMiscCost(costTracking?.miscellaneous || []);
+        const costTracking = getCostTracking(contract) as any;
+        const materialCost = calculateMaterialCost(costTracking.materials || []);
+        const laborCost = calculateLaborCost(costTracking.labor_cost ?? costTracking.laborCost);
+        const miscCost = calculateMiscCost(costTracking.miscellaneous || []);
         const totalCost = materialCost + laborCost + miscCost;
         const profit = calculateProfit(contract);
         const margin = calculateProfitMargin(contract);
@@ -489,9 +537,10 @@ export default function Costs() {
                 <tbody>
                    {filteredContracts.map((contract, idx) => {
                     const costTracking = contract.cost_tracking as CostTracking;
-                    const materialCost = calculateMaterialCost(costTracking?.materials || []);
-                    const laborCost = calculateLaborCost(costTracking?.laborCost);
-                    const miscCost = calculateMiscCost(costTracking?.miscellaneous || []);
+                      const normalized = getCostTracking(contract) as any;
+                      const materialCost = calculateMaterialCost(normalized.materials || []);
+                      const laborCost = calculateLaborCost(normalized.labor_cost ?? normalized.laborCost);
+                      const miscCost = calculateMiscCost(normalized.miscellaneous || []);
                     const totalCost = materialCost + laborCost + miscCost;
                     const profit = calculateProfit(contract);
                     const margin = calculateProfitMargin(contract);
@@ -537,10 +586,10 @@ export default function Costs() {
             {/* Mobile Card View */}
             <div className="lg:hidden space-y-4">
                {filteredContracts.map((contract) => {
-                  const costTracking = contract.cost_tracking as CostTracking;
-                  const materialCost = calculateMaterialCost(costTracking?.materials || []);
-                  const laborCost = calculateLaborCost(costTracking?.laborCost);
-                  const miscCost = calculateMiscCost(costTracking?.miscellaneous || []);
+                const normalized = getCostTracking(contract) as any;
+                const materialCost = calculateMaterialCost(normalized.materials || []);
+                const laborCost = calculateLaborCost(normalized.labor_cost ?? normalized.laborCost);
+                const miscCost = calculateMiscCost(normalized.miscellaneous || []);
                   const totalCost = materialCost + laborCost + miscCost;
                   const profit = calculateProfit(contract);
                   const margin = calculateProfitMargin(contract);
