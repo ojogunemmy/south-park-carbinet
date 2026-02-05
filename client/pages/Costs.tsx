@@ -83,6 +83,14 @@ export default function Costs() {
     fetchContracts();
   }, [selectedYear]);
 
+  const getYearFromISODate = (dateStr?: string | null): number | null => {
+    if (!dateStr) return null;
+    const parts = String(dateStr).split("-");
+    if (parts.length < 1) return null;
+    const year = parseInt(parts[0], 10);
+    return Number.isFinite(year) ? year : null;
+  };
+
   const calculateMaterialCost = (materials: Array<Partial<MaterialItem> & Record<string, any>>) => {
     return materials.reduce((sum, m) => {
       const quantity = Number(m.quantity) || 0;
@@ -136,7 +144,8 @@ export default function Costs() {
   const filteredContracts = contracts
     .filter((contract) => {
       // Filter by Year
-      const contractYear = contract.due_date ? new Date(contract.due_date).getFullYear() : (contract.start_date ? new Date(contract.start_date).getFullYear() : null);
+      // Parse YYYY-MM-DD as a plain string to avoid timezone shifting the year
+      const contractYear = getYearFromISODate(contract.due_date) ?? getYearFromISODate(contract.start_date);
       if (contractYear && contractYear !== selectedYear) {
          return false;
       }
@@ -167,10 +176,11 @@ export default function Costs() {
     })
     .sort((a, b) => {
       // Sort by ID in reverse order (most recent contracts first)
-      // Extract numeric part of ID (e.g., "CON-001" -> 1)
-      const aNum = parseInt(a.id.replace("CON-", ""), 10);
-      const bNum = parseInt(b.id.replace("CON-", ""), 10);
-      return bNum - aNum;
+      // Extract numeric part of ID (handles CNT-123, CON-001, etc.)
+      const aNum = parseInt(String(a.id || "").replace(/\D/g, ""), 10);
+      const bNum = parseInt(String(b.id || "").replace(/\D/g, ""), 10);
+      if (Number.isFinite(aNum) && Number.isFinite(bNum)) return bNum - aNum;
+      return String(b.id || "").localeCompare(String(a.id || ""));
     });
 
   const totalContractValue = filteredContracts.reduce((sum, c) => sum + (c.total_value || 0), 0);
