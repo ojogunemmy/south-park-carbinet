@@ -453,7 +453,7 @@ This letter is issued for ${employee.name}'s use in personal matters and is vali
               </p>
             </div>
           ) : (
-            <div className="grid gap-4 md:grid-cols-2 xxl:grid-cols-3">
+            <div className="grid gap-4 grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
               {filteredEmployees.map((employee) => (
                 <Card
                   key={employee.id}
@@ -516,11 +516,11 @@ This letter is issued for ${employee.name}'s use in personal matters and is vali
                         )}
                       </div>
 
-                      <div className="grid grid-cols-3 gap-2 pt-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 pt-3">
                         <Button
                           size="sm"
                           variant="outline"
-                          className="border-slate-300"
+                          className="border-slate-300 w-full justify-center"
                           onClick={() => handlePreviewLetter(employee)}
                         >
                           <FileText className="w-3.5 h-3.5 mr-1.5" />
@@ -529,7 +529,7 @@ This letter is issued for ${employee.name}'s use in personal matters and is vali
                         <Button
                           size="sm"
                           variant="outline"
-                          className="border-slate-300"
+                          className="border-slate-300 w-full justify-center"
                           onClick={() => handleEditLetter(employee)}
                         >
                           <Edit className="w-3.5 h-3.5 mr-1.5" />
@@ -537,7 +537,7 @@ This letter is issued for ${employee.name}'s use in personal matters and is vali
                         </Button>
                         <Button
                           size="sm"
-                          className="bg-blue-600 hover:bg-blue-700 text-white"
+                          className="bg-blue-600 hover:bg-blue-700 text-white w-full justify-center"
                           onClick={() => generateWorkLetter(employee)}
                         >
                           <Download className="w-3.5 h-3.5 mr-1.5" />
