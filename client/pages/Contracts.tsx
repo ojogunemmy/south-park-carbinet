@@ -51,15 +51,59 @@ interface Payment {
   status: "pending" | "paid";
   paid_date?: string;
   payment_method?: string;
+  
+  // Credit Card & Debit Card fields
+  cardholder_name?: string;
+  card_last4?: string;
+  card_expiration?: string;
+  authorization_code?: string;
+  payment_processor?: string; // Stripe, Square, etc.
+  credit_card_last4?: string; // Keep for backwards compatibility
+  
+  // Cash fields
+  received_by?: string;
+  payment_location?: string;
+  receipt_number?: string;
+  notes?: string;
+  
+  // Wire Transfer fields
+  sending_bank_name?: string;
+  sender_name?: string;
+  wire_reference_number?: string;
+  account_last4?: string;
+  transfer_date?: string;
+  
+  // Bank Transfer (ACH) fields
   bank_name?: string;
   routing_number?: string;
   account_number?: string;
   account_type?: string;
+  ach_transaction_id?: string;
+  
+  // Zelle fields
+  zelle_email?: string;
+  zelle_phone?: string;
+  zelle_confirmation_number?: string;
+  
+  // Direct Deposit fields
+  depositor_name?: string;
+  deposit_reference_number?: string;
+  deposit_date?: string;
+  
+  // Check fields
   check_number?: string;
-  check_attachment?: string;
+  check_bank_name?: string;
+  check_account_holder?: string;
+  check_deposit_date?: string;
+  check_front_image?: string;
+  check_back_image?: string;
+  check_status?: "pending" | "cleared" | "bounced";
+  check_attachment?: string; // Keep for backwards compatibility
+  
+  // Common fields
   transaction_reference?: string;
-  credit_card_last4?: string;
   receipt_attachment?: string;
+  confirmation_upload?: string;
 }
 
 interface MaterialItem {
@@ -250,15 +294,59 @@ export default function Contracts() {
     status: "pending",
     paid_date: "",
     payment_method: "cash",
+    
+    // Credit Card & Debit Card fields
+    cardholder_name: "",
+    card_last4: "",
+    card_expiration: "",
+    authorization_code: "",
+    payment_processor: "",
+    credit_card_last4: "",
+    
+    // Cash fields
+    received_by: "",
+    payment_location: "",
+    receipt_number: "",
+    notes: "",
+    
+    // Wire Transfer fields
+    sending_bank_name: "",
+    sender_name: "",
+    wire_reference_number: "",
+    account_last4: "",
+    transfer_date: "",
+    
+    // Bank Transfer (ACH) fields
     bank_name: "",
     routing_number: "",
     account_number: "",
     account_type: "checking",
-    check_attachment: "",
+    ach_transaction_id: "",
+    
+    // Zelle fields
+    zelle_email: "",
+    zelle_phone: "",
+    zelle_confirmation_number: "",
+    
+    // Direct Deposit fields
+    depositor_name: "",
+    deposit_reference_number: "",
+    deposit_date: "",
+    
+    // Check fields
     check_number: "",
-    credit_card_last4: "",
+    check_bank_name: "",
+    check_account_holder: "",
+    check_deposit_date: "",
+    check_front_image: "",
+    check_back_image: "",
+    check_status: "pending",
+    check_attachment: "",
+    
+    // Common fields
     transaction_reference: "",
     receipt_attachment: "",
+    confirmation_upload: "",
   });
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
@@ -3714,199 +3802,624 @@ export default function Contracts() {
                     <SelectValue placeholder="Select payment method" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="cash">Cash</SelectItem>
-                    <SelectItem value="credit_card">Credit Card</SelectItem>
-                    <SelectItem value="debit_card">Debit Card</SelectItem>
-                    <SelectItem value="check">Check</SelectItem>
-                    <SelectItem value="direct_deposit">Direct Deposit</SelectItem>
-                    <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
-                    <SelectItem value="wire_transfer">Wire Transfer</SelectItem>
+                    <SelectItem value="cash">💵 Cash</SelectItem>
+                    <SelectItem value="credit_card">💳 Credit Card</SelectItem>
+                    <SelectItem value="debit_card">💳 Debit Card</SelectItem>
+                    <SelectItem value="check">🧾 Check</SelectItem>
+                    <SelectItem value="direct_deposit">📥 Direct Deposit</SelectItem>
+                    <SelectItem value="ach">🏦 Bank Transfer (ACH)</SelectItem>
+                    <SelectItem value="wire">🏦 Wire Transfer</SelectItem>
+                    <SelectItem value="zelle">⚡ Zelle</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
-              {(paymentForm.payment_method === "direct_deposit" || paymentForm.payment_method === "bank_transfer" || paymentForm.payment_method === "wire_transfer") && (
-                <>
-                  <div className="bg-slate-50 p-4 rounded space-y-3 border border-slate-200">
-                    <p className="text-sm font-semibold text-slate-700">Bank Information *</p>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="bank_name">Bank Name *</Label>
-                      <Input
-                        id="bank_name"
-                        placeholder="e.g., Wells Fargo, Chase Bank"
-                        value={paymentForm.bank_name ?? ""}
-                        onChange={(e) => setPaymentForm({ ...paymentForm, bank_name: e.target.value })}
-                        className="border-slate-300"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="routing_number">Routing Number *</Label>
-                      <Input
-                        id="routing_number"
-                        placeholder="9-digit routing number"
-                        value={paymentForm.routing_number ?? ""}
-                        onChange={(e) => setPaymentForm({ ...paymentForm, routing_number: e.target.value })}
-                        className="border-slate-300"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="account_number">Account Number *</Label>
-                      <Input
-                        id="account_number"
-                        type="password"
-                        placeholder="Account number (will be masked)"
-                        value={paymentForm.account_number ?? ""}
-                        onChange={(e) => setPaymentForm({ ...paymentForm, account_number: e.target.value })}
-                        className="border-slate-300"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="account_type">Account Type *</Label>
-                      <Select value={paymentForm.account_type ?? "checking"} onValueChange={(value) => setPaymentForm({ ...paymentForm, account_type: value as any })}>
-                        <SelectTrigger className="border-slate-300">
-                          <SelectValue placeholder="Select account type" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="checking">Checking</SelectItem>
-                          <SelectItem value="savings">Savings</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                </>
-              )}
-
-              {paymentForm.payment_method === "check" && (
-                <>
-                  <div className="bg-slate-50 p-4 rounded space-y-3 border border-slate-200">
-                    <p className="text-sm font-semibold text-slate-700">Check Information *</p>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="check_number">Check Number *</Label>
-                      <Input
-                        id="check_number"
-                        placeholder="e.g., 1001"
-                        value={paymentForm.check_number ?? ""}
-                        onChange={(e) => setPaymentForm({ ...paymentForm, check_number: e.target.value })}
-                        className="border-slate-300"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="check_bank_name">Bank Name *</Label>
-                      <Input
-                        id="check_bank_name"
-                        placeholder="e.g., Wells Fargo, Chase Bank"
-                        value={paymentForm.bank_name ?? ""}
-                        onChange={(e) => setPaymentForm({ ...paymentForm, bank_name: e.target.value })}
-                        className="border-slate-300"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="check_routing_number">Routing Number</Label>
-                      <Input
-                        id="check_routing_number"
-                        placeholder="9-digit routing number"
-                        value={paymentForm.routing_number ?? ""}
-                        onChange={(e) => setPaymentForm({ ...paymentForm, routing_number: e.target.value })}
-                        className="border-slate-300"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="check_account_number">Account Number</Label>
-                      <Input
-                        id="check_account_number"
-                        type="password"
-                        placeholder="Account number (will be masked)"
-                        value={paymentForm.account_number ?? ""}
-                        onChange={(e) => setPaymentForm({ ...paymentForm, account_number: e.target.value })}
-                        className="border-slate-300"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="check_attachment">Attach Check Image (optional)</Label>
-                      <Input
-                        id="check_attachment"
-                        type="file"
-                        accept="image/*,.pdf"
-                        onChange={(e) => setPaymentForm({ ...paymentForm, check_attachment: e.target.files?.[0]?.name || "" })}
-                        className="border-slate-300"
-                      />
-                      <p className="text-xs text-slate-500">
-                        Upload a photo of a sample check or bank letter
-                      </p>
-                    </div>
-                  </div>
-                </>
-              )}
-
+              {/* 💳 Credit Card Fields */}
               {paymentForm.payment_method === "credit_card" && (
-                <>
-                  <div className="bg-slate-50 p-4 rounded space-y-3 border border-slate-200">
-                    <p className="text-sm font-semibold text-slate-700">Credit Card Information *</p>
+                <div className="bg-blue-50 p-4 rounded space-y-3 border border-blue-200">
+                  <p className="text-sm font-semibold text-blue-900">💳 Credit Card Information</p>
 
-                    <div className="space-y-2">
-                      <Label htmlFor="credit_card_last4">Last 4 Digits of Card *</Label>
-                      <Input
-                        id="credit_card_last4"
-                        placeholder="e.g., 4242"
-                        value={paymentForm.credit_card_last4 ?? ""}
-                        onChange={(e) => setPaymentForm({ ...paymentForm, credit_card_last4: e.target.value })}
-                        className="border-slate-300"
-                        maxLength={4}
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="transaction_reference">Transaction/Authorization Code *</Label>
-                      <Input
-                        id="transaction_reference"
-                        placeholder="e.g., TXN-1234567890"
-                        value={paymentForm.transaction_reference ?? ""}
-                        onChange={(e) => setPaymentForm({ ...paymentForm, transaction_reference: e.target.value })}
-                        className="border-slate-300"
-                      />
-                    </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="cardholder_name">Cardholder Name *</Label>
+                    <Input
+                      id="cardholder_name"
+                      placeholder="John Doe"
+                      value={paymentForm.cardholder_name ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, cardholder_name: e.target.value })}
+                      className="border-slate-300 bg-white"
+                    />
                   </div>
-                </>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="card_last4">Card Last 4 Digits *</Label>
+                    <Input
+                      id="card_last4"
+                      placeholder="4242"
+                      value={paymentForm.card_last4 ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, card_last4: e.target.value })}
+                      className="border-slate-300 bg-white"
+                      maxLength={4}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="card_expiration">Expiration Date (optional)</Label>
+                    <Input
+                      id="card_expiration"
+                      placeholder="MM/YY"
+                      value={paymentForm.card_expiration ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, card_expiration: e.target.value })}
+                      className="border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="authorization_code">Authorization Code / Transaction ID *</Label>
+                    <Input
+                      id="authorization_code"
+                      placeholder="AUTH-123456"
+                      value={paymentForm.authorization_code ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, authorization_code: e.target.value })}
+                      className="border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="payment_processor">Payment Processor (optional)</Label>
+                    <Input
+                      id="payment_processor"
+                      placeholder="Stripe, Square, PayPal, etc."
+                      value={paymentForm.payment_processor ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, payment_processor: e.target.value })}
+                      className="border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="receipt_upload_cc">Receipt Upload (optional)</Label>
+                    <Input
+                      id="receipt_upload_cc"
+                      type="file"
+                      accept="image/*,.pdf"
+                      onChange={(e) => setPaymentForm({ ...paymentForm, receipt_attachment: e.target.files?.[0]?.name || "" })}
+                      className="border-slate-300 bg-white"
+                    />
+                  </div>
+                </div>
               )}
 
+              {/* 💳 Debit Card Fields */}
               {paymentForm.payment_method === "debit_card" && (
-                <>
-                  <div className="bg-slate-50 p-4 rounded space-y-3 border border-slate-200">
-                    <p className="text-sm font-semibold text-slate-700">Debit Card Information *</p>
+                <div className="bg-purple-50 p-4 rounded space-y-3 border border-purple-200">
+                  <p className="text-sm font-semibold text-purple-900">💳 Debit Card Information</p>
 
-                    <div className="space-y-2">
-                      <Label htmlFor="debit_card_last4">Last 4 Digits of Card *</Label>
-                      <Input
-                        id="debit_card_last4"
-                        placeholder="e.g., 4242"
-                        value={paymentForm.credit_card_last4 ?? ""}
-                        onChange={(e) => setPaymentForm({ ...paymentForm, credit_card_last4: e.target.value })}
-                        className="border-slate-300"
-                        maxLength={4}
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="debit_transaction_reference">Transaction/Authorization Code *</Label>
-                      <Input
-                        id="debit_transaction_reference"
-                        placeholder="e.g., TXN-1234567890"
-                        value={paymentForm.transaction_reference ?? ""}
-                        onChange={(e) => setPaymentForm({ ...paymentForm, transaction_reference: e.target.value })}
-                        className="border-slate-300"
-                      />
-                    </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="debit_cardholder_name">Cardholder Name *</Label>
+                    <Input
+                      id="debit_cardholder_name"
+                      placeholder="John Doe"
+                      value={paymentForm.cardholder_name ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, cardholder_name: e.target.value })}
+                      className="border-slate-300 bg-white"
+                    />
                   </div>
-                </>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="debit_card_last4">Debit Card Last 4 Digits *</Label>
+                    <Input
+                      id="debit_card_last4"
+                      placeholder="4242"
+                      value={paymentForm.card_last4 ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, card_last4: e.target.value })}
+                      className="border-slate-300 bg-white"
+                      maxLength={4}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="debit_auth_code">Transaction ID / Auth Code *</Label>
+                    <Input
+                      id="debit_auth_code"
+                      placeholder="TXN-123456"
+                      value={paymentForm.authorization_code ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, authorization_code: e.target.value })}
+                      className="border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="debit_bank_name">Bank Name (optional)</Label>
+                    <Input
+                      id="debit_bank_name"
+                      placeholder="Chase, Bank of America, etc."
+                      value={paymentForm.bank_name ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, bank_name: e.target.value })}
+                      className="border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="debit_processor">Processor Used (optional)</Label>
+                    <Input
+                      id="debit_processor"
+                      placeholder="Stripe, Square, etc."
+                      value={paymentForm.payment_processor ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, payment_processor: e.target.value })}
+                      className="border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="receipt_upload_debit">Receipt Upload (optional)</Label>
+                    <Input
+                      id="receipt_upload_debit"
+                      type="file"
+                      accept="image/*,.pdf"
+                      onChange={(e) => setPaymentForm({ ...paymentForm, receipt_attachment: e.target.files?.[0]?.name || "" })}
+                      className="border-slate-300 bg-white"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* 💵 Cash Fields */}
+              {paymentForm.payment_method === "cash" && (
+                <div className="bg-green-50 p-4 rounded space-y-3 border border-green-200">
+                  <p className="text-sm font-semibold text-green-900">💵 Cash Payment Information</p>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="received_by">Received By (Employee Name) *</Label>
+                    <Input
+                      id="received_by"
+                      placeholder="John Smith"
+                      value={paymentForm.received_by ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, received_by: e.target.value })}
+                      className="border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="payment_location">Payment Location (optional)</Label>
+                    <Input
+                      id="payment_location"
+                      placeholder="Office, Job Site, etc."
+                      value={paymentForm.payment_location ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, payment_location: e.target.value })}
+                      className="border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="receipt_number">Receipt Number (Manual) (optional)</Label>
+                    <Input
+                      id="receipt_number"
+                      placeholder="RCP-001"
+                      value={paymentForm.receipt_number ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, receipt_number: e.target.value })}
+                      className="border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="cash_notes">Notes (optional)</Label>
+                    <Input
+                      id="cash_notes"
+                      placeholder="Additional details..."
+                      value={paymentForm.notes ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, notes: e.target.value })}
+                      className="border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="signed_receipt_upload">Upload Signed Receipt (optional)</Label>
+                    <Input
+                      id="signed_receipt_upload"
+                      type="file"
+                      accept="image/*,.pdf"
+                      onChange={(e) => setPaymentForm({ ...paymentForm, receipt_attachment: e.target.files?.[0]?.name || "" })}
+                      className="border-slate-300 bg-white"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* 🏦 Wire Transfer Fields */}
+              {paymentForm.payment_method === "wire" && (
+                <div className="bg-indigo-50 p-4 rounded space-y-3 border border-indigo-200">
+                  <p className="text-sm font-semibold text-indigo-900">🏦 Wire Transfer Information</p>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="sending_bank_name">Sending Bank Name *</Label>
+                    <Input
+                      id="sending_bank_name"
+                      placeholder="Wells Fargo, Chase, etc."
+                      value={paymentForm.sending_bank_name ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, sending_bank_name: e.target.value })}
+                      className="border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="sender_name">Sender Name *</Label>
+                    <Input
+                      id="sender_name"
+                      placeholder="Company or Person Name"
+                      value={paymentForm.sender_name ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, sender_name: e.target.value })}
+                      className="border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="wire_reference_number">Wire Reference Number *</Label>
+                    <Input
+                      id="wire_reference_number"
+                      placeholder="WIRE-123456"
+                      value={paymentForm.wire_reference_number ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, wire_reference_number: e.target.value })}
+                      className="border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="account_last4">Last 4 Digits Account (optional)</Label>
+                    <Input
+                      id="account_last4"
+                      placeholder="1234"
+                      value={paymentForm.account_last4 ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, account_last4: e.target.value })}
+                      className="border-slate-300 bg-white"
+                      maxLength={4}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="transfer_date">Transfer Date (optional)</Label>
+                    <Input
+                      id="transfer_date"
+                      type="date"
+                      value={paymentForm.transfer_date ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, transfer_date: e.target.value })}
+                      className="border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="wire_confirmation_upload">Confirmation Upload (optional)</Label>
+                    <Input
+                      id="wire_confirmation_upload"
+                      type="file"
+                      accept="image/*,.pdf"
+                      onChange={(e) => setPaymentForm({ ...paymentForm, confirmation_upload: e.target.files?.[0]?.name || "" })}
+                      className="border-slate-300 bg-white"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* 🏦 Bank Transfer (ACH) Fields */}
+              {paymentForm.payment_method === "ach" && (
+                <div className="bg-cyan-50 p-4 rounded space-y-3 border border-cyan-200">
+                  <p className="text-sm font-semibold text-cyan-900">🏦 Bank Transfer (ACH) Information</p>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="ach_bank_name">Bank Name *</Label>
+                    <Input
+                      id="ach_bank_name"
+                      placeholder="Wells Fargo, Chase, etc."
+                      value={paymentForm.bank_name ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, bank_name: e.target.value })}
+                      className="border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="routing_number_ach">Routing Number (optional - internal only)</Label>
+                    <Input
+                      id="routing_number_ach"
+                      placeholder="9-digit routing number"
+                      value={paymentForm.routing_number ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, routing_number: e.target.value })}
+                      className="border-slate-300 bg-white"
+                      type="password"
+                    />
+                    <p className="text-xs text-slate-500">Will be encrypted and hidden</p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="ach_account_last4">Account Last 4 Digits *</Label>
+                    <Input
+                      id="ach_account_last4"
+                      placeholder="1234"
+                      value={paymentForm.account_last4 ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, account_last4: e.target.value })}
+                      className="border-slate-300 bg-white"
+                      maxLength={4}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="account_type_ach">Account Type *</Label>
+                    <Select value={paymentForm.account_type ?? "checking"} onValueChange={(value) => setPaymentForm({ ...paymentForm, account_type: value as any })}>
+                      <SelectTrigger className="border-slate-300 bg-white">
+                        <SelectValue placeholder="Select account type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="checking">Checking</SelectItem>
+                        <SelectItem value="savings">Savings</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="ach_transaction_id">ACH Transaction ID *</Label>
+                    <Input
+                      id="ach_transaction_id"
+                      placeholder="ACH-123456"
+                      value={paymentForm.ach_transaction_id ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, ach_transaction_id: e.target.value })}
+                      className="border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="ach_sender_name">Sender Name *</Label>
+                    <Input
+                      id="ach_sender_name"
+                      placeholder="Company or Person Name"
+                      value={paymentForm.sender_name ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, sender_name: e.target.value })}
+                      className="border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="ach_confirmation_upload">Confirmation Upload (optional)</Label>
+                    <Input
+                      id="ach_confirmation_upload"
+                      type="file"
+                      accept="image/*,.pdf"
+                      onChange={(e) => setPaymentForm({ ...paymentForm, confirmation_upload: e.target.files?.[0]?.name || "" })}
+                      className="border-slate-300 bg-white"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* ⚡ Zelle Fields */}
+              {paymentForm.payment_method === "zelle" && (
+                <div className="bg-violet-50 p-4 rounded space-y-3 border border-violet-200">
+                  <p className="text-sm font-semibold text-violet-900">⚡ Zelle Payment Information</p>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="zelle_sender_name">Sender Name *</Label>
+                    <Input
+                      id="zelle_sender_name"
+                      placeholder="John Doe"
+                      value={paymentForm.sender_name ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, sender_name: e.target.value })}
+                      className="border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="zelle_email">Sender Email *</Label>
+                    <Input
+                      id="zelle_email"
+                      type="email"
+                      placeholder="john@example.com"
+                      value={paymentForm.zelle_email ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, zelle_email: e.target.value })}
+                      className="border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="zelle_phone">Sender Phone (optional)</Label>
+                    <Input
+                      id="zelle_phone"
+                      placeholder="(555) 123-4567"
+                      value={paymentForm.zelle_phone ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, zelle_phone: e.target.value })}
+                      className="border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="zelle_confirmation_number">Zelle Confirmation Number *</Label>
+                    <Input
+                      id="zelle_confirmation_number"
+                      placeholder="ZELLE-123456"
+                      value={paymentForm.zelle_confirmation_number ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, zelle_confirmation_number: e.target.value })}
+                      className="border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="zelle_date_sent">Date Sent (optional)</Label>
+                    <Input
+                      id="zelle_date_sent"
+                      type="date"
+                      value={paymentForm.transfer_date ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, transfer_date: e.target.value })}
+                      className="border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="zelle_screenshot_upload">Screenshot Upload (optional)</Label>
+                    <Input
+                      id="zelle_screenshot_upload"
+                      type="file"
+                      accept="image/*,.pdf"
+                      onChange={(e) => setPaymentForm({ ...paymentForm, receipt_attachment: e.target.files?.[0]?.name || "" })}
+                      className="border-slate-300 bg-white"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* 📥 Direct Deposit Fields */}
+              {paymentForm.payment_method === "direct_deposit" && (
+                <div className="bg-amber-50 p-4 rounded space-y-3 border border-amber-200">
+                  <p className="text-sm font-semibold text-amber-900">📥 Direct Deposit Information</p>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="depositor_name">Depositor Name / Company *</Label>
+                    <Input
+                      id="depositor_name"
+                      placeholder="Company Name or Person"
+                      value={paymentForm.depositor_name ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, depositor_name: e.target.value })}
+                      className="border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="dd_bank_name">Bank Name *</Label>
+                    <Input
+                      id="dd_bank_name"
+                      placeholder="Wells Fargo, Chase, etc."
+                      value={paymentForm.bank_name ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, bank_name: e.target.value })}
+                      className="border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="deposit_reference_number">Deposit Reference Number *</Label>
+                    <Input
+                      id="deposit_reference_number"
+                      placeholder="DEP-123456"
+                      value={paymentForm.deposit_reference_number ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, deposit_reference_number: e.target.value })}
+                      className="border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="dd_account_last4">Account Last 4 Digits (optional)</Label>
+                    <Input
+                      id="dd_account_last4"
+                      placeholder="1234"
+                      value={paymentForm.account_last4 ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, account_last4: e.target.value })}
+                      className="border-slate-300 bg-white"
+                      maxLength={4}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="deposit_date">Deposit Date (optional)</Label>
+                    <Input
+                      id="deposit_date"
+                      type="date"
+                      value={paymentForm.deposit_date ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, deposit_date: e.target.value })}
+                      className="border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="dd_confirmation_upload">Confirmation Upload (optional)</Label>
+                    <Input
+                      id="dd_confirmation_upload"
+                      type="file"
+                      accept="image/*,.pdf"
+                      onChange={(e) => setPaymentForm({ ...paymentForm, confirmation_upload: e.target.files?.[0]?.name || "" })}
+                      className="border-slate-300 bg-white"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* 🧾 Check Fields */}
+              {paymentForm.payment_method === "check" && (
+                <div className="bg-slate-50 p-4 rounded space-y-3 border border-slate-300">
+                  <p className="text-sm font-semibold text-slate-900">🧾 Check Information</p>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="check_number">Check Number *</Label>
+                    <Input
+                      id="check_number"
+                      placeholder="1001"
+                      value={paymentForm.check_number ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, check_number: e.target.value })}
+                      className="border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="check_bank_name_field">Bank Name *</Label>
+                    <Input
+                      id="check_bank_name_field"
+                      placeholder="Wells Fargo, Chase, etc."
+                      value={paymentForm.check_bank_name ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, check_bank_name: e.target.value })}
+                      className="border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="check_account_holder">Account Holder Name *</Label>
+                    <Input
+                      id="check_account_holder"
+                      placeholder="John Doe"
+                      value={paymentForm.check_account_holder ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, check_account_holder: e.target.value })}
+                      className="border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="check_deposit_date">Deposit Date (optional)</Label>
+                    <Input
+                      id="check_deposit_date"
+                      type="date"
+                      value={paymentForm.check_deposit_date ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, check_deposit_date: e.target.value })}
+                      className="border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="check_front_image">Front Check Image Upload (optional)</Label>
+                    <Input
+                      id="check_front_image"
+                      type="file"
+                      accept="image/*,.pdf"
+                      onChange={(e) => setPaymentForm({ ...paymentForm, check_front_image: e.target.files?.[0]?.name || "" })}
+                      className="border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="check_back_image">Back Check Image Upload (optional)</Label>
+                    <Input
+                      id="check_back_image"
+                      type="file"
+                      accept="image/*,.pdf"
+                      onChange={(e) => setPaymentForm({ ...paymentForm, check_back_image: e.target.files?.[0]?.name || "" })}
+                      className="border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="check_status_field">Check Status *</Label>
+                    <Select value={paymentForm.check_status ?? "pending"} onValueChange={(value) => setPaymentForm({ ...paymentForm, check_status: value as any })}>
+                      <SelectTrigger className="border-slate-300 bg-white">
+                        <SelectValue placeholder="Select check status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="pending">⏳ Pending</SelectItem>
+                        <SelectItem value="cleared">✅ Cleared</SelectItem>
+                        <SelectItem value="bounced">❌ Bounced</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
               )}
             </div>
 
@@ -3921,16 +4434,61 @@ export default function Contracts() {
                     amount: 0,
                     due_date: "",
                     status: "pending",
+                    paid_date: "",
                     payment_method: "cash",
+                    
+                    // Credit Card & Debit Card fields
+                    cardholder_name: "",
+                    card_last4: "",
+                    card_expiration: "",
+                    authorization_code: "",
+                    payment_processor: "",
+                    credit_card_last4: "",
+                    
+                    // Cash fields
+                    received_by: "",
+                    payment_location: "",
+                    receipt_number: "",
+                    notes: "",
+                    
+                    // Wire Transfer fields
+                    sending_bank_name: "",
+                    sender_name: "",
+                    wire_reference_number: "",
+                    account_last4: "",
+                    transfer_date: "",
+                    
+                    // Bank Transfer (ACH) fields
                     bank_name: "",
                     routing_number: "",
                     account_number: "",
                     account_type: "checking",
-                    check_attachment: "",
+                    ach_transaction_id: "",
+                    
+                    // Zelle fields
+                    zelle_email: "",
+                    zelle_phone: "",
+                    zelle_confirmation_number: "",
+                    
+                    // Direct Deposit fields
+                    depositor_name: "",
+                    deposit_reference_number: "",
+                    deposit_date: "",
+                    
+                    // Check fields
                     check_number: "",
-                    credit_card_last4: "",
+                    check_bank_name: "",
+                    check_account_holder: "",
+                    check_deposit_date: "",
+                    check_front_image: "",
+                    check_back_image: "",
+                    check_status: "pending",
+                    check_attachment: "",
+                    
+                    // Common fields
                     transaction_reference: "",
-                    receipt_attachment: ""
+                    receipt_attachment: "",
+                    confirmation_upload: "",
                   });
                   setEditingPaymentId(null);
                 }}
