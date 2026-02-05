@@ -2431,46 +2431,52 @@ export default function Employees() {
                          </div>
                       </div>
 
-                      <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-                           <Button
-                                variant="ghost"
-                                size="sm"
-                                className="text-blue-600 hover:bg-blue-50 h-8 w-8 p-0"
-                                onClick={() => {
-                                  setViewingEmployee(emp);
-                                  setIsViewModalOpen(true);
-                                }}
-                                title="View employee details"
-                              >
-                                <Eye className="w-4 h-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="text-green-600 hover:bg-green-50 h-8 w-8 p-0"
-                                onClick={() => handleAdjustSalary(emp.id)}
-                                title="Adjust employee salary"
-                              >
-                                <TrendingUp className="w-4 h-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="text-amber-600 hover:bg-amber-50 h-8 w-8 p-0"
-                                onClick={() => handleEditEmployee(emp)}
-                                title="Edit employee"
-                              >
-                                <Edit2 className="w-4 h-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="text-red-600 hover:bg-red-50 h-8 w-8 p-0"
-                                onClick={() => confirmDeleteEmployee(emp.id)}
-                                title="Delete employee"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
+                      <div className="pt-3 border-t border-slate-100">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="gap-2 border-slate-300 text-blue-700 hover:bg-blue-50 justify-center"
+                            onClick={() => {
+                              setViewingEmployee(emp);
+                              setIsViewModalOpen(true);
+                            }}
+                            title="View employee details"
+                          >
+                            <Eye className="w-4 h-4" />
+                            <span className="text-xs">View</span>
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="gap-2 border-slate-300 text-green-700 hover:bg-green-50 justify-center"
+                            onClick={() => handleAdjustSalary(emp.id)}
+                            title="Adjust employee salary"
+                          >
+                            <TrendingUp className="w-4 h-4" />
+                            <span className="text-xs">Salary</span>
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="gap-2 border-slate-300 text-amber-700 hover:bg-amber-50 justify-center"
+                            onClick={() => handleEditEmployee(emp)}
+                            title="Edit employee"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                            <span className="text-xs">Edit</span>
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="gap-2 border-red-200 text-red-700 hover:bg-red-50 justify-center"
+                            onClick={() => confirmDeleteEmployee(emp.id)}
+                            title="Delete employee"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                            <span className="text-xs">Delete</span>
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   ))

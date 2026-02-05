@@ -2425,7 +2425,7 @@ export default function Payments() {
             <CardDescription>Consolidated payments for 2026</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto">
+            <div className="hidden lg:block overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="border-b border-slate-200 bg-slate-50">
                   <tr>
@@ -2458,6 +2458,48 @@ export default function Payments() {
                   </tr>
                 </tbody>
               </table>
+            </div>
+
+            <div className="lg:hidden space-y-3">
+              {yearlyStats.map((stat) => (
+                <div key={stat.id} className="bg-white rounded-lg border border-slate-200 shadow-sm p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="font-semibold text-slate-900 truncate">{stat.name}</div>
+                      <div className="text-xs text-slate-500 mt-0.5">
+                        Weekly Rate: ${stat.weeklyRate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xs text-slate-500">Total Earned</div>
+                      <div className="font-bold text-slate-900">
+                        ${stat.total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                      <span className="block text-slate-400">Payments</span>
+                      <span className="font-medium text-slate-900">{stat.count}</span>
+                    </div>
+                    <div>
+                      <span className="block text-slate-400">Employee</span>
+                      <span className="font-medium text-slate-900 truncate block">{stat.name}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              <div className="bg-slate-50 rounded-lg border border-slate-200 p-4">
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="font-semibold text-slate-900">TOTAL</span>
+                  <span className="font-bold text-slate-900">
+                    ${yearlyTotals.total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+                <div className="mt-1 text-xs text-slate-600">{yearlyTotals.count} payments</div>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -2627,7 +2669,7 @@ export default function Payments() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="hidden md:block overflow-x-auto">
+          <div className="hidden lg:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="border-b border-slate-200 bg-slate-50">
                 <tr>
@@ -2842,7 +2884,7 @@ export default function Payments() {
           </div>
 
           {/* Mobile Card View */}
-          <div className="md:hidden space-y-4">
+          <div className="lg:hidden space-y-4">
             {filteredPayments.length === 0 ? (
               <div className="text-center p-8 bg-white rounded-lg border border-slate-200">
                 <p className="text-slate-500">No payments found</p>

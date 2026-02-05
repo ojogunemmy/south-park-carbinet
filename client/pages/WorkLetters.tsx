@@ -453,7 +453,7 @@ This letter is issued for ${employee.name}'s use in personal matters and is vali
               </p>
             </div>
           ) : (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-4 md:grid-cols-2 xxl:grid-cols-3">
               {filteredEmployees.map((employee) => (
                 <Card
                   key={employee.id}

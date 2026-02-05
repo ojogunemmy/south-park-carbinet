@@ -612,7 +612,7 @@ export default function PaymentHistory() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="hidden md:block overflow-x-auto">
+            <div className="hidden lg:block overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="border-b border-slate-200 bg-slate-50">
                   <tr>
@@ -756,7 +756,7 @@ export default function PaymentHistory() {
             </div>
 
             {/* Mobile Card View */}
-            <div className="md:hidden space-y-4">
+            <div className="lg:hidden space-y-4">
               {paymentRecords.map((record) => {
                 // Check if this is a reversal entry
                 const isReversal = record.entries.some(e => e.is_correction);

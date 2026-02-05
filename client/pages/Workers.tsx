@@ -595,65 +595,122 @@ export default function Workers() {
               <p className="text-slate-500">No workers added yet</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="border-b border-slate-200 bg-slate-50">
-                  <tr>
-                    <th className="text-left p-3 font-semibold text-slate-900">ID</th>
-                    <th className="text-left p-3 font-semibold text-slate-900">Name</th>
-                    <th className="text-left p-3 font-semibold text-slate-900">Position</th>
-                    <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Weekly Rate</th>
-                    <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Start Date</th>
-                    <th className="text-left p-3 font-semibold text-slate-900">Status</th>
-                    <th className="text-left p-3 font-semibold text-slate-900">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {workers.map((worker, idx) => (
-                    <tr key={worker.id} className={idx % 2 === 0 ? "bg-white" : "bg-slate-50"}>
-                      <td className="p-3 text-slate-700 font-medium">{worker.id}</td>
-                      <td className="p-3 text-slate-700">{worker.name}</td>
-                      <td className="p-3 text-slate-700">{worker.position}</td>
-                      <td className="p-3 text-slate-700 whitespace-nowrap">${worker.weekly_rate.toLocaleString()}</td>
-                      <td className="p-3 text-slate-700 whitespace-nowrap">{formatDateString(worker.hire_date)}</td>
-                      <td className="p-3">
-                        <span className={`inline-block px-2 py-1 rounded text-xs font-medium ${getStatusColor(worker.payment_status)}`}>
-                          {worker.payment_status || "active"}
-                        </span>
-                      </td>
-                      <td className="p-3">
-                        <div className="flex gap-2">
-                          {user?.role === "admin" || user?.role === "manager" ? (
-                            <>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="text-purple-600 hover:bg-purple-50 gap-1"
-                                onClick={() => handleEdit(worker)}
-                              >
-                                <Edit2 className="w-3 h-3" />
-                                Edit
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="text-red-600 hover:bg-red-50 gap-1"
-                                onClick={() => handleDeleteWorker(worker.id)}
-                              >
-                                <Trash2 className="w-3 h-3" />
-                                Delete
-                              </Button>
-                            </>
-                          ) : (
-                            <span className="text-xs text-slate-500">View only</span>
-                          )}
-                        </div>
-                      </td>
+            <>
+              <div className="hidden lg:block overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="border-b border-slate-200 bg-slate-50">
+                    <tr>
+                      <th className="text-left p-3 font-semibold text-slate-900">ID</th>
+                      <th className="text-left p-3 font-semibold text-slate-900">Name</th>
+                      <th className="text-left p-3 font-semibold text-slate-900">Position</th>
+                      <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Weekly Rate</th>
+                      <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Start Date</th>
+                      <th className="text-left p-3 font-semibold text-slate-900">Status</th>
+                      <th className="text-left p-3 font-semibold text-slate-900">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {workers.map((worker, idx) => (
+                      <tr key={worker.id} className={idx % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+                        <td className="p-3 text-slate-700 font-medium">{worker.id}</td>
+                        <td className="p-3 text-slate-700">{worker.name}</td>
+                        <td className="p-3 text-slate-700">{worker.position}</td>
+                        <td className="p-3 text-slate-700 whitespace-nowrap">${worker.weekly_rate.toLocaleString()}</td>
+                        <td className="p-3 text-slate-700 whitespace-nowrap">{formatDateString(worker.hire_date)}</td>
+                        <td className="p-3">
+                          <span className={`inline-block px-2 py-1 rounded text-xs font-medium ${getStatusColor(worker.payment_status)}`}>
+                            {worker.payment_status || "active"}
+                          </span>
+                        </td>
+                        <td className="p-3">
+                          <div className="flex gap-2">
+                            {user?.role === "admin" || user?.role === "manager" ? (
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-purple-600 hover:bg-purple-50 gap-1"
+                                  onClick={() => handleEdit(worker)}
+                                >
+                                  <Edit2 className="w-3 h-3" />
+                                  Edit
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-red-600 hover:bg-red-50 gap-1"
+                                  onClick={() => handleDeleteWorker(worker.id)}
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                  Delete
+                                </Button>
+                              </>
+                            ) : (
+                              <span className="text-xs text-slate-500">View only</span>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="lg:hidden space-y-3">
+                {workers.map((worker) => (
+                  <div key={worker.id} className="bg-white rounded-lg border border-slate-200 shadow-sm p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="font-semibold text-slate-900 truncate">{worker.name}</div>
+                        <div className="text-sm text-slate-600 truncate">{worker.position}</div>
+                        <div className="text-[11px] text-slate-400 mt-1 truncate">ID: {worker.id}</div>
+                      </div>
+                      <span className={`inline-block px-2 py-1 rounded text-xs font-medium whitespace-nowrap ${getStatusColor(worker.payment_status)}`}>
+                        {worker.payment_status || "active"}
+                      </span>
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-600">
+                      <div>
+                        <span className="block text-slate-400">Weekly Rate</span>
+                        <span className="font-medium text-slate-900">${worker.weekly_rate.toLocaleString()}</span>
+                      </div>
+                      <div>
+                        <span className="block text-slate-400">Start Date</span>
+                        <span className="font-medium text-slate-900">{formatDateString(worker.hire_date)}</span>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 flex justify-end gap-2">
+                      {user?.role === "admin" || user?.role === "manager" ? (
+                        <div className="w-full grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="gap-1 border-slate-300 w-full"
+                            onClick={() => handleEdit(worker)}
+                          >
+                            <Edit2 className="w-3 h-3" />
+                            Edit
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="gap-1 border-red-200 text-red-700 hover:bg-red-50 w-full"
+                            onClick={() => handleDeleteWorker(worker.id)}
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            Delete
+                          </Button>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-slate-500">View only</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
           )}
         </CardContent>
       </Card>

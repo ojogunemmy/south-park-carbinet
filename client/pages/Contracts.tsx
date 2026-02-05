@@ -3254,7 +3254,7 @@ export default function Contracts() {
               </CardDescription>
               <div className="flex flex-col lg:flex-row gap-4 mt-4 items-start lg:items-center flex-wrap">
                 <Select value={filterStatus} onValueChange={(value: any) => setFilterStatus(value)}>
-                  <SelectTrigger className="w-full md:w-40 border-slate-300">
+                  <SelectTrigger className="w-full sm:w-40 border-slate-300">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -3265,30 +3265,32 @@ export default function Contracts() {
                   </SelectContent>
                 </Select>
 
-                <div className="flex gap-3 items-center">
+                <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 items-start sm:items-center w-full lg:w-auto">
                   <Label className="text-sm text-slate-600 whitespace-nowrap">Due Date Range:</Label>
-                  <Input
-                    id="filterFromDate"
-                    type="date"
-                    placeholder="From"
-                    value={filterFromDate ?? ""}
-                    onChange={(e) => setFilterFromDate(e.target.value)}
-                    className="border-slate-300 w-40"
-                  />
-                  <span className="text-slate-500 text-sm">to</span>
-                  <Input
-                    id="filterToDate"
-                    type="date"
-                    placeholder="To"
-                    value={filterToDate ?? ""}
-                    onChange={(e) => setFilterToDate(e.target.value)}
-                    className="border-slate-300 w-40"
-                  />
+                  <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr] items-center gap-2 w-full sm:w-auto">
+                    <Input
+                      id="filterFromDate"
+                      type="date"
+                      placeholder="From"
+                      value={filterFromDate ?? ""}
+                      onChange={(e) => setFilterFromDate(e.target.value)}
+                      className="border-slate-300 w-full sm:w-40"
+                    />
+                    <span className="hidden sm:inline text-slate-500 text-sm">to</span>
+                    <Input
+                      id="filterToDate"
+                      type="date"
+                      placeholder="To"
+                      value={filterToDate ?? ""}
+                      onChange={(e) => setFilterToDate(e.target.value)}
+                      className="border-slate-300 w-full sm:w-40"
+                    />
+                  </div>
                 </div>
               </div>
             </CardHeader>
             <CardContent>
-              <div className="hidden md:block overflow-x-auto">
+              <div className="hidden lg:block overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="border-b border-slate-200 bg-slate-50">
                     <tr>

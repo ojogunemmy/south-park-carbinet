@@ -845,7 +845,7 @@ export default function Index() {
               </div>
             </DialogContent>
           </Dialog>
-          <div className="overflow-x-auto">
+          <div className="hidden lg:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="border-b border-slate-200 bg-slate-50">
                 <tr>
@@ -893,6 +893,45 @@ export default function Index() {
                 ))}
               </tbody>
             </table>
+          </div>
+
+          <div className="lg:hidden space-y-3">
+            {profiles.map((profile) => (
+              <div key={profile.id} className="bg-white rounded-lg border border-slate-200 shadow-sm p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="font-semibold text-slate-900 truncate">{profile.name || "N/A"}</div>
+                    <div className="text-sm text-slate-600 break-all">{profile.email}</div>
+                  </div>
+                  <span className={`inline-block px-2 py-1 rounded text-xs font-medium whitespace-nowrap ${
+                    profile.role === "admin"
+                      ? "bg-red-100 text-red-700"
+                      : profile.role === "manager"
+                      ? "bg-purple-100 text-purple-700"
+                      : "bg-blue-100 text-blue-700"
+                  }`}>
+                    {profile.role === "admin" ? "Admin" : profile.role === "manager" ? "Manager" : "Worker"}
+                  </span>
+                </div>
+
+                <div className="mt-4 flex justify-end gap-2">
+                  <button
+                    onClick={() => handleEditUser(profile)}
+                    className="text-blue-600 hover:text-blue-800 hover:bg-blue-50 p-2 rounded transition-colors"
+                    title="Edit user"
+                  >
+                    <Edit2 className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => handleDeleteUser(profile.id)}
+                    className="text-red-600 hover:text-red-800 hover:bg-red-50 p-2 rounded transition-colors"
+                    title="Delete user"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         </CardContent>
       </Card>
