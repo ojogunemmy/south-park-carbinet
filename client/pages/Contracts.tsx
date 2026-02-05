@@ -483,7 +483,18 @@ export default function Contracts() {
   /* Summary Cards based on FILTERED data */
   const totalValue = filteredContracts.reduce((sum, c) => sum + (c.total_value || 0), 0);
   const totalDeposits = filteredContracts.reduce((sum, c) => sum + (c.deposit_amount || 0), 0);
-  const pendingPayments = totalValue - totalDeposits;
+  
+  // Calculate total amount paid from payment schedules
+  const totalAmountPaid = filteredContracts.reduce((sum, c) => {
+    const paidPayments = (c.payment_schedule || []).filter((p: any) => p.status === 'paid');
+    return sum + paidPayments.reduce((paySum: number, p: any) => paySum + (p.amount || 0), 0);
+  }, 0);
+  
+  // Calculate total amount due (pending payments)
+  const totalAmountDue = filteredContracts.reduce((sum, c) => {
+    const pendingPayments = (c.payment_schedule || []).filter((p: any) => p.status === 'pending');
+    return sum + pendingPayments.reduce((paySum: number, p: any) => paySum + (p.amount || 0), 0);
+  }, 0);
 
 
   const generateDefaultPaymentSchedule = (total_value: number, start_date: string, due_date: string, contract_id?: string): Payment[] => {
@@ -857,18 +868,7 @@ export default function Contracts() {
       return;
     }
 
-    // Payment method specific validation
-    if (paymentForm.payment_method === "direct_deposit" || paymentForm.payment_method === "ach" || paymentForm.payment_method === "wire") {
-      if (!paymentForm.bank_name?.trim() || !paymentForm.routing_number?.trim() || !paymentForm.account_number?.trim() || !paymentForm.account_type) {
-        alert("Please fill in all bank details (bank name, routing number, account number, account type)");
-        return;
-      }
-    } else if (paymentForm.payment_method === "credit_card" || paymentForm.payment_method === "debit_card") {
-      if (!paymentForm.credit_card_last4?.trim() || !paymentForm.transaction_reference?.trim()) {
-        alert("Please fill in all card details (last 4 digits, transaction/authorization code)");
-        return;
-      }
-    }
+    // Note: Payment method specific fields are optional to accommodate irregular payment information
 
     try {
       const contract = contracts.find(c => c.id === selectedContractId);
@@ -3305,9 +3305,17 @@ export default function Contracts() {
 
         <Card className="border-slate-200">
           <CardContent className="pt-6">
-            <p className="text-sm font-medium text-slate-500">Pending Payments</p>
-            <h3 className="text-2xl font-bold text-orange-600 mt-2">${pendingPayments.toLocaleString()}</h3>
-            <p className="text-xs text-slate-500 mt-1">Awaiting payment</p>
+            <p className="text-sm font-medium text-slate-500">Amount Paid</p>
+            <h3 className="text-2xl font-bold text-green-600 mt-2">${totalAmountPaid.toLocaleString()}</h3>
+            <p className="text-xs text-slate-500 mt-1">From payment schedule</p>
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-200">
+          <CardContent className="pt-6">
+            <p className="text-sm font-medium text-slate-500">Amount Due</p>
+            <h3 className="text-2xl font-bold text-orange-600 mt-2">${totalAmountDue.toLocaleString()}</h3>
+            <p className="text-xs text-slate-500 mt-1">Pending payments</p>
           </CardContent>
         </Card>
       </div>
@@ -3387,13 +3395,19 @@ export default function Contracts() {
                       <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Project</th>
                       <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Value</th>
                       <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Deposit</th>
+                      <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Paid</th>
+                      <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Due</th>
                       <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Due Date</th>
                       <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Status</th>
                       <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredContracts.map((contract, idx) => (
+                    {filteredContracts.map((contract, idx) => {
+                      const amountPaid = (contract.payment_schedule || []).filter((p: any) => p.status === 'paid').reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
+                      const amountDue = (contract.payment_schedule || []).filter((p: any) => p.status === 'pending').reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
+                      
+                      return (
                       <tr key={contract.id} className={idx % 2 === 0 ? "bg-white" : "bg-slate-50"}>
                         <td className={`p-3 text-slate-700 font-medium whitespace-nowrap border-l-4 ${
                           (contract.payment_schedule?.filter(p => p.status === 'paid').length || 0) === 0
@@ -3412,6 +3426,8 @@ export default function Contracts() {
                         <td className="p-3 text-slate-700 whitespace-nowrap">{contract.project_name}</td>
                         <td className="p-3 text-slate-700 font-medium whitespace-nowrap">${contract.total_value.toLocaleString()}</td>
                         <td className="p-3 text-slate-700 whitespace-nowrap">${contract.deposit_amount.toLocaleString()}</td>
+                        <td className="p-3 text-green-600 font-semibold whitespace-nowrap">${amountPaid.toLocaleString()}</td>
+                        <td className="p-3 text-orange-600 font-semibold whitespace-nowrap">${amountDue.toLocaleString()}</td>
                         <td className={`p-3 whitespace-nowrap ${isOverdue(contract.due_date) ? "text-red-600 font-semibold" : "text-slate-700"}`}>
                           {formatDateString(contract.due_date)}
                           {isOverdue(contract.due_date) && " ⚠️"}
@@ -3467,7 +3483,8 @@ export default function Contracts() {
                           </button>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -3510,14 +3527,26 @@ export default function Contracts() {
                         </span>
                       </div>
 
-                       <div className="grid grid-cols-2 gap-2 text-xs text-slate-600">
+                       <div className="grid grid-cols-2 gap-2 text-xs">
+                        <div>
+                          <span className="block text-slate-400">Amount Paid</span>
+                          <span className="font-semibold text-green-600">
+                            ${(contract.payment_schedule || []).filter((p: any) => p.status === 'paid').reduce((sum: number, p: any) => sum + (p.amount || 0), 0).toLocaleString()}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="block text-slate-400">Amount Due</span>
+                          <span className="font-semibold text-orange-600">
+                            ${(contract.payment_schedule || []).filter((p: any) => p.status === 'pending').reduce((sum: number, p: any) => sum + (p.amount || 0), 0).toLocaleString()}
+                          </span>
+                        </div>
                         <div>
                           <span className="block text-slate-400">Deposit</span>
-                          <span>${contract.deposit_amount.toLocaleString()}</span>
+                          <span className="text-slate-600">${contract.deposit_amount.toLocaleString()}</span>
                         </div>
                         <div>
                            <span className="block text-slate-400">Due Date</span>
-                           <span>{formatDateString(contract.due_date)}</span>
+                           <span className="text-slate-600">{formatDateString(contract.due_date)}</span>
                         </div>
                       </div>
 
@@ -3820,7 +3849,7 @@ export default function Contracts() {
                   <p className="text-sm font-semibold text-blue-900">💳 Credit Card Information</p>
 
                   <div className="space-y-2">
-                    <Label htmlFor="cardholder_name">Cardholder Name *</Label>
+                    <Label htmlFor="cardholder_name">Cardholder Name</Label>
                     <Input
                       id="cardholder_name"
                       placeholder="John Doe"
@@ -3831,7 +3860,7 @@ export default function Contracts() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="card_last4">Card Last 4 Digits *</Label>
+                    <Label htmlFor="card_last4">Card Last 4 Digits</Label>
                     <Input
                       id="card_last4"
                       placeholder="4242"
@@ -3843,7 +3872,7 @@ export default function Contracts() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="card_expiration">Expiration Date (optional)</Label>
+                    <Label htmlFor="card_expiration">Expiration Date</Label>
                     <Input
                       id="card_expiration"
                       placeholder="MM/YY"
@@ -3854,7 +3883,7 @@ export default function Contracts() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="authorization_code">Authorization Code / Transaction ID *</Label>
+                    <Label htmlFor="authorization_code">Authorization Code / Transaction ID</Label>
                     <Input
                       id="authorization_code"
                       placeholder="AUTH-123456"
@@ -3865,7 +3894,7 @@ export default function Contracts() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="payment_processor">Payment Processor (optional)</Label>
+                    <Label htmlFor="payment_processor">Payment Processor</Label>
                     <Input
                       id="payment_processor"
                       placeholder="Stripe, Square, PayPal, etc."
@@ -3876,7 +3905,7 @@ export default function Contracts() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="receipt_upload_cc">Receipt Upload (optional)</Label>
+                    <Label htmlFor="receipt_upload_cc">Receipt Upload</Label>
                     <Input
                       id="receipt_upload_cc"
                       type="file"
@@ -3894,7 +3923,7 @@ export default function Contracts() {
                   <p className="text-sm font-semibold text-purple-900">💳 Debit Card Information</p>
 
                   <div className="space-y-2">
-                    <Label htmlFor="debit_cardholder_name">Cardholder Name *</Label>
+                    <Label htmlFor="debit_cardholder_name">Cardholder Name</Label>
                     <Input
                       id="debit_cardholder_name"
                       placeholder="John Doe"
@@ -3905,7 +3934,7 @@ export default function Contracts() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="debit_card_last4">Debit Card Last 4 Digits *</Label>
+                    <Label htmlFor="debit_card_last4">Debit Card Last 4 Digits</Label>
                     <Input
                       id="debit_card_last4"
                       placeholder="4242"
@@ -3917,7 +3946,7 @@ export default function Contracts() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="debit_auth_code">Transaction ID / Auth Code *</Label>
+                    <Label htmlFor="debit_auth_code">Transaction ID / Auth Code</Label>
                     <Input
                       id="debit_auth_code"
                       placeholder="TXN-123456"
@@ -3928,7 +3957,7 @@ export default function Contracts() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="debit_bank_name">Bank Name (optional)</Label>
+                    <Label htmlFor="debit_bank_name">Bank Name</Label>
                     <Input
                       id="debit_bank_name"
                       placeholder="Chase, Bank of America, etc."
@@ -3939,7 +3968,7 @@ export default function Contracts() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="debit_processor">Processor Used (optional)</Label>
+                    <Label htmlFor="debit_processor">Processor Used</Label>
                     <Input
                       id="debit_processor"
                       placeholder="Stripe, Square, etc."
@@ -3950,7 +3979,7 @@ export default function Contracts() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="receipt_upload_debit">Receipt Upload (optional)</Label>
+                    <Label htmlFor="receipt_upload_debit">Receipt Upload</Label>
                     <Input
                       id="receipt_upload_debit"
                       type="file"
@@ -3968,7 +3997,7 @@ export default function Contracts() {
                   <p className="text-sm font-semibold text-green-900">💵 Cash Payment Information</p>
 
                   <div className="space-y-2">
-                    <Label htmlFor="received_by">Received By (Employee Name) *</Label>
+                    <Label htmlFor="received_by">Received By (Employee Name)</Label>
                     <Input
                       id="received_by"
                       placeholder="John Smith"
@@ -3979,7 +4008,7 @@ export default function Contracts() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="payment_location">Payment Location (optional)</Label>
+                    <Label htmlFor="payment_location">Payment Location</Label>
                     <Input
                       id="payment_location"
                       placeholder="Office, Job Site, etc."
@@ -3990,7 +4019,7 @@ export default function Contracts() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="receipt_number">Receipt Number (Manual) (optional)</Label>
+                    <Label htmlFor="receipt_number">Receipt Number (Manual)</Label>
                     <Input
                       id="receipt_number"
                       placeholder="RCP-001"
@@ -4001,7 +4030,7 @@ export default function Contracts() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="cash_notes">Notes (optional)</Label>
+                    <Label htmlFor="cash_notes">Notes</Label>
                     <Input
                       id="cash_notes"
                       placeholder="Additional details..."
@@ -4012,7 +4041,7 @@ export default function Contracts() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="signed_receipt_upload">Upload Signed Receipt (optional)</Label>
+                    <Label htmlFor="signed_receipt_upload">Upload Signed Receipt</Label>
                     <Input
                       id="signed_receipt_upload"
                       type="file"
@@ -4030,7 +4059,7 @@ export default function Contracts() {
                   <p className="text-sm font-semibold text-indigo-900">🏦 Wire Transfer Information</p>
 
                   <div className="space-y-2">
-                    <Label htmlFor="sending_bank_name">Sending Bank Name *</Label>
+                    <Label htmlFor="sending_bank_name">Sending Bank Name</Label>
                     <Input
                       id="sending_bank_name"
                       placeholder="Wells Fargo, Chase, etc."
@@ -4041,7 +4070,7 @@ export default function Contracts() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="sender_name">Sender Name *</Label>
+                    <Label htmlFor="sender_name">Sender Name</Label>
                     <Input
                       id="sender_name"
                       placeholder="Company or Person Name"
@@ -4052,7 +4081,7 @@ export default function Contracts() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="wire_reference_number">Wire Reference Number *</Label>
+                    <Label htmlFor="wire_reference_number">Wire Reference Number</Label>
                     <Input
                       id="wire_reference_number"
                       placeholder="WIRE-123456"
@@ -4063,7 +4092,7 @@ export default function Contracts() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="account_last4">Last 4 Digits Account (optional)</Label>
+                    <Label htmlFor="account_last4">Last 4 Digits Account</Label>
                     <Input
                       id="account_last4"
                       placeholder="1234"
@@ -4075,7 +4104,7 @@ export default function Contracts() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="transfer_date">Transfer Date (optional)</Label>
+                    <Label htmlFor="transfer_date">Transfer Date</Label>
                     <Input
                       id="transfer_date"
                       type="date"
@@ -4086,7 +4115,7 @@ export default function Contracts() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="wire_confirmation_upload">Confirmation Upload (optional)</Label>
+                    <Label htmlFor="wire_confirmation_upload">Confirmation Upload</Label>
                     <Input
                       id="wire_confirmation_upload"
                       type="file"
@@ -4104,7 +4133,7 @@ export default function Contracts() {
                   <p className="text-sm font-semibold text-cyan-900">🏦 Bank Transfer (ACH) Information</p>
 
                   <div className="space-y-2">
-                    <Label htmlFor="ach_bank_name">Bank Name *</Label>
+                    <Label htmlFor="ach_bank_name">Bank Name</Label>
                     <Input
                       id="ach_bank_name"
                       placeholder="Wells Fargo, Chase, etc."
@@ -4115,7 +4144,7 @@ export default function Contracts() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="routing_number_ach">Routing Number (optional - internal only)</Label>
+                    <Label htmlFor="routing_number_ach">Routing Number (internal only)</Label>
                     <Input
                       id="routing_number_ach"
                       placeholder="9-digit routing number"
@@ -4128,7 +4157,7 @@ export default function Contracts() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="ach_account_last4">Account Last 4 Digits *</Label>
+                    <Label htmlFor="ach_account_last4">Account Last 4 Digits</Label>
                     <Input
                       id="ach_account_last4"
                       placeholder="1234"
@@ -4140,7 +4169,7 @@ export default function Contracts() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="account_type_ach">Account Type *</Label>
+                    <Label htmlFor="account_type_ach">Account Type</Label>
                     <Select value={paymentForm.account_type ?? "checking"} onValueChange={(value) => setPaymentForm({ ...paymentForm, account_type: value as any })}>
                       <SelectTrigger className="border-slate-300 bg-white">
                         <SelectValue placeholder="Select account type" />
@@ -4153,7 +4182,7 @@ export default function Contracts() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="ach_transaction_id">ACH Transaction ID *</Label>
+                    <Label htmlFor="ach_transaction_id">ACH Transaction ID</Label>
                     <Input
                       id="ach_transaction_id"
                       placeholder="ACH-123456"
@@ -4164,7 +4193,7 @@ export default function Contracts() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="ach_sender_name">Sender Name *</Label>
+                    <Label htmlFor="ach_sender_name">Sender Name</Label>
                     <Input
                       id="ach_sender_name"
                       placeholder="Company or Person Name"
@@ -4175,7 +4204,7 @@ export default function Contracts() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="ach_confirmation_upload">Confirmation Upload (optional)</Label>
+                    <Label htmlFor="ach_confirmation_upload">Confirmation Upload</Label>
                     <Input
                       id="ach_confirmation_upload"
                       type="file"
@@ -4193,7 +4222,7 @@ export default function Contracts() {
                   <p className="text-sm font-semibold text-violet-900">⚡ Zelle Payment Information</p>
 
                   <div className="space-y-2">
-                    <Label htmlFor="zelle_sender_name">Sender Name *</Label>
+                    <Label htmlFor="zelle_sender_name">Sender Name</Label>
                     <Input
                       id="zelle_sender_name"
                       placeholder="John Doe"
@@ -4204,7 +4233,7 @@ export default function Contracts() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="zelle_email">Sender Email *</Label>
+                    <Label htmlFor="zelle_email">Sender Email</Label>
                     <Input
                       id="zelle_email"
                       type="email"
@@ -4216,7 +4245,7 @@ export default function Contracts() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="zelle_phone">Sender Phone (optional)</Label>
+                    <Label htmlFor="zelle_phone">Sender Phone</Label>
                     <Input
                       id="zelle_phone"
                       placeholder="(555) 123-4567"
@@ -4227,7 +4256,7 @@ export default function Contracts() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="zelle_confirmation_number">Zelle Confirmation Number *</Label>
+                    <Label htmlFor="zelle_confirmation_number">Zelle Confirmation Number</Label>
                     <Input
                       id="zelle_confirmation_number"
                       placeholder="ZELLE-123456"
@@ -4238,7 +4267,7 @@ export default function Contracts() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="zelle_date_sent">Date Sent (optional)</Label>
+                    <Label htmlFor="zelle_date_sent">Date Sent</Label>
                     <Input
                       id="zelle_date_sent"
                       type="date"
@@ -4249,7 +4278,7 @@ export default function Contracts() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="zelle_screenshot_upload">Screenshot Upload (optional)</Label>
+                    <Label htmlFor="zelle_screenshot_upload">Screenshot Upload</Label>
                     <Input
                       id="zelle_screenshot_upload"
                       type="file"
@@ -4267,7 +4296,7 @@ export default function Contracts() {
                   <p className="text-sm font-semibold text-amber-900">📥 Direct Deposit Information</p>
 
                   <div className="space-y-2">
-                    <Label htmlFor="depositor_name">Depositor Name / Company *</Label>
+                    <Label htmlFor="depositor_name">Depositor Name / Company</Label>
                     <Input
                       id="depositor_name"
                       placeholder="Company Name or Person"
@@ -4278,7 +4307,7 @@ export default function Contracts() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="dd_bank_name">Bank Name *</Label>
+                    <Label htmlFor="dd_bank_name">Bank Name</Label>
                     <Input
                       id="dd_bank_name"
                       placeholder="Wells Fargo, Chase, etc."
@@ -4289,7 +4318,7 @@ export default function Contracts() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="deposit_reference_number">Deposit Reference Number *</Label>
+                    <Label htmlFor="deposit_reference_number">Deposit Reference Number</Label>
                     <Input
                       id="deposit_reference_number"
                       placeholder="DEP-123456"
@@ -4300,7 +4329,7 @@ export default function Contracts() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="dd_account_last4">Account Last 4 Digits (optional)</Label>
+                    <Label htmlFor="dd_account_last4">Account Last 4 Digits</Label>
                     <Input
                       id="dd_account_last4"
                       placeholder="1234"
@@ -4312,7 +4341,7 @@ export default function Contracts() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="deposit_date">Deposit Date (optional)</Label>
+                    <Label htmlFor="deposit_date">Deposit Date</Label>
                     <Input
                       id="deposit_date"
                       type="date"
@@ -4323,7 +4352,7 @@ export default function Contracts() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="dd_confirmation_upload">Confirmation Upload (optional)</Label>
+                    <Label htmlFor="dd_confirmation_upload">Confirmation Upload</Label>
                     <Input
                       id="dd_confirmation_upload"
                       type="file"
@@ -4341,7 +4370,7 @@ export default function Contracts() {
                   <p className="text-sm font-semibold text-slate-900">🧾 Check Information</p>
 
                   <div className="space-y-2">
-                    <Label htmlFor="check_number">Check Number *</Label>
+                    <Label htmlFor="check_number">Check Number</Label>
                     <Input
                       id="check_number"
                       placeholder="1001"
@@ -4352,7 +4381,7 @@ export default function Contracts() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="check_bank_name_field">Bank Name *</Label>
+                    <Label htmlFor="check_bank_name_field">Bank Name</Label>
                     <Input
                       id="check_bank_name_field"
                       placeholder="Wells Fargo, Chase, etc."
@@ -4363,7 +4392,7 @@ export default function Contracts() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="check_account_holder">Account Holder Name *</Label>
+                    <Label htmlFor="check_account_holder">Account Holder Name</Label>
                     <Input
                       id="check_account_holder"
                       placeholder="John Doe"
@@ -4374,7 +4403,7 @@ export default function Contracts() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="check_deposit_date">Deposit Date (optional)</Label>
+                    <Label htmlFor="check_deposit_date">Deposit Date</Label>
                     <Input
                       id="check_deposit_date"
                       type="date"
@@ -4385,7 +4414,7 @@ export default function Contracts() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="check_front_image">Front Check Image Upload (optional)</Label>
+                    <Label htmlFor="check_front_image">Front Check Image Upload</Label>
                     <Input
                       id="check_front_image"
                       type="file"
@@ -4396,7 +4425,7 @@ export default function Contracts() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="check_back_image">Back Check Image Upload (optional)</Label>
+                    <Label htmlFor="check_back_image">Back Check Image Upload</Label>
                     <Input
                       id="check_back_image"
                       type="file"
@@ -4407,7 +4436,7 @@ export default function Contracts() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="check_status_field">Check Status *</Label>
+                    <Label htmlFor="check_status_field">Check Status</Label>
                     <Select value={paymentForm.check_status ?? "pending"} onValueChange={(value) => setPaymentForm({ ...paymentForm, check_status: value as any })}>
                       <SelectTrigger className="border-slate-300 bg-white">
                         <SelectValue placeholder="Select check status" />
