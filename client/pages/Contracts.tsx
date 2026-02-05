@@ -1007,14 +1007,14 @@ export default function Contracts() {
       return;
     }
 
-    if (downPaymentForm.method === "wire_transfer") {
+    if (downPaymentForm.method === "wire" || downPaymentForm.method === "wire_transfer") {
       if (!downPaymentForm.transaction_reference?.trim()) {
         alert("Please enter the TRN (Transaction Reference Number) for wire transfer");
         return;
       }
     }
 
-    if (downPaymentForm.method === "bank_transfer") {
+    if (downPaymentForm.method === "ach" || downPaymentForm.method === "bank_transfer") {
       if (!downPaymentForm.bank_name?.trim() || !downPaymentForm.routing_number?.trim() || !downPaymentForm.account_number?.trim()) {
         alert("Please fill in all required bank transfer details (Bank Name, Routing Number, Account Number)");
         return;
@@ -1618,7 +1618,20 @@ export default function Contracts() {
 
         // Payment method if paid
         if (payment.status === "paid" && payment.payment_method) {
-          const methodText = `Payment Method: ${payment.payment_method === "check" ? "Check" : payment.payment_method === "direct_deposit" ? "Direct Deposit" : payment.payment_method === "bank_transfer" ? "Bank Transfer" : payment.payment_method === "wire_transfer" ? "Wire Transfer" : payment.payment_method === "credit_card" ? "Credit Card" : "Cash"}${payment.check_number ? ` #${payment.check_number}` : ""}`;
+          let methodLabel = "Cash";
+          if (payment.payment_method === "cash") methodLabel = "Cash";
+          else if (payment.payment_method === "credit_card") methodLabel = "Credit Card";
+          else if (payment.payment_method === "debit_card") methodLabel = "Debit Card";
+          else if (payment.payment_method === "check") methodLabel = "Check";
+          else if (payment.payment_method === "direct_deposit") methodLabel = "Direct Deposit";
+          else if (payment.payment_method === "ach") methodLabel = "Bank Transfer (ACH)";
+          else if (payment.payment_method === "wire") methodLabel = "Wire Transfer";
+          else if (payment.payment_method === "zelle") methodLabel = "Zelle";
+          // Legacy support
+          else if (payment.payment_method === "bank_transfer") methodLabel = "Bank Transfer";
+          else if (payment.payment_method === "wire_transfer") methodLabel = "Wire Transfer";
+          
+          const methodText = `Payment Method: ${methodLabel}${payment.check_number ? ` #${payment.check_number}` : ""}`;
           pdf.setFont(undefined, "italic");
           pdf.setFontSize(8);
           pdf.text(methodText, margin + 5, yPosition);
@@ -3668,13 +3681,17 @@ export default function Contracts() {
                             {payment.paymentMethod && (
                               <p className="text-sm text-slate-600">
                                 <span className="font-semibold">Method:</span>{" "}
-                                {payment.paymentMethod === "check" && "Check"}
-                                {payment.paymentMethod === "direct_deposit" && "Direct Deposit"}
-                                {payment.paymentMethod === "bank_transfer" && "Bank Transfer"}
-                                {payment.paymentMethod === "wire_transfer" && "Wire Transfer"}
-                                {payment.paymentMethod === "credit_card" && "Credit Card"}
-                                {payment.paymentMethod === "debit_card" && "Debit Card"}
-                                {payment.paymentMethod === "cash" && "Cash"}
+                                {payment.paymentMethod === "cash" && "💵 Cash"}
+                                {payment.paymentMethod === "credit_card" && "💳 Credit Card"}
+                                {payment.paymentMethod === "debit_card" && "💳 Debit Card"}
+                                {payment.paymentMethod === "check" && "🧾 Check"}
+                                {payment.paymentMethod === "direct_deposit" && "📥 Direct Deposit"}
+                                {payment.paymentMethod === "ach" && "🏦 Bank Transfer (ACH)"}
+                                {payment.paymentMethod === "wire" && "🏦 Wire Transfer"}
+                                {payment.paymentMethod === "zelle" && "⚡ Zelle"}
+                                {/* Legacy support */}
+                                {payment.paymentMethod === "bank_transfer" && "🏦 Bank Transfer"}
+                                {payment.paymentMethod === "wire_transfer" && "🏦 Wire Transfer"}
                                 {payment.checkNumber && ` (#${payment.checkNumber})`}
                                 {payment.creditCardLast4 && ` (****${payment.creditCardLast4})`}
                               </p>
@@ -3780,48 +3797,16 @@ export default function Contracts() {
               </div>
 
               {paymentForm.status === "paid" && (
-                <>
-                  <div className="space-y-2">
-                    <Label htmlFor="paidDate">Paid Date</Label>
-                    <Input
-                      id="paidDate"
-                      type="date"
-                      value={paymentForm.paid_date ?? ""}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, paid_date: e.target.value || "" })}
-                      className="border-slate-300"
-                    />
-                  </div>
-
-                  {paymentForm.payment_method !== "cash" && (
-                    <div className="space-y-2">
-                      <Label htmlFor="transactionRef">Transaction Reference</Label>
-                      <Input
-                        id="transactionRef"
-                        placeholder="e.g., TXN-001, Check #123, Auth Code"
-                        value={paymentForm.transaction_reference ?? ""}
-                        onChange={(e) => setPaymentForm({ ...paymentForm, transaction_reference: e.target.value })}
-                        className="border-slate-300"
-                      />
-                      <p className="text-xs text-slate-500">
-                        Transaction ID, reference number, or confirmation code
-                      </p>
-                    </div>
-                  )}
-
-                  <div className="space-y-2">
-                    <Label htmlFor="receiptAttachment">Receipt/Confirmation (optional)</Label>
-                    <Input
-                      id="receiptAttachment"
-                      type="file"
-                      accept="image/*,.pdf"
-                      onChange={(e) => setPaymentForm({ ...paymentForm, receipt_attachment: e.target.files?.[0]?.name || "" })}
-                      className="border-slate-300"
-                    />
-                    <p className="text-xs text-slate-500">
-                      Upload payment receipt, confirmation email, or bank statement
-                    </p>
-                  </div>
-                </>
+                <div className="space-y-2">
+                  <Label htmlFor="paidDate">Paid Date</Label>
+                  <Input
+                    id="paidDate"
+                    type="date"
+                    value={paymentForm.paid_date ?? ""}
+                    onChange={(e) => setPaymentForm({ ...paymentForm, paid_date: e.target.value || "" })}
+                    className="border-slate-300"
+                  />
+                </div>
               )}
 
               <div className="border-t pt-4">
@@ -4448,6 +4433,23 @@ export default function Contracts() {
                       </SelectContent>
                     </Select>
                   </div>
+                </div>
+              )}
+
+              {/* Receipt upload for paid payments */}
+              {paymentForm.status === "paid" && (
+                <div className="border-t pt-4 space-y-2">
+                  <Label htmlFor="receiptAttachment">Receipt/Confirmation Upload</Label>
+                  <Input
+                    id="receiptAttachment"
+                    type="file"
+                    accept="image/*,.pdf"
+                    onChange={(e) => setPaymentForm({ ...paymentForm, receipt_attachment: e.target.files?.[0]?.name || "" })}
+                    className="border-slate-300"
+                  />
+                  <p className="text-xs text-slate-500">
+                    Upload payment receipt, confirmation email, or bank statement
+                  </p>
                 </div>
               )}
             </div>
@@ -5545,13 +5547,14 @@ export default function Contracts() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="cash">Cash</SelectItem>
-                  <SelectItem value="check">Check</SelectItem>
-                  <SelectItem value="wire_transfer">Wire Transfer</SelectItem>
-                  <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
-                  <SelectItem value="credit_card">Credit Card</SelectItem>
-                  <SelectItem value="direct_deposit">Direct Deposit</SelectItem>
-                  <SelectItem value="zelle">Zelle</SelectItem>
+                  <SelectItem value="cash">💵 Cash</SelectItem>
+                  <SelectItem value="credit_card">💳 Credit Card</SelectItem>
+                  <SelectItem value="debit_card">💳 Debit Card</SelectItem>
+                  <SelectItem value="check">🧾 Check</SelectItem>
+                  <SelectItem value="direct_deposit">📥 Direct Deposit</SelectItem>
+                  <SelectItem value="ach">🏦 Bank Transfer (ACH)</SelectItem>
+                  <SelectItem value="wire">🏦 Wire Transfer</SelectItem>
+                  <SelectItem value="zelle">⚡ Zelle</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -5578,7 +5581,7 @@ export default function Contracts() {
               </div>
             )}
 
-            {downPaymentForm.method === "bank_transfer" && (
+            {(downPaymentForm.method === "ach" || downPaymentForm.method === "bank_transfer") && (
               <div className="border-t pt-4 space-y-2">
                 <p className="text-sm font-semibold text-slate-700 mb-3">Bank Transfer Details</p>
                 <div className="space-y-2">
@@ -5669,7 +5672,7 @@ export default function Contracts() {
               </div>
             )}
 
-            {downPaymentForm.method === "wire_transfer" && (
+            {(downPaymentForm.method === "wire" || downPaymentForm.method === "wire_transfer") && (
               <div className="border-t pt-4 space-y-2">
                 <p className="text-sm font-semibold text-slate-700 mb-3">Wire Transfer Details</p>
                 <div className="space-y-2">
