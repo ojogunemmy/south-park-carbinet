@@ -126,7 +126,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full bg-white text-slate-900 border-r border-slate-200">
-      <div className="border-b border-slate-200 p-4">
+      <div className="border-b border-slate-200 h-16 p-4">
         <div className="flex items-center gap-3">
           <SouthParkLogo size={32} />
           <div>
