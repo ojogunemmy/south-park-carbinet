@@ -1933,8 +1933,10 @@ export default function Contracts() {
     pdf.text(`$${(contract.total_value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`, margin + 100, yPosition, { align: "right" });
     yPosition += lineHeight + 8;
 
-    // Down Payments Section
-    if (contract.down_payments && contract.down_payments.length > 0) {
+    // Payments Section - Get paid payments from payment schedule
+    const paidPayments = (contract.payment_schedule || []).filter((p: any) => p.status === 'paid');
+    
+    if (paidPayments.length > 0) {
       pdf.setDrawColor(200, 200, 200);
       pdf.line(margin, yPosition, margin + contentWidth, yPosition);
       yPosition += 8;
@@ -1948,8 +1950,9 @@ export default function Contracts() {
       pdf.setFont(undefined, "bold");
       pdf.setFontSize(9);
       pdf.text("Date", margin, yPosition);
-      pdf.text("Method", margin + 40, yPosition);
-      pdf.text("Amount", margin + 90, yPosition, { align: "right" });
+      pdf.text("Description", margin + 30, yPosition);
+      pdf.text("Method", margin + 90, yPosition);
+      pdf.text("Amount", margin + contentWidth, yPosition, { align: "right" });
       yPosition += lineHeight + 4;
 
       // Separator line for table
@@ -1957,35 +1960,67 @@ export default function Contracts() {
       pdf.line(margin, yPosition, margin + contentWidth, yPosition);
       yPosition += lineHeight + 3;
 
-      // Payment rows - sort by date (earliest first)
+      // Payment rows - sort by paid date (earliest first)
       pdf.setFont(undefined, "normal");
       pdf.setFontSize(9);
-      let totalDownPayments = 0;
+      let totalPaidAmount = 0;
 
-      const sortedPayments = [...(contract.down_payments || [])].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      const sortedPayments = [...paidPayments].sort((a: any, b: any) => 
+        new Date(a.paid_date || a.due_date).getTime() - new Date(b.paid_date || b.due_date).getTime()
+      );
 
-      sortedPayments.forEach((payment) => {
-        // Format date as M/D/YYYY to avoid timezone issues
-        const [year, month, day] = payment.date.split('-');
+      sortedPayments.forEach((payment: any) => {
+        // Format date as M/D/YYYY
+        const dateToUse = payment.paid_date || payment.due_date;
+        const [year, month, day] = dateToUse.split('-');
         const paymentDate = `${parseInt(month)}/${parseInt(day)}/${year}`;
 
-        // For checks, extract check number from description; otherwise use method label
-        let methodLabel = payment.method.replace(/_/g, " ").toUpperCase();
-        if (payment.method === "check" && payment.description) {
-          // Extract "Check #1243" from description like "Check #1243 - BOA (Bank of America)"
-          const checkMatch = payment.description.match(/Check #\d+/);
-          if (checkMatch) {
-            methodLabel = checkMatch[0];
-          }
+        // Get payment method label (no emoji to avoid encoding issues)
+        let methodLabel = "";
+        const paymentMethod = payment.payment_method || "";
+        switch (paymentMethod) {
+          case "cash":
+            methodLabel = "Cash";
+            break;
+          case "credit_card":
+            methodLabel = "Credit Card";
+            break;
+          case "debit_card":
+            methodLabel = "Debit Card";
+            break;
+          case "check":
+            methodLabel = "Check";
+            break;
+          case "direct_deposit":
+            methodLabel = "Direct Deposit";
+            break;
+          case "ach":
+          case "bank_transfer":
+            methodLabel = "ACH";
+            break;
+          case "wire":
+          case "wire_transfer":
+            methodLabel = "Wire Transfer";
+            break;
+          case "zelle":
+            methodLabel = "Zelle";
+            break;
+          default:
+            methodLabel = paymentMethod || "N/A";
         }
 
+        const description = payment.description || "Payment";
         const amountText = `$${payment.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 
-        pdf.text(paymentDate, margin, yPosition);
-        pdf.text(methodLabel, margin + 40, yPosition);
-        pdf.text(amountText, margin + 90, yPosition, { align: "right" });
+        // Truncate description if too long
+        const truncatedDesc = description.length > 30 ? description.substring(0, 27) + "..." : description;
 
-        totalDownPayments += payment.amount;
+        pdf.text(paymentDate, margin, yPosition);
+        pdf.text(truncatedDesc, margin + 30, yPosition);
+        pdf.text(methodLabel, margin + 90, yPosition);
+        pdf.text(amountText, margin + contentWidth, yPosition, { align: "right" });
+
+        totalPaidAmount += payment.amount;
         yPosition += lineHeight + 3;
       });
 
@@ -1998,12 +2033,12 @@ export default function Contracts() {
       pdf.setFont(undefined, "bold");
       pdf.setFontSize(10);
       pdf.text("Total Payments Received:", margin, yPosition);
-      const totalPaymentText = `$${totalDownPayments.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
-      pdf.text(totalPaymentText, margin + 90, yPosition, { align: "right" });
+      const totalPaymentText = `$${totalPaidAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+      pdf.text(totalPaymentText, margin + contentWidth, yPosition, { align: "right" });
       yPosition += lineHeight + 8;
 
       // Balance Due
-      const balanceDue = (contract.total_value || 0) - totalDownPayments;
+      const balanceDue = (contract.total_value || 0) - totalPaidAmount;
       pdf.setFont(undefined, "bold");
       pdf.setFontSize(10);
       if (balanceDue > 0) {
@@ -2015,14 +2050,24 @@ export default function Contracts() {
       }
       pdf.text("Balance Due:", margin, yPosition);
       const balanceText = `$${Math.abs(balanceDue).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
-      pdf.text(balanceText, margin + 90, yPosition, { align: "right" });
+      pdf.text(balanceText, margin + contentWidth, yPosition, { align: "right" });
       pdf.setTextColor(0, 0, 0); // Reset color
     } else {
-      // No down payments
+      // No paid payments
       yPosition += 10;
       pdf.setFont(undefined, "normal");
       pdf.setFontSize(10);
       pdf.text("No payments recorded yet", margin, yPosition);
+      yPosition += lineHeight + 2;
+      
+      // Still show balance due even if no payments
+      pdf.setFont(undefined, "bold");
+      pdf.setFontSize(10);
+      pdf.setTextColor(220, 20, 60); // Red
+      pdf.text("Balance Due:", margin, yPosition);
+      const balanceText = `$${(contract.total_value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+      pdf.text(balanceText, margin + contentWidth, yPosition, { align: "right" });
+      pdf.setTextColor(0, 0, 0); // Reset color
     }
 
     // Footer
