@@ -41,6 +41,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { normalizePaymentMethod, paymentMethodPlainLabel } from "@/utils/payment-methods";
 
 interface EmployeeFormData {
   name: string;
@@ -1535,7 +1536,7 @@ export default function Employees() {
                         <SelectItem value="cash">Cash</SelectItem>
                         <SelectItem value="check">Check</SelectItem>
                         <SelectItem value="direct_deposit">Direct Deposit</SelectItem>
-                        <SelectItem value="ach">ACH Transfer</SelectItem>
+                        <SelectItem value="ach">Bank Transfer (ACH)</SelectItem>
                         <SelectItem value="wire">Wire Transfer</SelectItem>
                       </SelectContent>
                     </Select>
@@ -1664,7 +1665,7 @@ export default function Employees() {
                           {formData.payment_method === "cash" && "Cash"}
                           {formData.payment_method === "direct_deposit" && "Direct Deposit"}
                           {formData.payment_method === "check" && "Check"}
-                          {formData.payment_method === "ach" && "ACH Transfer"}
+                          {formData.payment_method === "ach" && "Bank Transfer (ACH)"}
                           {formData.payment_method === "wire" && "Wire Transfer"}
                         </p>
                       </div>
@@ -1845,7 +1846,7 @@ export default function Employees() {
                             {emp.payment_method === "cash" && "Cash"}
                             {emp.payment_method === "direct_deposit" && "Direct Deposit"}
                             {emp.payment_method === "check" && "Check"}
-                            {emp.payment_method === "ach" && "ACH Transfer"}
+                            {emp.payment_method === "ach" && "Bank Transfer (ACH)"}
                             {emp.payment_method === "wire" && "Wire Transfer"}
                           </span>
                         </td>
@@ -2085,7 +2086,7 @@ export default function Employees() {
                       {viewingEmployee.payment_method === "cash" && "Cash"}
                       {viewingEmployee.payment_method === "direct_deposit" && "Direct Deposit"}
                       {viewingEmployee.payment_method === "check" && "Check"}
-                      {viewingEmployee.payment_method === "ach" && "ACH Transfer"}
+                      {viewingEmployee.payment_method === "ach" && "Bank Transfer (ACH)"}
                       {viewingEmployee.payment_method === "wire" && "Wire Transfer"}
                     </p>
                   </div>
@@ -2254,12 +2255,7 @@ export default function Employees() {
                           <div className="bg-white p-2 rounded border border-slate-200 text-xs space-y-1">
                             <p className="text-slate-600">
                               <span className="font-semibold">Method:</span>{" "}
-                              {payment.payment_method === "check" && "Check"}
-                              {payment.payment_method === "direct_deposit" && "Direct Deposit"}
-                              {payment.payment_method === "bank_transfer" && "Bank Transfer"}
-                              {payment.payment_method === "wire_transfer" && "Wire Transfer"}
-                              {payment.payment_method === "credit_card" && "Credit Card"}
-                              {payment.payment_method === "cash" && "Cash"}
+                              {paymentMethodPlainLabel(normalizePaymentMethod(payment.payment_method) ?? payment.payment_method)}
                             </p>
                             {payment.check_number && (
                               <p className="text-slate-600"><span className="font-semibold">Check #:</span> {payment.check_number}</p>
@@ -2768,8 +2764,8 @@ export default function Employees() {
                   <option value="cash">Cash</option>
                   <option value="check">Check</option>
                   <option value="direct_deposit">Direct Deposit</option>
-                  <option value="bank_transfer">Bank Transfer</option>
-                  <option value="wire_transfer">Wire Transfer</option>
+                  <option value="ach">Bank Transfer (ACH)</option>
+                  <option value="wire">Wire Transfer</option>
                   <option value="credit_card">Credit Card</option>
                 </select>
               </div>
@@ -2799,7 +2795,7 @@ export default function Employees() {
                 </div>
               )}
 
-              {(paymentFormData.payment_method === "direct_deposit" || paymentFormData.payment_method === "bank_transfer" || paymentFormData.payment_method === "wire_transfer") && (
+              {(paymentFormData.payment_method === "direct_deposit" || paymentFormData.payment_method === "ach" || paymentFormData.payment_method === "wire") && (
                 <div className="bg-slate-50 p-3 rounded border border-slate-200 space-y-2">
                   <div className="space-y-1">
                     <Label htmlFor="bank_name2" className="text-sm">Bank Name</Label>

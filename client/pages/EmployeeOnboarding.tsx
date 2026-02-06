@@ -452,11 +452,11 @@ export default function EmployeeOnboarding() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="cash">Cash</SelectItem>
-                      <SelectItem value="check">Check</SelectItem>
-                      <SelectItem value="direct_deposit">Direct Deposit</SelectItem>
-                      <SelectItem value="ach">ACH Transfer</SelectItem>
-                      <SelectItem value="wire">Wire Transfer</SelectItem>
+                      <SelectItem value="cash">💵 Cash</SelectItem>
+                      <SelectItem value="check">🧾 Check</SelectItem>
+                      <SelectItem value="direct_deposit">📥 Direct Deposit</SelectItem>
+                      <SelectItem value="ach">🏦 Bank Transfer (ACH)</SelectItem>
+                      <SelectItem value="wire">🏦 Wire Transfer</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

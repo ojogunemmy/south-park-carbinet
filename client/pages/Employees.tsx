@@ -44,6 +44,14 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import type { PaymentMethodAny } from "@/utils/payment-methods";
+import {
+  isBankTransferMethod,
+  isCardPaymentMethod,
+  isWireTransferMethod,
+  normalizePaymentMethod,
+  paymentMethodPlainLabel,
+} from "@/utils/payment-methods";
 
 interface EmployeeAbsence {
   id: string;
@@ -65,7 +73,7 @@ interface WeeklyPayment {
   finalAmount: number;
   status: "pending" | "paid" | "cancelled";
   paidDate?: string;
-  paymentMethod?: "check" | "direct_deposit" | "bank_transfer" | "wire_transfer" | "credit_card" | "cash";
+  paymentMethod?: PaymentMethodAny;
   checkNumber?: string;
   bankName?: string;
   routingNumber?: string;
@@ -179,7 +187,7 @@ export default function Employees() {
     weekStartDate: "",
     daysWorked: 5,
     overrideAmount: "",
-    paymentMethod: "cash" as "check" | "direct_deposit" | "bank_transfer" | "wire_transfer" | "credit_card" | "cash",
+    paymentMethod: "cash" as PaymentMethodAny,
     checkNumber: "",
     bankName: "",
     routingNumber: "",
@@ -232,7 +240,7 @@ export default function Employees() {
     address: emp.address || "",
     telephone: emp.telephone || "",
     email: emp.email || "",
-    paymentMethod: emp.payment_method || "",
+    paymentMethod: normalizePaymentMethod(emp.payment_method) ?? emp.payment_method ?? "",
     bankName: emp.bank_details?.bank_name || "",
     routingNumber: emp.bank_details?.routing_number || "",
     accountNumber: emp.bank_details?.account_number || "",
@@ -256,7 +264,7 @@ export default function Employees() {
     overrideAmount: undefined,
     finalAmount: pay.amount,
     status: pay.status as any,
-    paymentMethod: pay.payment_method as any,
+    paymentMethod: (normalizePaymentMethod(pay.payment_method) ?? pay.payment_method ?? undefined) as PaymentMethodAny | undefined,
     checkNumber: pay.check_number || undefined,
     bankName: pay.bank_name || undefined,
     routingNumber: pay.routing_number || undefined,
@@ -437,7 +445,7 @@ export default function Employees() {
   const handlePaymentFormChange = (field: string, value: any) => {
     setPaymentFormData((prev) => ({
       ...prev,
-      [field]: value,
+      [field]: field === "paymentMethod" ? (normalizePaymentMethod(value) ?? value) : value,
     }));
   };
 
@@ -465,6 +473,9 @@ export default function Employees() {
     const dueDateStr = formatDateToString(dueDate);
 
     try {
+      const normalizedPaymentMethod =
+        normalizePaymentMethod(paymentFormData.paymentMethod) ?? paymentFormData.paymentMethod;
+
       if (editingPayment) {
         const updateData: Partial<SupabasePayment> = {
           week_start_date: paymentFormData.weekStartDate,
@@ -476,7 +487,7 @@ export default function Employees() {
           bonus_amount: 0,
           deduction_amount: 0,
           down_payment: 0,
-          payment_method: paymentFormData.paymentMethod as any, // 'check' | ...
+          payment_method: normalizedPaymentMethod as any,
           check_number: paymentFormData.checkNumber || null,
           bank_name: paymentFormData.bankName || null,
           routing_number: paymentFormData.routingNumber || null,
@@ -501,7 +512,7 @@ export default function Employees() {
           deduction_amount: 0,
           down_payment: 0,
           status: "pending",
-          payment_method: paymentFormData.paymentMethod as any,
+          payment_method: normalizedPaymentMethod as any,
           check_number: paymentFormData.checkNumber || null,
           bank_name: paymentFormData.bankName || null,
           routing_number: paymentFormData.routingNumber || null,
@@ -557,7 +568,7 @@ export default function Employees() {
              deduction_amount: 0,
              down_payment: 0,
              status: payment.status,
-             payment_method: payment.paymentMethod as any,
+             payment_method: (normalizePaymentMethod(payment.paymentMethod) ?? payment.paymentMethod) as any,
              check_number: payment.checkNumber || null,
              bank_name: payment.bankName || null,
              routing_number: payment.routingNumber || null,
@@ -1934,11 +1945,11 @@ export default function Employees() {
                           <SelectValue placeholder="Select payment method" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="cash">Cash</SelectItem>
-                          <SelectItem value="check">Check</SelectItem>
-                          <SelectItem value="direct_deposit">Direct Deposit</SelectItem>
-                          <SelectItem value="ach">ACH Transfer</SelectItem>
-                          <SelectItem value="wire">Wire Transfer</SelectItem>
+                          <SelectItem value="cash">💵 Cash</SelectItem>
+                          <SelectItem value="check">🧾 Check</SelectItem>
+                          <SelectItem value="direct_deposit">📥 Direct Deposit</SelectItem>
+                          <SelectItem value="ach">🏦 Bank Transfer (ACH)</SelectItem>
+                          <SelectItem value="wire">🏦 Wire Transfer</SelectItem>
                         </SelectContent>
                       </Select>
                       <p className="text-xs text-slate-500">
@@ -2020,7 +2031,7 @@ export default function Employees() {
                       <p><span className="font-medium">Name:</span> {formData.name}</p>
                       <p><span className="font-medium">Position:</span> {formData.position}</p>
                       <p><span className="font-medium">Weekly Rate:</span> ${parseFloat(formData.weeklyRate || "0").toLocaleString()}</p>
-                      <p><span className="font-medium">Payment Method:</span> {formData.paymentMethod}</p>
+                      <p><span className="font-medium">Payment Method:</span> {paymentMethodPlainLabel(formData.paymentMethod)}</p>
                     </div>
                   </div>
                 )}
@@ -2217,11 +2228,7 @@ export default function Employees() {
                           <td className="p-3 text-slate-700 whitespace-nowrap">{formatDateString(emp.startDate)}</td>
                           <td className="p-3 text-slate-700 text-xs whitespace-nowrap">
                             <span className="bg-slate-100 px-2 py-1 rounded inline-block">
-                              {emp.paymentMethod === "cash" && "Cash"}
-                              {emp.paymentMethod === "direct_deposit" && "Direct Deposit"}
-                              {emp.paymentMethod === "check" && "Check"}
-                              {emp.paymentMethod === "ach" && "ACH Transfer"}
-                              {emp.paymentMethod === "wire" && "Wire Transfer"}
+                              {paymentMethodPlainLabel(emp.paymentMethod)}
                             </span>
                           </td>
                           <td className="p-3">
@@ -2422,11 +2429,7 @@ export default function Employees() {
                          <div className="col-span-2">
                             <span className="block text-xs text-slate-500 mb-1">Payment Method</span>
                              <span className="bg-slate-100 px-2 py-1 rounded inline-block text-xs font-medium text-slate-700">
-                              {emp.paymentMethod === "cash" && "Cash"}
-                              {emp.paymentMethod === "direct_deposit" && "Direct Deposit"}
-                              {emp.paymentMethod === "check" && "Check"}
-                              {emp.paymentMethod === "ach" && "ACH Transfer"}
-                              {emp.paymentMethod === "wire" && "Wire Transfer"}
+                            {paymentMethodPlainLabel(emp.paymentMethod)}
                             </span>
                          </div>
                       </div>
@@ -2666,12 +2669,7 @@ export default function Employees() {
                           <div className="bg-white p-2 rounded border border-slate-200 text-xs space-y-1">
                             <p className="text-slate-600">
                               <span className="font-semibold">Method:</span>{" "}
-                              {payment.paymentMethod === "check" && "Check"}
-                              {payment.paymentMethod === "direct_deposit" && "Direct Deposit"}
-                              {payment.paymentMethod === "bank_transfer" && "Bank Transfer"}
-                              {payment.paymentMethod === "wire_transfer" && "Wire Transfer"}
-                              {payment.paymentMethod === "credit_card" && "Credit Card"}
-                              {payment.paymentMethod === "cash" && "Cash"}
+                              {paymentMethodPlainLabel(payment.paymentMethod)}
                             </p>
                             {payment.checkNumber && (
                               <p className="text-slate-600"><span className="font-semibold">Check #:</span> {payment.checkNumber}</p>
@@ -3183,12 +3181,14 @@ export default function Employees() {
                     <SelectValue placeholder="Select payment method" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="cash">Cash</SelectItem>
-                    <SelectItem value="check">Check</SelectItem>
-                    <SelectItem value="direct_deposit">Direct Deposit</SelectItem>
-                    <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
-                    <SelectItem value="wire_transfer">Wire Transfer</SelectItem>
-                    <SelectItem value="credit_card">Credit Card</SelectItem>
+                    <SelectItem value="cash">💵 Cash</SelectItem>
+                    <SelectItem value="credit_card">💳 Credit Card</SelectItem>
+                    <SelectItem value="debit_card">💳 Debit Card</SelectItem>
+                    <SelectItem value="check">🧾 Check</SelectItem>
+                    <SelectItem value="direct_deposit">📥 Direct Deposit</SelectItem>
+                    <SelectItem value="ach">🏦 Bank Transfer (ACH)</SelectItem>
+                    <SelectItem value="wire">🏦 Wire Transfer</SelectItem>
+                    <SelectItem value="zelle">⚡ Zelle</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -3218,7 +3218,7 @@ export default function Employees() {
                 </div>
               )}
 
-              {(paymentFormData.paymentMethod === "direct_deposit" || paymentFormData.paymentMethod === "bank_transfer" || paymentFormData.paymentMethod === "wire_transfer") && (
+              {(paymentFormData.paymentMethod === "direct_deposit" || isBankTransferMethod(paymentFormData.paymentMethod) || isWireTransferMethod(paymentFormData.paymentMethod)) && (
                 <div className="bg-slate-50 p-3 rounded border border-slate-200 space-y-2">
                   <div className="space-y-1">
                     <Label htmlFor="bankName2" className="text-sm">Bank Name</Label>
@@ -3254,7 +3254,7 @@ export default function Employees() {
                 </div>
               )}
 
-              {paymentFormData.paymentMethod === "credit_card" && (
+              {isCardPaymentMethod(paymentFormData.paymentMethod) && (
                 <div className="bg-slate-50 p-3 rounded border border-slate-200 space-y-2">
                   <div className="space-y-1">
                     <Label htmlFor="creditCardLast4" className="text-sm">Last 4 Digits</Label>

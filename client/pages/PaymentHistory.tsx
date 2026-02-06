@@ -35,6 +35,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import jsPDF from "jspdf";
 import JSZip from "jszip";
+import {
+  normalizePaymentMethod,
+  paymentMethodPlainLabel,
+} from "@/utils/payment-methods";
 
 interface PaymentLedgerEntry extends Payment {
   employee_name?: string;
@@ -377,8 +381,9 @@ export default function PaymentHistory() {
       doc.text(reason ? reason.substring(0, 12) : (entry.is_correction ? 'Reversal' : 'Regular'), 110, y);
 
       // Combine payment method with check number
-      let methodDisplay = entry.payment_method?.substring(0, 20) || 'Unknown';
-      if (entry.payment_method === 'check' && entry.check_number) {
+      const methodKey = normalizePaymentMethod(entry.payment_method) || entry.payment_method || "Unknown";
+      let methodDisplay = paymentMethodPlainLabel(methodKey).substring(0, 20) || "Unknown";
+      if (methodKey === 'check' && entry.check_number) {
         methodDisplay = `Check #${entry.check_number}`;
       }
       doc.text(methodDisplay, 140, y);
@@ -642,7 +647,7 @@ export default function PaymentHistory() {
                     const paymentMethodsData = (() => {
                       const methods = new Map<string, string[]>();
                       record.entries.forEach(entry => {
-                        const method = entry.payment_method || 'Unknown';
+                        const method = normalizePaymentMethod(entry.payment_method) || entry.payment_method || 'Unknown';
                         if (!methods.has(method)) {
                           methods.set(method, []);
                         }
@@ -654,7 +659,7 @@ export default function PaymentHistory() {
                         if (method === 'check' && checks.length > 0) {
                           return `Check ${checks.join(", ")}`;
                         }
-                        return method.charAt(0).toUpperCase() + method.slice(1).replace(/_/g, ' ');
+                        return paymentMethodPlainLabel(method);
                       });
                     })();
 
@@ -765,7 +770,7 @@ export default function PaymentHistory() {
                 const paymentMethodsData = (() => {
                   const methods = new Map<string, string[]>();
                   record.entries.forEach(entry => {
-                    const method = entry.payment_method || 'Unknown';
+                    const method = normalizePaymentMethod(entry.payment_method) || entry.payment_method || 'Unknown';
                     if (!methods.has(method)) {
                       methods.set(method, []);
                     }
@@ -777,7 +782,7 @@ export default function PaymentHistory() {
                     if (method === 'check' && checks.length > 0) {
                       return `Check ${checks.join(", ")}`;
                     }
-                    return method.charAt(0).toUpperCase() + method.slice(1).replace(/_/g, ' ');
+                    return paymentMethodPlainLabel(method);
                   });
                 })();
 
@@ -913,8 +918,13 @@ export default function PaymentHistory() {
                     </p>
                     {entry.payment_method && (
                       <p className="text-xs text-slate-500 mt-1 capitalize">
-                        {entry.payment_method.replace(/_/g, ' ')}
-                        {entry.check_number && ` #${entry.check_number}`}
+                        {(() => {
+                          const methodKey = normalizePaymentMethod(entry.payment_method) || entry.payment_method;
+                          if (!methodKey) return "";
+                          return methodKey === "check" && entry.check_number
+                            ? `Check #${entry.check_number}`
+                            : paymentMethodPlainLabel(methodKey);
+                        })()}
                       </p>
                     )}
                   </div>
@@ -965,7 +975,11 @@ export default function PaymentHistory() {
                   </div>
                   <div>
                     <span className="text-slate-600">Payment Method:</span>
-                    <p className="font-medium capitalize">{selectedAuditPayment.payment_method || 'Unspecified'}</p>
+                    <p className="font-medium">
+                      {selectedAuditPayment.payment_method
+                        ? paymentMethodPlainLabel(selectedAuditPayment.payment_method)
+                        : "Unspecified"}
+                    </p>
                   </div>
                 </div>
               </div>

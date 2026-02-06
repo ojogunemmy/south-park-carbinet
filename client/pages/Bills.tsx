@@ -25,6 +25,14 @@ import {
 import { billsService, type Bill } from "@/lib/supabase-service";
 import { useToast } from "@/hooks/use-toast";
 import { Toaster } from "@/components/ui/toaster";
+import {
+  type PaymentMethod,
+  normalizePaymentMethod,
+  paymentMethodEmojiLabel,
+  isBankTransferMethod,
+  isCardPaymentMethod,
+  isWireTransferMethod,
+} from "@/utils/payment-methods";
 
 interface Attachment {
   id: string;
@@ -34,8 +42,6 @@ interface Attachment {
   uploadDate: string;
   data: string; // base64 encoded data
 }
-
-type PaymentMethod = "credit_card" | "debit_card" | "cash" | "bank_transfer" | "wire_transfer";
 
 const BILL_CATEGORIES = [
   "Materials",
@@ -47,8 +53,7 @@ const BILL_CATEGORIES = [
   "Waste",
   "Insurance",
   "Rent & Lease Payments",
-  "Accounting",
-  "Contadora",
+  "Accountant",
   "Advertising & Marketing",
   "Staff & Technology Services",
   "Uniforms & Staff Apparel",
@@ -225,8 +230,12 @@ export default function Bills() {
       return;
     }
 
+    const normalizedAutopayMethod = formData.autopay_method
+      ? normalizePaymentMethod(formData.autopay_method) || (formData.autopay_method as any)
+      : "";
+
     // Validate autopay details... (keeping validation as is)
-    if (formData.autopay && (formData.autopay_method === "credit_card" || formData.autopay_method === "debit_card")) {
+    if (formData.autopay && (normalizedAutopayMethod === "credit_card" || normalizedAutopayMethod === "debit_card")) {
       if (!formData.autopay_card_number?.trim() || !formData.autopay_card_holder?.trim() || !formData.autopay_card_expiry?.trim() || !formData.autopay_card_cvv?.trim()) {
         alert("Please fill in all card details for autopay");
         return;
@@ -234,12 +243,12 @@ export default function Bills() {
     }
 
     const payment_details: any = {
-      autopay_method: formData.autopay_method || undefined,
-      autopay_card_last4: (formData.autopay_method === "credit_card" || formData.autopay_method === "debit_card") && formData.autopay_card_number ? formData.autopay_card_number.slice(-4) : undefined,
-      autopay_card_type: (formData.autopay_method === "credit_card" || formData.autopay_method === "debit_card") ? formData.autopay_method : undefined,
-      autopay_bank_name: (formData.autopay_method === "bank_transfer" || formData.autopay_method === "wire_transfer") ? formData.autopay_bank_name : undefined,
-      autopay_account_last4: (formData.autopay_method === "bank_transfer" || formData.autopay_method === "wire_transfer") && formData.autopay_account_number ? formData.autopay_account_number.slice(-4) : undefined,
-      autopay_account_holder: (formData.autopay_method === "bank_transfer" || formData.autopay_method === "wire_transfer") ? formData.autopay_account_holder : undefined,
+      autopay_method: normalizedAutopayMethod || undefined,
+      autopay_card_last4: (normalizedAutopayMethod === "credit_card" || normalizedAutopayMethod === "debit_card") && formData.autopay_card_number ? formData.autopay_card_number.slice(-4) : undefined,
+      autopay_card_type: (normalizedAutopayMethod === "credit_card" || normalizedAutopayMethod === "debit_card") ? normalizedAutopayMethod : undefined,
+      autopay_bank_name: (normalizedAutopayMethod === "ach" || normalizedAutopayMethod === "wire") ? formData.autopay_bank_name : undefined,
+      autopay_account_last4: (normalizedAutopayMethod === "ach" || normalizedAutopayMethod === "wire") && formData.autopay_account_number ? formData.autopay_account_number.slice(-4) : undefined,
+      autopay_account_holder: (normalizedAutopayMethod === "ach" || normalizedAutopayMethod === "wire") ? formData.autopay_account_holder : undefined,
     };
 
     try {
@@ -282,6 +291,11 @@ export default function Bills() {
   };
 
   const handleEditBill = (bill: Bill) => {
+    const existingAutopayMethod = (bill.payment_details as any)?.autopay_method as string | undefined;
+    const normalizedExistingAutopayMethod = existingAutopayMethod
+      ? normalizePaymentMethod(existingAutopayMethod) || existingAutopayMethod
+      : "";
+
     setFormData({
       vendor: bill.vendor,
       description: bill.description || "",
@@ -292,7 +306,7 @@ export default function Bills() {
       recurrent: bill.recurrent || false,
       recurrence_frequency: "",
       autopay: bill.autopay || false,
-      autopay_method: (bill.payment_details as any)?.autopay_method || "",
+      autopay_method: normalizedExistingAutopayMethod as any,
     });
     setEditingBillId(bill.id);
     setIsEditMode(true);
@@ -381,12 +395,12 @@ export default function Bills() {
         alert("Please fill in all debit card details");
         return;
       }
-    } else if (paymentMethod === "bank_transfer") {
+    } else if (paymentMethod === "ach") {
       if (!paymentDetails.bankName || !paymentDetails.accountHolder || !paymentDetails.accountNumber) {
         alert("Please fill in all bank transfer details");
         return;
       }
-    } else if (paymentMethod === "wire_transfer") {
+    } else if (paymentMethod === "wire") {
       if (!paymentDetails.bankName || !paymentDetails.accountHolder || !paymentDetails.routingNumber) {
         alert("Please fill in all wire transfer details");
         return;
@@ -407,9 +421,9 @@ export default function Bills() {
             paymentDate,
             paidCreditCardLast4: paymentMethod === "credit_card" ? paymentDetails.creditCardNumber.slice(-4) : undefined,
             paidDebitCardLast4: paymentMethod === "debit_card" ? paymentDetails.creditCardNumber.slice(-4) : undefined,
-            paidAccountLast4: paymentMethod === "bank_transfer" ? paymentDetails.accountNumber.slice(-4) : undefined,
-            paidBankName: paymentMethod === "bank_transfer" || paymentMethod === "wire_transfer" ? paymentDetails.bankName : undefined,
-            paidReference: paymentMethod === "cash" ? paymentDetails.cashReference : paymentMethod === "wire_transfer" ? paymentDetails.wireReference : undefined,
+            paidAccountLast4: paymentMethod === "ach" ? paymentDetails.accountNumber.slice(-4) : undefined,
+            paidBankName: paymentMethod === "ach" || paymentMethod === "wire" ? paymentDetails.bankName : undefined,
+            paidReference: paymentMethod === "cash" ? paymentDetails.cashReference : paymentMethod === "wire" ? paymentDetails.wireReference : undefined,
           }
         : bill
     );
@@ -437,15 +451,9 @@ export default function Bills() {
   };
 
   const formatPaymentMethod = (method: string | null, bill?: Bill) => {
-    const formats: Record<string, string> = {
-      credit_card: "Credit Card",
-      debit_card: "Debit Card",
-      cash: "Cash",
-      bank_transfer: "Bank Transfer",
-      wire_transfer: "Wire Transfer",
-    };
-
     if (!method) return "-";
+
+    const normalizedMethod = normalizePaymentMethod(method) || method;
 
     const details = (bill?.payment_details as any) || {};
 
@@ -461,36 +469,36 @@ export default function Bills() {
 
     // Show autopay bank details if available
     if (bill && details.autopay_bank_name) {
-      if (method === "bank_transfer") {
+      if (normalizedMethod === "ach") {
         return details.autopay_account_last4
           ? `Bank Transfer (${details.autopay_bank_name} ••••${details.autopay_account_last4})`
           : `Bank Transfer (${details.autopay_bank_name})`;
       }
-      if (method === "wire_transfer") {
+      if (normalizedMethod === "wire") {
         return `Wire Transfer (${details.autopay_bank_name})`;
       }
     }
 
     if (!bill || bill.status !== "paid") {
-      return formats[method] || method;
+      return paymentMethodEmojiLabel(normalizedMethod);
     }
 
     // Show details for paid bills
-    switch (method) {
+    switch (normalizedMethod) {
       case "credit_card":
         return details.paid_credit_card_last4 ? `Credit Card ••••${details.paid_credit_card_last4}` : "Credit Card";
       case "debit_card":
         return details.paid_credit_card_last4 ? `Debit Card ••••${details.paid_credit_card_last4}` : "Debit Card";
-      case "bank_transfer":
+      case "ach":
         return details.paid_bank_name && details.paid_account_last4
           ? `Bank Transfer (${details.paid_bank_name} ••••${details.paid_account_last4})`
           : "Bank Transfer";
-      case "wire_transfer":
+      case "wire":
         return details.paid_bank_name ? `Wire Transfer (${details.paid_bank_name})` : "Wire Transfer";
       case "cash":
         return details.paid_reference ? `Cash (Ref: ${details.paid_reference})` : "Cash";
       default:
-        return formats[method] || method;
+        return paymentMethodEmojiLabel(normalizedMethod);
     }
   };
 
@@ -932,22 +940,27 @@ export default function Bills() {
                     <Label htmlFor="autopay_method">Autopay Method *</Label>
                     <Select
                       value={formData.autopay_method || ""}
-                      onValueChange={(value) => handleFormChange("autopay_method", value as PaymentMethod | "")}
+                      onValueChange={(value) =>
+                        handleFormChange(
+                          "autopay_method",
+                          (normalizePaymentMethod(value) || value) as PaymentMethod | "",
+                        )
+                      }
                     >
                       <SelectTrigger id="autopay_method" className="border-slate-300">
                         <SelectValue placeholder="Select payment method" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="credit_card">Credit Card</SelectItem>
-                        <SelectItem value="debit_card">Debit Card</SelectItem>
-                        <SelectItem value="cash">Cash</SelectItem>
-                        <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
-                        <SelectItem value="wire_transfer">Wire Transfer</SelectItem>
+                        <SelectItem value="credit_card">💳 Credit Card</SelectItem>
+                        <SelectItem value="debit_card">💳 Debit Card</SelectItem>
+                        <SelectItem value="cash">💵 Cash</SelectItem>
+                        <SelectItem value="ach">🏦 Bank Transfer (ACH)</SelectItem>
+                        <SelectItem value="wire">🏦 Wire Transfer</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
 
-                  {(formData.autopay_method === "credit_card" || formData.autopay_method === "debit_card") && (
+                  {isCardPaymentMethod(formData.autopay_method) && (
                     <div className="bg-slate-50 p-4 rounded space-y-3 border border-slate-200">
                       <p className="text-sm font-semibold text-slate-700">
                         {formData.autopay_method === "credit_card" ? "Credit Card" : "Debit Card"} Details *
@@ -1003,7 +1016,7 @@ export default function Bills() {
                     </div>
                   )}
 
-                  {formData.autopay_method === "bank_transfer" && (
+                  {isBankTransferMethod(formData.autopay_method) && (
                     <div className="bg-slate-50 p-4 rounded space-y-3 border border-slate-200">
                       <p className="text-sm font-semibold text-slate-700">Bank Transfer Details *</p>
 
@@ -1054,7 +1067,7 @@ export default function Bills() {
                     </div>
                   )}
 
-                  {formData.autopay_method === "wire_transfer" && (
+                  {isWireTransferMethod(formData.autopay_method) && (
                     <div className="bg-slate-50 p-4 rounded space-y-3 border border-slate-200">
                       <p className="text-sm font-semibold text-slate-700">Wire Transfer Details *</p>
 
@@ -1209,16 +1222,21 @@ export default function Bills() {
                     <div className="space-y-4 py-4">
                       <div className="space-y-2">
                         <Label htmlFor="paymentMethod">Payment Method *</Label>
-                        <Select value={paymentMethod} onValueChange={(value) => setPaymentMethod(value as PaymentMethod)}>
+                        <Select
+                          value={paymentMethod}
+                          onValueChange={(value) =>
+                            setPaymentMethod((normalizePaymentMethod(value) || value) as PaymentMethod)
+                          }
+                        >
                           <SelectTrigger id="paymentMethod" className="border-slate-300">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="credit_card">Credit Card</SelectItem>
-                            <SelectItem value="debit_card">Debit Card</SelectItem>
-                            <SelectItem value="cash">Cash</SelectItem>
-                            <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
-                            <SelectItem value="wire_transfer">Wire Transfer</SelectItem>
+                            <SelectItem value="credit_card">💳 Credit Card</SelectItem>
+                            <SelectItem value="debit_card">💳 Debit Card</SelectItem>
+                            <SelectItem value="cash">💵 Cash</SelectItem>
+                            <SelectItem value="ach">🏦 Bank Transfer (ACH)</SelectItem>
+                            <SelectItem value="wire">🏦 Wire Transfer</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
@@ -1337,7 +1355,7 @@ export default function Bills() {
                       )}
 
                       {/* Bank Transfer Fields */}
-                      {paymentMethod === "bank_transfer" && (
+                      {paymentMethod === "ach" && (
                         <>
                           <div className="space-y-2">
                             <Label htmlFor="bankName">Bank Name *</Label>
@@ -1373,7 +1391,7 @@ export default function Bills() {
                       )}
 
                       {/* Wire Transfer Fields */}
-                      {paymentMethod === "wire_transfer" && (
+                      {paymentMethod === "wire" && (
                         <>
                           <div className="space-y-2">
                             <Label htmlFor="wireBank">Bank Name *</Label>

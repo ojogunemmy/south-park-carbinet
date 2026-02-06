@@ -1607,7 +1607,7 @@ export default function Payments() {
         case "check":
           return payment?.check_number ? `Check #${payment.check_number}` : "Check";
         case "ach":
-          return "ACH Transfer";
+          return "Bank Transfer (ACH)";
         case "wire":
           return "Wire Transfer";
         default:
@@ -1624,7 +1624,7 @@ export default function Payments() {
       case "check":
         return `Check #${payment.check_number || "N/A"}`;
       case "ach":
-        return `ACH Transfer (••••${payment.account_last_four || ""})`;
+        return `Bank Transfer (ACH) (••••${payment.account_last_four || ""})`;
       case "wire":
         return `Wire Transfer (${payment.bank_name || ""})`;
       default:
@@ -2119,8 +2119,8 @@ export default function Payments() {
                     <SelectContent>
                       <SelectItem value="check">Check</SelectItem>
                       <SelectItem value="direct_deposit">Direct Deposit</SelectItem>
-                      <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
-                      <SelectItem value="wire_transfer">Wire Transfer</SelectItem>
+                        <SelectItem value="ach">🏦 Bank Transfer (ACH)</SelectItem>
+                        <SelectItem value="wire">🏦 Wire Transfer</SelectItem>
                       <SelectItem value="debit_card">Debit Card</SelectItem>
                       <SelectItem value="credit_card">Credit Card</SelectItem>
                       <SelectItem value="cash">Cash</SelectItem>
@@ -2142,7 +2142,7 @@ export default function Payments() {
                   </div>
                 )}
 
-                {selectedPaymentMethod && (selectedPaymentMethod === "direct_deposit" || selectedPaymentMethod === "bank_transfer" || selectedPaymentMethod === "wire_transfer") && (
+                {selectedPaymentMethod && (selectedPaymentMethod === "direct_deposit" || selectedPaymentMethod === "ach" || selectedPaymentMethod === "wire") && (
                   <div className="border-t pt-4 space-y-2">
                     <p className="text-sm font-semibold text-slate-700 mb-3">Bank Transfer Details</p>
                     <div className="space-y-2">

@@ -42,6 +42,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  isBankTransferMethod,
+  isWireTransferMethod,
+  paymentMethodEmojiLabel,
+  paymentMethodPlainLabel,
+} from "@/utils/payment-methods";
 
 interface Payment {
   id: string;
@@ -304,7 +310,7 @@ export default function Contracts() {
     id: "",
     amount: 0,
     date: "",
-    method: "wire_transfer",
+    method: "wire",
     description: "",
     receipt_attachment: "",
     bank_name: "",
@@ -1060,14 +1066,14 @@ export default function Contracts() {
       return;
     }
 
-    if (downPaymentForm.method === "wire" || downPaymentForm.method === "wire_transfer") {
+    if (isWireTransferMethod(downPaymentForm.method)) {
       if (!downPaymentForm.transaction_reference?.trim()) {
         alert("Please enter the TRN (Transaction Reference Number) for wire transfer");
         return;
       }
     }
 
-    if (downPaymentForm.method === "ach" || downPaymentForm.method === "bank_transfer") {
+    if (isBankTransferMethod(downPaymentForm.method)) {
       if (!downPaymentForm.bank_name?.trim() || !downPaymentForm.routing_number?.trim() || !downPaymentForm.account_number?.trim()) {
         alert("Please fill in all required bank transfer details (Bank Name, Routing Number, Account Number)");
         return;
@@ -1123,7 +1129,7 @@ export default function Contracts() {
         id: "",
         amount: 0,
         date: "",
-        method: "wire_transfer",
+        method: "wire",
         description: "",
         receipt_attachment: "",
         bank_name: "",
@@ -1157,7 +1163,7 @@ export default function Contracts() {
           id: "",
           amount: 0,
           date: "",
-          method: "wire_transfer",
+          method: "wire",
           description: "",
           receipt_attachment: "",
           bank_name: "",
@@ -1671,18 +1677,7 @@ export default function Contracts() {
 
         // Payment method if paid
         if (payment.status === "paid" && payment.payment_method) {
-          let methodLabel = "Cash";
-          if (payment.payment_method === "cash") methodLabel = "Cash";
-          else if (payment.payment_method === "credit_card") methodLabel = "Credit Card";
-          else if (payment.payment_method === "debit_card") methodLabel = "Debit Card";
-          else if (payment.payment_method === "check") methodLabel = "Check";
-          else if (payment.payment_method === "direct_deposit") methodLabel = "Direct Deposit";
-          else if (payment.payment_method === "ach") methodLabel = "Bank Transfer (ACH)";
-          else if (payment.payment_method === "wire") methodLabel = "Wire Transfer";
-          else if (payment.payment_method === "zelle") methodLabel = "Zelle";
-          // Legacy support
-          else if (payment.payment_method === "bank_transfer") methodLabel = "Bank Transfer";
-          else if (payment.payment_method === "wire_transfer") methodLabel = "Wire Transfer";
+          const methodLabel = paymentMethodPlainLabel(payment.payment_method);
           
           const methodText = `Payment Method: ${methodLabel}${payment.check_number ? ` #${payment.check_number}` : ""}`;
           pdf.setFont(undefined, "italic");
@@ -2030,38 +2025,7 @@ export default function Contracts() {
         const paymentDate = `${parseInt(month)}/${parseInt(day)}/${year}`;
 
         // Get payment method label (no emoji to avoid encoding issues)
-        let methodLabel = "";
-        const paymentMethod = payment.payment_method || "";
-        switch (paymentMethod) {
-          case "cash":
-            methodLabel = "Cash";
-            break;
-          case "credit_card":
-            methodLabel = "Credit Card";
-            break;
-          case "debit_card":
-            methodLabel = "Debit Card";
-            break;
-          case "check":
-            methodLabel = "Check";
-            break;
-          case "direct_deposit":
-            methodLabel = "Direct Deposit";
-            break;
-          case "ach":
-          case "bank_transfer":
-            methodLabel = "ACH";
-            break;
-          case "wire":
-          case "wire_transfer":
-            methodLabel = "Wire Transfer";
-            break;
-          case "zelle":
-            methodLabel = "Zelle";
-            break;
-          default:
-            methodLabel = paymentMethod || "N/A";
-        }
+        const methodLabel = paymentMethodPlainLabel(payment.payment_method) || "N/A";
 
         const description = payment.description || "Payment";
         const amountText = `$${payment.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
@@ -3913,17 +3877,7 @@ export default function Contracts() {
                             {payment.paymentMethod && (
                               <p className="text-sm text-slate-600">
                                 <span className="font-semibold">Method:</span>{" "}
-                                {payment.paymentMethod === "cash" && "💵 Cash"}
-                                {payment.paymentMethod === "credit_card" && "💳 Credit Card"}
-                                {payment.paymentMethod === "debit_card" && "💳 Debit Card"}
-                                {payment.paymentMethod === "check" && "🧾 Check"}
-                                {payment.paymentMethod === "direct_deposit" && "📥 Direct Deposit"}
-                                {payment.paymentMethod === "ach" && "🏦 Bank Transfer (ACH)"}
-                                {payment.paymentMethod === "wire" && "🏦 Wire Transfer"}
-                                {payment.paymentMethod === "zelle" && "⚡ Zelle"}
-                                {/* Legacy support */}
-                                {payment.paymentMethod === "bank_transfer" && "🏦 Bank Transfer"}
-                                {payment.paymentMethod === "wire_transfer" && "🏦 Wire Transfer"}
+                                {paymentMethodEmojiLabel(payment.paymentMethod)}
                                 {payment.checkNumber && ` (#${payment.checkNumber})`}
                                 {payment.creditCardLast4 && ` (****${payment.creditCardLast4})`}
                               </p>
@@ -5507,7 +5461,7 @@ export default function Contracts() {
                           id: `DP-${generateShortId()}`,
                           amount: 0,
                           date: "",
-                          method: "wire_transfer",
+                          method: "wire",
                           description: "",
                           receipt_attachment: "",
                           bank_name: "",
@@ -5813,7 +5767,7 @@ export default function Contracts() {
               </div>
             )}
 
-            {(downPaymentForm.method === "ach" || downPaymentForm.method === "bank_transfer") && (
+            {isBankTransferMethod(downPaymentForm.method) && (
               <div className="border-t pt-4 space-y-2">
                 <p className="text-sm font-semibold text-slate-700 mb-3">Bank Transfer Details</p>
                 <div className="space-y-2">
@@ -5904,7 +5858,7 @@ export default function Contracts() {
               </div>
             )}
 
-            {(downPaymentForm.method === "wire" || downPaymentForm.method === "wire_transfer") && (
+            {isWireTransferMethod(downPaymentForm.method) && (
               <div className="border-t pt-4 space-y-2">
                 <p className="text-sm font-semibold text-slate-700 mb-3">Wire Transfer Details</p>
                 <div className="space-y-2">

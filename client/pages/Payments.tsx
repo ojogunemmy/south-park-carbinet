@@ -38,6 +38,10 @@ import {
 import { Toaster } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  normalizePaymentMethod,
+  paymentMethodPlainLabel,
+} from "@/utils/payment-methods";
 
 interface CheckAttachment {
   id: string;
@@ -168,8 +172,9 @@ export default function Payments() {
 
   // Handle payment method selection with auto-increment for checks
   const handlePaymentMethodChange = (method: string) => {
-    setSelectedPaymentMethod(method);
-    if (method === "check") {
+    const normalized = normalizePaymentMethod(method) || method;
+    setSelectedPaymentMethod(normalized);
+    if (normalized === "check") {
       // Auto-assign the next check number
       const nextNumber = getNextCheckNumber();
       setPaidCheckNumber(nextNumber.toString());
@@ -786,7 +791,7 @@ export default function Payments() {
     setPaidDate(getTodayDate());
     setPaidDeduction(0);
     setPaidCheckNumber("");
-    setSelectedPaymentMethod(payment?.payment_method || "");
+    setSelectedPaymentMethod(normalizePaymentMethod(payment?.payment_method) || payment?.payment_method || "");
     setBankName("");
     setRoutingNumber("");
     setAccountNumber("");
@@ -2296,39 +2301,34 @@ export default function Payments() {
   };
 
   const getPaymentMethodDisplay = (method?: string, payment?: PaymentObligation) => {
+    const normalized = normalizePaymentMethod(method) || method;
+
     if (!payment || payment.status !== "paid") {
       // For pending/canceled payments, show method and check number if available
-      switch (method) {
-        case "cash":
-          return "Cash";
-        case "direct_deposit":
-          return "Direct Deposit";
-        case "check":
-          return payment?.check_number ? `Check #${payment.check_number}` : "Check";
-        case "ach":
-          return "ACH Transfer";
-        case "wire":
-          return "Wire Transfer";
-        default:
-          return "Not Set";
+      if (normalized === "check") {
+        return payment?.check_number ? `Check #${payment.check_number}` : "Check";
       }
+      return normalized ? paymentMethodPlainLabel(normalized) : "Not Set";
     }
 
     // For paid payments, show details with check number
-    switch (method) {
-      case "cash":
-        return "Cash";
-      case "direct_deposit":
-        return `Direct Deposit (${payment.bank_name || ""} ••••${payment.account_last_four || ""})`;
-      case "check":
-        return `Check #${payment.check_number || "N/A"}`;
-      case "ach":
-        return `ACH Transfer (••••${payment.account_last_four || ""})`;
-      case "wire":
-        return `Wire Transfer (${payment.bank_name || ""})`;
-      default:
-        return "Not Set";
+    if (normalized === "check") {
+      return `Check #${payment.check_number || "N/A"}`;
     }
+    if (normalized === "direct_deposit") {
+      return `Direct Deposit (${payment.bank_name || ""} ••••${payment.account_last_four || ""})`;
+    }
+    if (normalized === "ach") {
+      return `Bank Transfer (ACH) (••••${payment.account_last_four || ""})`;
+    }
+    if (normalized === "wire") {
+      return `Wire Transfer (${payment.bank_name || ""})`;
+    }
+    if (normalized === "credit_card" || normalized === "debit_card") {
+      const last4 = payment.account_last_four || "";
+      return last4 ? `${paymentMethodPlainLabel(normalized)} (****${last4})` : paymentMethodPlainLabel(normalized);
+    }
+    return normalized ? paymentMethodPlainLabel(normalized) : "Not Set";
   };
 
   return (
@@ -3095,8 +3095,8 @@ export default function Payments() {
                     <SelectContent>
                       <SelectItem value="check">Check</SelectItem>
                       <SelectItem value="direct_deposit">Direct Deposit</SelectItem>
-                      <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
-                      <SelectItem value="wire_transfer">Wire Transfer</SelectItem>
+                      <SelectItem value="ach">🏦 Bank Transfer (ACH)</SelectItem>
+                      <SelectItem value="wire">🏦 Wire Transfer</SelectItem>
                       <SelectItem value="debit_card">Debit Card</SelectItem>
                       <SelectItem value="credit_card">Credit Card</SelectItem>
                       <SelectItem value="cash">Cash</SelectItem>
@@ -3118,7 +3118,7 @@ export default function Payments() {
                   </div>
                 )}
 
-                {selectedPaymentMethod && (selectedPaymentMethod === "direct_deposit" || selectedPaymentMethod === "bank_transfer" || selectedPaymentMethod === "wire_transfer") && (
+                {selectedPaymentMethod && (selectedPaymentMethod === "direct_deposit" || selectedPaymentMethod === "ach" || selectedPaymentMethod === "wire") && (
                   <div className="border-t pt-4 space-y-2">
                     <p className="text-sm font-semibold text-slate-700 mb-3">Bank Transfer Details</p>
                     <div className="space-y-2">
@@ -3278,7 +3278,7 @@ export default function Payments() {
                           <SelectItem value="check">Check</SelectItem>
                           <SelectItem value="direct_deposit">Direct Deposit</SelectItem>
                           <SelectItem value="cash">Cash</SelectItem>
-                          <SelectItem value="ach">ACH Transfer</SelectItem>
+                          <SelectItem value="ach">🏦 Bank Transfer (ACH)</SelectItem>
                           <SelectItem value="wire">Wire Transfer</SelectItem>
                         </SelectContent>
                       </Select>
@@ -3967,10 +3967,10 @@ export default function Payments() {
                       <div className="flex flex-col gap-1.5">
                         <Label htmlFor={`method-${payment.id}`} className="text-sm">Payment Method</Label>
                         <Select 
-                          value={bulkPaymentMethods[payment.id] || payment.payment_method || "cash"}
+                          value={bulkPaymentMethods[payment.id] || normalizePaymentMethod(payment.payment_method) || payment.payment_method || "cash"}
                           onValueChange={(value) => setBulkPaymentMethods(prev => ({
                             ...prev,
-                            [payment.id]: value
+                            [payment.id]: normalizePaymentMethod(value) || value
                           }))}
                         >
                           <SelectTrigger className="w-full">
@@ -3979,7 +3979,8 @@ export default function Payments() {
                           <SelectContent>
                             <SelectItem value="cash">Cash</SelectItem>
                             <SelectItem value="check">Check</SelectItem>
-                            <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                            <SelectItem value="ach">🏦 Bank Transfer (ACH)</SelectItem>
+                            <SelectItem value="wire">🏦 Wire Transfer</SelectItem>
                             <SelectItem value="direct_deposit">Direct Deposit</SelectItem>
                             <SelectItem value="credit_card">Credit Card</SelectItem>
                             <SelectItem value="debit_card">Debit Card</SelectItem>
