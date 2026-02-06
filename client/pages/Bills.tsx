@@ -63,6 +63,20 @@ const BILL_CATEGORIES = [
   "Others",
 ];
 
+const normalizeBillCategory = (category: string | null | undefined): string => {
+  const raw = (category ?? "").trim();
+  if (!raw) return "";
+
+  const lower = raw.toLowerCase();
+  let mapped = raw;
+
+  if (lower === "contadora" || lower === "accounting") mapped = "Accountant";
+  else if (lower === "other") mapped = "Others";
+
+  const canonical = BILL_CATEGORIES.find((c) => c.toLowerCase() === mapped.toLowerCase());
+  return canonical ?? mapped;
+};
+
 interface FormData {
   vendor: string;
   description: string;
@@ -178,7 +192,8 @@ export default function Bills() {
   const filteredBills = bills
     .filter((bill) => {
       const statusMatch = filterStatus === "all" || bill.status === filterStatus;
-      const categoryMatch = filterCategory === "all" || bill.category === filterCategory;
+      const categoryMatch =
+        filterCategory === "all" || normalizeBillCategory(bill.category) === filterCategory;
 
       let dateMatch = true;
       if ((filterFromDate || filterToDate) && bill.due_date) {
@@ -234,6 +249,8 @@ export default function Bills() {
       ? normalizePaymentMethod(formData.autopay_method) || (formData.autopay_method as any)
       : "";
 
+    const normalizedCategory = normalizeBillCategory(formData.category);
+
     // Validate autopay details... (keeping validation as is)
     if (formData.autopay && (normalizedAutopayMethod === "credit_card" || normalizedAutopayMethod === "debit_card")) {
       if (!formData.autopay_card_number?.trim() || !formData.autopay_card_holder?.trim() || !formData.autopay_card_expiry?.trim() || !formData.autopay_card_cvv?.trim()) {
@@ -256,7 +273,7 @@ export default function Bills() {
         await billsService.update(editingBillId, {
           vendor: formData.vendor,
           description: formData.description,
-          category: formData.category,
+          category: normalizedCategory,
           amount: parseFloat(formData.amount),
           due_date: formData.due_date,
           invoice_number: formData.invoice_number || null,
@@ -270,7 +287,7 @@ export default function Bills() {
           id: `BILL-${Math.floor(10000 + Math.random() * 90000)}-${Math.floor(1 + Math.random() * 9)}`,
           vendor: formData.vendor,
           description: formData.description,
-          category: formData.category,
+          category: normalizedCategory,
           amount: parseFloat(formData.amount),
           due_date: formData.due_date,
           invoice_number: formData.invoice_number || null,
@@ -299,7 +316,7 @@ export default function Bills() {
     setFormData({
       vendor: bill.vendor,
       description: bill.description || "",
-      category: bill.category || "",
+      category: normalizeBillCategory(bill.category) || "",
       amount: bill.amount.toString(),
       due_date: bill.due_date || "",
       invoice_number: bill.invoice_number || "",
@@ -666,7 +683,8 @@ export default function Bills() {
 
   const billsByCategory = bills.reduce(
     (acc, bill) => {
-      acc[bill.category] = (acc[bill.category] || 0) + bill.amount;
+      const category = normalizeBillCategory(bill.category) || "Uncategorized";
+      acc[category] = (acc[category] || 0) + bill.amount;
       return acc;
     },
     {} as Record<string, number>
@@ -742,7 +760,7 @@ export default function Bills() {
         xPosition = margin;
         pdf.text(bill.id.substring(0, 10), xPosition, yPosition);
         xPosition += colWidths[0];
-        pdf.text(bill.category.substring(0, 12), xPosition, yPosition);
+        pdf.text(normalizeBillCategory(bill.category).substring(0, 12), xPosition, yPosition);
         xPosition += colWidths[1];
         pdf.text(bill.vendor.substring(0, 15), xPosition, yPosition);
         xPosition += colWidths[2];
@@ -1591,7 +1609,7 @@ export default function Bills() {
                         <td className="p-3 text-slate-700 font-medium whitespace-nowrap">{bill.id}</td>
                         <td className="p-3 text-slate-700 text-xs whitespace-nowrap">
                           <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-800">
-                            {bill.category}
+                            {normalizeBillCategory(bill.category)}
                           </span>
                         </td>
                         <td className="p-3 text-slate-700 text-xs whitespace-nowrap">{bill.vendor}</td>
@@ -1676,7 +1694,7 @@ export default function Bills() {
                         <h4 className="font-bold text-slate-900">{bill.vendor}</h4>
                         <div className="flex items-center gap-2 mt-1">
                           <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-800">
-                            {bill.category}
+                            {normalizeBillCategory(bill.category)}
                           </span>
                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${getStatusBadge(bill.status)}`}>
                             {bill.status}
