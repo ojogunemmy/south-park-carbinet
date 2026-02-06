@@ -213,6 +213,36 @@ interface FormData {
 const CABINET_TYPES = ["Kitchen", "Bathroom", "Office", "Bedroom", "Living Room", "Custom"];
 const FINISHES = ["Paint", "Stain", "Both (Stain & Paint)", "Natural/Unfinished", "Other"];
 
+const MONTH_LABELS_SHORT = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+
+const MONTH_LABELS_LONG = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
 
 // Function to get materials from storage or defaults
 const getMaterialsForContracts = (materials: Material[]): MaterialItem[] => {
@@ -261,6 +291,7 @@ export default function Contracts() {
   const [filterStatus, setFilterStatus] = useState<"all" | "in-progress" | "pending" | "completed">("all");
   const [filterFromDate, setFilterFromDate] = useState<string>("");
   const [filterToDate, setFilterToDate] = useState<string>("");
+  const [filterPaymentMonth, setFilterPaymentMonth] = useState<string>("all");
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [editingPaymentId, setEditingPaymentId] = useState<string | null>(null);
   const [budgetSummaryContractId, setBudgetSummaryContractId] = useState<string | null>(null);
@@ -483,16 +514,38 @@ export default function Contracts() {
   /* Summary Cards based on FILTERED data */
   const totalValue = filteredContracts.reduce((sum, c) => sum + (c.total_value || 0), 0);
   const totalDeposits = filteredContracts.reduce((sum, c) => sum + (c.deposit_amount || 0), 0);
+
+  const getMonthFromISODate = (dateStr?: string): number | null => {
+    if (!dateStr) return null;
+    const parts = String(dateStr).split("-");
+    const month = Number.parseInt(parts[1] ?? "", 10);
+    return Number.isFinite(month) ? month : null;
+  };
+
+  const selectedPaymentMonth = filterPaymentMonth === "all" ? null : Number.parseInt(filterPaymentMonth, 10);
+  const selectedPaymentMonthLabel = selectedPaymentMonth ? MONTH_LABELS_SHORT[selectedPaymentMonth - 1] : null;
   
   // Calculate total amount paid from payment schedules
   const totalAmountPaid = filteredContracts.reduce((sum, c) => {
-    const paidPayments = (c.payment_schedule || []).filter((p: any) => p.status === 'paid');
+    const paidPayments = (c.payment_schedule || [])
+      .filter((p: any) => p.status === "paid")
+      .filter((p: any) => {
+        if (!selectedPaymentMonth) return true;
+        const month = getMonthFromISODate(p.paid_date || p.paidDate || p.due_date);
+        return month === selectedPaymentMonth;
+      });
     return sum + paidPayments.reduce((paySum: number, p: any) => paySum + (p.amount || 0), 0);
   }, 0);
   
   // Calculate total amount due (pending payments)
   const totalAmountDue = filteredContracts.reduce((sum, c) => {
-    const pendingPayments = (c.payment_schedule || []).filter((p: any) => p.status === 'pending');
+    const pendingPayments = (c.payment_schedule || [])
+      .filter((p: any) => p.status === "pending")
+      .filter((p: any) => {
+        if (!selectedPaymentMonth) return true;
+        const month = getMonthFromISODate(p.due_date);
+        return month === selectedPaymentMonth;
+      });
     return sum + pendingPayments.reduce((paySum: number, p: any) => paySum + (p.amount || 0), 0);
   }, 0);
 
@@ -3383,15 +3436,21 @@ export default function Contracts() {
 
         <Card className="border-slate-200">
           <CardContent className="pt-6">
-            <p className="text-sm font-medium text-slate-500">Amount Paid</p>
+            <p className="text-sm font-medium text-slate-500">
+              Amount Paid{selectedPaymentMonthLabel ? ` (${selectedPaymentMonthLabel})` : ""}
+            </p>
             <h3 className="text-2xl font-bold text-green-600 mt-2">${totalAmountPaid.toLocaleString()}</h3>
-            <p className="text-xs text-slate-500 mt-1">From payment schedule</p>
+            <p className="text-xs text-slate-500 mt-1">
+              From payment schedule{selectedPaymentMonthLabel ? " (month filter applied)" : ""}
+            </p>
           </CardContent>
         </Card>
 
         <Card className="border-slate-200">
           <CardContent className="pt-6">
-            <p className="text-sm font-medium text-slate-500">Amount Due</p>
+            <p className="text-sm font-medium text-slate-500">
+              Amount Due{selectedPaymentMonthLabel ? ` (${selectedPaymentMonthLabel})` : ""}
+            </p>
             <h3 className="text-2xl font-bold text-orange-600 mt-2">${totalAmountDue.toLocaleString()}</h3>
             <p className="text-xs text-slate-500 mt-1">Pending payments</p>
           </CardContent>
@@ -3453,6 +3512,20 @@ export default function Contracts() {
                 </SelectContent>
               </Select>
 
+              <Select value={filterPaymentMonth} onValueChange={(value: any) => setFilterPaymentMonth(value)}>
+                <SelectTrigger className="w-full sm:w-44 border-slate-300">
+                  <SelectValue placeholder="All Months" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Months</SelectItem>
+                  {MONTH_LABELS_LONG.map((label, idx) => (
+                    <SelectItem key={label} value={String(idx + 1)}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
               <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 items-start sm:items-center w-full lg:w-auto">
                 <Label className="text-sm text-slate-600 whitespace-nowrap">Due Date Range:</Label>
                 <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr] items-center gap-2 w-full sm:w-auto">
@@ -3487,8 +3560,12 @@ export default function Contracts() {
                     <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Project</th>
                     <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Value</th>
                     <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Deposit</th>
-                    <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Paid</th>
-                    <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Due</th>
+                    <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">
+                      Paid{selectedPaymentMonthLabel ? ` (${selectedPaymentMonthLabel})` : ""}
+                    </th>
+                    <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">
+                      Due{selectedPaymentMonthLabel ? ` (${selectedPaymentMonthLabel})` : ""}
+                    </th>
                     <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Due Date</th>
                     <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Status</th>
                     <th className="text-left p-3 font-semibold text-slate-900 whitespace-nowrap">Actions</th>
@@ -3503,8 +3580,24 @@ export default function Contracts() {
                     </tr>
                   ) : (
                     filteredContracts.map((contract, idx) => {
-                      const amountPaid = (contract.payment_schedule || []).filter((p: any) => p.status === "paid").reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
-                      const amountDue = (contract.payment_schedule || []).filter((p: any) => p.status === "pending").reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
+                      const paidPayments = (contract.payment_schedule || [])
+                        .filter((p: any) => p.status === "paid")
+                        .filter((p: any) => {
+                          if (!selectedPaymentMonth) return true;
+                          const month = getMonthFromISODate(p.paid_date || p.paidDate || p.due_date);
+                          return month === selectedPaymentMonth;
+                        });
+
+                      const pendingPayments = (contract.payment_schedule || [])
+                        .filter((p: any) => p.status === "pending")
+                        .filter((p: any) => {
+                          if (!selectedPaymentMonth) return true;
+                          const month = getMonthFromISODate(p.due_date);
+                          return month === selectedPaymentMonth;
+                        });
+
+                      const amountPaid = paidPayments.reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
+                      const amountDue = pendingPayments.reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
 
                       return (
                         <tr key={contract.id} className={idx % 2 === 0 ? "bg-white" : "bg-slate-50"}>
@@ -3637,15 +3730,39 @@ export default function Contracts() {
 
                        <div className="grid grid-cols-2 gap-2 text-xs">
                         <div>
-                          <span className="block text-slate-400">Amount Paid</span>
+                          <span className="block text-slate-400">
+                            Amount Paid{selectedPaymentMonthLabel ? ` (${selectedPaymentMonthLabel})` : ""}
+                          </span>
                           <span className="font-semibold text-green-600">
-                            ${(contract.payment_schedule || []).filter((p: any) => p.status === 'paid').reduce((sum: number, p: any) => sum + (p.amount || 0), 0).toLocaleString()}
+                            ${
+                              (contract.payment_schedule || [])
+                                .filter((p: any) => p.status === "paid")
+                                .filter((p: any) => {
+                                  if (!selectedPaymentMonth) return true;
+                                    const month = getMonthFromISODate(p.paid_date || p.paidDate || p.due_date);
+                                  return month === selectedPaymentMonth;
+                                })
+                                .reduce((sum: number, p: any) => sum + (p.amount || 0), 0)
+                                .toLocaleString()
+                            }
                           </span>
                         </div>
                         <div>
-                          <span className="block text-slate-400">Amount Due</span>
+                          <span className="block text-slate-400">
+                            Amount Due{selectedPaymentMonthLabel ? ` (${selectedPaymentMonthLabel})` : ""}
+                          </span>
                           <span className="font-semibold text-orange-600">
-                            ${(contract.payment_schedule || []).filter((p: any) => p.status === 'pending').reduce((sum: number, p: any) => sum + (p.amount || 0), 0).toLocaleString()}
+                            ${
+                              (contract.payment_schedule || [])
+                                .filter((p: any) => p.status === "pending")
+                                .filter((p: any) => {
+                                  if (!selectedPaymentMonth) return true;
+                                  const month = getMonthFromISODate(p.due_date);
+                                  return month === selectedPaymentMonth;
+                                })
+                                .reduce((sum: number, p: any) => sum + (p.amount || 0), 0)
+                                .toLocaleString()
+                            }
                           </span>
                         </div>
                         <div>
@@ -3738,9 +3855,29 @@ export default function Contracts() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {contracts
-                    .find((c) => c.id === selectedContractId)
-                    ?.payment_schedule.map((payment) => (
+                  {(() => {
+                    const schedule =
+                      contracts.find((c) => c.id === selectedContractId)?.payment_schedule ?? [];
+
+                    const visibleSchedule = schedule.filter((payment: any) => {
+                      if (!selectedPaymentMonth) return true;
+                      if (payment.status === "paid") {
+                        const month = getMonthFromISODate(payment.paid_date || payment.paidDate || payment.due_date);
+                        return month === selectedPaymentMonth;
+                      }
+                      const month = getMonthFromISODate(payment.due_date);
+                      return month === selectedPaymentMonth;
+                    });
+
+                    if (visibleSchedule.length === 0) {
+                      return (
+                        <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 text-sm text-slate-600">
+                          No payments{selectedPaymentMonthLabel ? ` for ${selectedPaymentMonthLabel}` : ""}.
+                        </div>
+                      );
+                    }
+
+                    return visibleSchedule.map((payment: any) => (
                       <div
                         key={payment.id}
                         className="p-4 bg-slate-50 rounded-lg border border-slate-200 space-y-3"
@@ -3821,7 +3958,8 @@ export default function Contracts() {
                           </button>
                         </div>
                       </div>
-                    ))}
+                    ));
+                  })()}
                 </div>
               </CardContent>
             </Card>
