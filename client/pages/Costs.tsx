@@ -206,6 +206,15 @@ export default function Costs() {
       return;
     }
 
+    const escapeCsvValue = (value: unknown) => {
+      const raw = value == null ? "" : String(value);
+      // Quote if it contains a comma, quote, or newline
+      if (/[",\n\r]/.test(raw)) {
+        return `"${raw.replace(/"/g, '""')}"`;
+      }
+      return raw;
+    };
+
     const headers = [
       "Contract ID",
       "Project",
@@ -220,7 +229,7 @@ export default function Costs() {
       "Margin %"
     ];
 
-    const csvRows = [headers.join(",")];
+    const csvRows = [headers.map(escapeCsvValue).join(",")];
 
     filteredContracts.forEach(contract => {
       const costTracking = getCostTracking(contract) as any;
@@ -233,8 +242,8 @@ export default function Costs() {
 
       const row = [
         contract.id,
-        `"${contract.project_name.replace(/"/g, '""')}"`,
-        `"${(contract.client_name || "").replace(/"/g, '""')}"`,
+        contract.project_name,
+        contract.client_name || "",
         contract.status,
         contract.total_value || 0,
         materialCost,
@@ -242,13 +251,14 @@ export default function Costs() {
         miscCost,
         totalCost,
         profit,
-        margin.toFixed(2)
-      ];
+        margin.toFixed(2),
+      ].map(escapeCsvValue);
       csvRows.push(row.join(","));
     });
 
-    const csvString = csvRows.join("\n");
-    const blob = new Blob([csvString], { type: "text/csv;charset=utf-8;" });
+    // Add UTF-8 BOM so Excel opens it cleanly
+    const csvString = `\uFEFF${csvRows.join("\n")}`;
+    const blob = new Blob([csvString], { type: "text/csv;charset=utf-8" });
     const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
     link.setAttribute("href", url);
@@ -257,6 +267,7 @@ export default function Costs() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   const getStatusColor = (status: string) => {
@@ -289,6 +300,25 @@ export default function Costs() {
       const labelColumnWidth = contentWidth * 0.6;
       const amountX = margin + labelColumnWidth + 5;
 
+      const ensureSpace = (requiredHeight: number) => {
+        if (yPosition + requiredHeight > pageHeight - margin) {
+          pdf.addPage();
+          yPosition = 15;
+        }
+      };
+
+      const writeWrappedLine = (text: string, x: number, maxWidth: number, fontSize = 9) => {
+        pdf.setFontSize(fontSize);
+        const lines = pdf.splitTextToSize(text || "", maxWidth);
+        lines.forEach((line: string) => {
+          ensureSpace(lineHeight);
+          pdf.text(line, x, yPosition);
+          yPosition += lineHeight - 1;
+        });
+        // Add a tiny gap after wrapped blocks
+        yPosition += 1;
+      };
+
       // Title
       pdf.setFontSize(16);
       pdf.setFont(undefined, "bold");
@@ -320,6 +350,7 @@ export default function Costs() {
       ];
 
       summaryLines.forEach((line) => {
+        ensureSpace(lineHeight);
         pdf.text(line.label, margin + 3, yPosition, { maxWidth: labelColumnWidth - 5 });
         pdf.text(line.amount, amountX, yPosition, { align: "left" });
         yPosition += lineHeight;
@@ -335,10 +366,7 @@ export default function Costs() {
 
       // Each contract as a separate section
       filteredContracts.forEach((contract, idx) => {
-        if (yPosition > pageHeight - 35) {
-          pdf.addPage();
-          yPosition = 15;
-        }
+        ensureSpace(12);
 
         const costTracking = getCostTracking(contract) as any;
         const materialCost = calculateMaterialCost(costTracking.materials || []);
@@ -351,8 +379,12 @@ export default function Costs() {
         // Contract header
         pdf.setFont(undefined, "bold");
         pdf.setFontSize(10);
-        pdf.text(`${idx + 1}. ${contract.id} - ${contract.project_name}`, margin, yPosition);
-        yPosition += lineHeight;
+        writeWrappedLine(
+          `${idx + 1}. ${contract.id} - ${contract.project_name}`,
+          margin,
+          contentWidth,
+          10,
+        );
 
         // Contract details with two-column layout
         pdf.setFont(undefined, "normal");
@@ -371,9 +403,24 @@ export default function Costs() {
         ];
 
         detailLines.forEach((line) => {
+          ensureSpace(lineHeight);
           pdf.text(line.label, margin + 5, yPosition, { maxWidth: 60 });
-          pdf.text(line.amount, margin + 75, yPosition);
-          yPosition += lineHeight - 1;
+          // Wrap long values so they don't overflow
+          const valueMaxWidth = contentWidth - 75;
+          const valueLines = pdf.splitTextToSize(line.amount || "", valueMaxWidth);
+          if (valueLines.length <= 1) {
+            pdf.text(line.amount, margin + 75, yPosition);
+            yPosition += lineHeight - 1;
+          } else {
+            // First line on the same row, then continue wrapped on next lines
+            pdf.text(valueLines[0], margin + 75, yPosition);
+            yPosition += lineHeight - 1;
+            for (let i = 1; i < valueLines.length; i++) {
+              ensureSpace(lineHeight);
+              pdf.text(valueLines[i], margin + 75, yPosition);
+              yPosition += lineHeight - 1;
+            }
+          }
         });
 
         yPosition += 3;

@@ -77,6 +77,48 @@ const normalizeBillCategory = (category: string | null | undefined): string => {
   return canonical ?? mapped;
 };
 
+const normalizeBillStatus = (status: unknown): Bill["status"] => {
+  const s = String(status ?? "").trim().toLowerCase();
+  if (s === "pending" || s === "paid" || s === "overdue") return s;
+  return "pending";
+};
+
+const parseDateOnly = (value: string | null | undefined): Date | null => {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+
+  const datePart = raw.includes("T") ? raw.split("T")[0] : raw;
+
+  // YYYY-MM-DD or YYYY/MM/DD
+  let match = datePart.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+  if (match) {
+    const year = parseInt(match[1], 10);
+    const month = parseInt(match[2], 10);
+    const day = parseInt(match[3], 10);
+    if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null;
+    const d = new Date(year, month - 1, day);
+    d.setHours(0, 0, 0, 0);
+    // Guard against overflow (e.g. 2026-02-31)
+    if (d.getFullYear() !== year || d.getMonth() !== month - 1 || d.getDate() !== day) return null;
+    return d;
+  }
+
+  // MM/DD/YYYY
+  match = datePart.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (match) {
+    const month = parseInt(match[1], 10);
+    const day = parseInt(match[2], 10);
+    const year = parseInt(match[3], 10);
+    if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null;
+    const d = new Date(year, month - 1, day);
+    d.setHours(0, 0, 0, 0);
+    if (d.getFullYear() !== year || d.getMonth() !== month - 1 || d.getDate() !== day) return null;
+    return d;
+  }
+
+  return null;
+};
+
 interface FormData {
   vendor: string;
   description: string;
@@ -161,10 +203,48 @@ export default function Bills() {
     try {
       setLoading(true);
       const data = await billsService.getAll();
-      // Filter by year if necessary (assuming dueDate contains year)
-      const yearBills = data.filter(bill => {
-        if (!bill.due_date) return false; // Hide bills without date when filtering by year
-        return bill.due_date.startsWith(selectedYear.toString());
+      
+      // Update bill statuses based on due dates
+      const today = new Date();
+      today.setHours(0, 0, 0, 0); // Reset time to start of day
+      
+      const updatedData = await Promise.all(
+        data.map(async (bill) => {
+          const normalizedStatus = normalizeBillStatus((bill as any).status);
+          const dueDate = parseDateOnly(bill.due_date);
+          const normalizedCategory = bill.category ? normalizeBillCategory(bill.category) : bill.category;
+
+          const normalizedBill: Bill = {
+            ...bill,
+            status: normalizedStatus,
+            category: normalizedCategory as any,
+          };
+
+          if (normalizedBill.status === "pending" && dueDate) {
+            
+            if (dueDate < today) {
+              // Bill is overdue, update status in database
+              try {
+                await billsService.update(bill.id, { status: "overdue" });
+                return { ...normalizedBill, status: "overdue" as const };
+              } catch (updateError) {
+                console.error("Error updating overdue bill status:", updateError);
+                return { ...normalizedBill, status: "overdue" as const }; // Still mark as overdue locally
+              }
+            }
+          }
+          return normalizedBill;
+        })
+      );
+      
+      // Filter by selected year using parsed dates (handles YYYY-MM-DD, timestamps, etc).
+      // If a bill has no parseable due_date, fall back to created_at year; if that also fails, keep it.
+      const yearBills = updatedData.filter((bill) => {
+        const due = parseDateOnly(bill.due_date);
+        if (due) return due.getFullYear() === selectedYear;
+        const created = parseDateOnly((bill.created_at || "").split("T")[0]);
+        if (created) return created.getFullYear() === selectedYear;
+        return true;
       });
       setBills(yearBills);
     } catch (error: any) {
@@ -196,20 +276,17 @@ export default function Bills() {
         filterCategory === "all" || normalizeBillCategory(bill.category) === filterCategory;
 
       let dateMatch = true;
-      if ((filterFromDate || filterToDate) && bill.due_date) {
-        const dueDateParts = bill.due_date.split('-');
-        const dueDate = new Date(parseInt(dueDateParts[0]), parseInt(dueDateParts[1]) - 1, parseInt(dueDateParts[2]));
+      if (filterFromDate || filterToDate) {
+        const dueDate = parseDateOnly(bill.due_date);
+        if (!dueDate) {
+          dateMatch = false;
+        } else {
+          const fromDate = parseDateOnly(filterFromDate);
+          const toDate = parseDateOnly(filterToDate);
 
-        if (filterFromDate) {
-          const fromDateParts = filterFromDate.split('-');
-          const fromDate = new Date(parseInt(fromDateParts[0]), parseInt(fromDateParts[1]) - 1, parseInt(fromDateParts[2]));
-          if (dueDate < fromDate) dateMatch = false;
-        }
-        if (filterToDate) {
-          const toDateParts = filterToDate.split('-');
-          const toDate = new Date(parseInt(toDateParts[0]), parseInt(toDateParts[1]) - 1, parseInt(toDateParts[2]));
-          // Include the end date (don't add 1 day)
-          if (dueDate > toDate) dateMatch = false;
+          if (fromDate && dueDate < fromDate) dateMatch = false;
+          // Include end date (both are date-only values)
+          if (toDate && dueDate > toDate) dateMatch = false;
         }
       }
 
@@ -217,12 +294,13 @@ export default function Bills() {
     })
     .sort((a, b) => {
       // Sort by due_date in descending order (most recent first)
-      if (!a.due_date || !b.due_date) return 0;
-      const aParts = a.due_date.split('-');
-      const bParts = b.due_date.split('-');
-      const aDate = new Date(parseInt(aParts[0]), parseInt(aParts[1]) - 1, parseInt(aParts[2]));
-      const bDate = new Date(parseInt(bParts[0]), parseInt(bParts[1]) - 1, parseInt(bParts[2]));
-      return bDate.getTime() - aDate.getTime();
+      const aDate = parseDateOnly(a.due_date);
+      const bDate = parseDateOnly(b.due_date);
+      if (aDate && bDate) return bDate.getTime() - aDate.getTime();
+      if (aDate && !bDate) return -1;
+      if (!aDate && bDate) return 1;
+      // Fallback: keep deterministic ordering
+      return String(b.id || "").localeCompare(String(a.id || ""));
     });
   const filteredTotal = filteredBills.reduce((sum, b) => sum + b.amount, 0);
 
@@ -390,7 +468,7 @@ export default function Bills() {
     }
   };
 
-  const handleSetPayment = () => {
+  const handleSetPayment = async () => {
     if (selectedBills.size === 0) {
       alert("Please select at least one bill");
       return;
@@ -429,42 +507,54 @@ export default function Bills() {
       }
     }
 
-    const updatedBills = bills.map((bill) =>
-      selectedBills.has(bill.id)
-        ? {
-            ...bill,
-            status: "paid" as const,
-            paymentMethod,
-            paymentDate,
-            paidCreditCardLast4: paymentMethod === "credit_card" ? paymentDetails.creditCardNumber.slice(-4) : undefined,
-            paidDebitCardLast4: paymentMethod === "debit_card" ? paymentDetails.creditCardNumber.slice(-4) : undefined,
-            paidAccountLast4: paymentMethod === "ach" ? paymentDetails.accountNumber.slice(-4) : undefined,
-            paidBankName: paymentMethod === "ach" || paymentMethod === "wire" ? paymentDetails.bankName : undefined,
-            paidReference: paymentMethod === "cash" ? paymentDetails.cashReference : paymentMethod === "wire" ? paymentDetails.wireReference : undefined,
-          }
-        : bill
-    );
+    try {
+      // Update each selected bill in the database
+      const updatePromises = Array.from(selectedBills).map(async (billId) => {
+        const bill = bills.find(b => b.id === billId);
+        if (!bill) return;
 
-    setBills(updatedBills);
-    setSelectedBills(new Set());
-    setPaymentMethod("credit_card");
-    setPaymentDate("");
-    setPaymentDetails({
-      creditCardNumber: "",
-      creditCardHolder: "",
-      cardExpiry: "",
-      cardCvv: "",
-      bankName: "",
-      accountHolder: "",
-      accountNumber: "",
-      routingNumber: "",
-      wireReference: "",
-      cashReference: "",
-    });
-    setIsPaymentModalOpen(false);
+        const paymentData = {
+          status: "paid" as const,
+          payment_date: paymentDate,
+          payment_method: paymentMethod,
+          paid_credit_card_last4: paymentMethod === "credit_card" ? paymentDetails.creditCardNumber.slice(-4) : null,
+          paid_debit_card_last4: paymentMethod === "debit_card" ? paymentDetails.creditCardNumber.slice(-4) : null,
+          paid_account_last4: paymentMethod === "ach" ? paymentDetails.accountNumber.slice(-4) : null,
+          paid_bank_name: paymentMethod === "ach" || paymentMethod === "wire" ? paymentDetails.bankName : null,
+          paid_reference: paymentMethod === "cash" ? paymentDetails.cashReference : paymentMethod === "wire" ? paymentDetails.wireReference : null,
+        };
 
-    const count = selectedBills.size;
-    alert(`✓ Payment recorded for ${count} bill${count !== 1 ? "s" : ""}`);
+        return billsService.update(billId, paymentData);
+      });
+
+      await Promise.all(updatePromises);
+
+      // Refresh bills data
+      await fetchBills();
+
+      setSelectedBills(new Set());
+      setPaymentMethod("credit_card");
+      setPaymentDate("");
+      setPaymentDetails({
+        creditCardNumber: "",
+        creditCardHolder: "",
+        cardExpiry: "",
+        cardCvv: "",
+        bankName: "",
+        accountHolder: "",
+        accountNumber: "",
+        routingNumber: "",
+        wireReference: "",
+        cashReference: "",
+      });
+      setIsPaymentModalOpen(false);
+
+      const count = selectedBills.size;
+      toast({ title: "Success", description: `Payment recorded for ${count} bill${count !== 1 ? "s" : ""}` });
+    } catch (error) {
+      console.error("Error recording payment:", error);
+      toast({ title: "Error", description: "Failed to record payment", variant: "destructive" });
+    }
   };
 
   const formatPaymentMethod = (method: string | null, bill?: Bill) => {
@@ -474,25 +564,46 @@ export default function Bills() {
 
     const details = (bill?.payment_details as any) || {};
 
+    // Some paid/autopay metadata is stored as top-level columns on the bill record.
+    // Merge those in so printed reports + CSV reflect what was actually saved.
+    const mergedDetails = {
+      ...details,
+      paid_credit_card_last4: (bill as any)?.paid_credit_card_last4 ?? details.paid_credit_card_last4,
+      paid_debit_card_last4: (bill as any)?.paid_debit_card_last4 ?? details.paid_debit_card_last4,
+      paid_account_last4: (bill as any)?.paid_account_last4 ?? details.paid_account_last4,
+      paid_bank_name: (bill as any)?.paid_bank_name ?? details.paid_bank_name,
+      paid_reference: (bill as any)?.paid_reference ?? details.paid_reference,
+      autopay_method: (bill as any)?.autopay_method ?? details.autopay_method,
+      autopay_card_last4: (bill as any)?.autopay_card_last4 ?? details.autopay_card_last4,
+      autopay_card_type: (bill as any)?.autopay_card_type ?? details.autopay_card_type,
+      autopay_bank_name: (bill as any)?.autopay_bank_name ?? details.autopay_bank_name,
+      autopay_account_last4: (bill as any)?.autopay_account_last4 ?? details.autopay_account_last4,
+      autopay_account_holder: (bill as any)?.autopay_account_holder ?? details.autopay_account_holder,
+    };
+
     // Show autopay card details if available
-    if (bill && (details.autopay_card_last4 || details.autopay_card_type)) {
-      switch (details.autopay_card_type) {
+    if (bill && (mergedDetails.autopay_card_last4 || mergedDetails.autopay_card_type)) {
+      switch (mergedDetails.autopay_card_type) {
         case "credit_card":
-          return details.autopay_card_last4 ? `Credit Card ••••${details.autopay_card_last4}` : "Credit Card";
+          return mergedDetails.autopay_card_last4
+            ? `Credit Card ••••${mergedDetails.autopay_card_last4}`
+            : "Credit Card";
         case "debit_card":
-          return details.autopay_card_last4 ? `Debit Card ••••${details.autopay_card_last4}` : "Debit Card";
+          return mergedDetails.autopay_card_last4
+            ? `Debit Card ••••${mergedDetails.autopay_card_last4}`
+            : "Debit Card";
       }
     }
 
     // Show autopay bank details if available
-    if (bill && details.autopay_bank_name) {
+    if (bill && mergedDetails.autopay_bank_name) {
       if (normalizedMethod === "ach") {
-        return details.autopay_account_last4
-          ? `Bank Transfer (${details.autopay_bank_name} ••••${details.autopay_account_last4})`
-          : `Bank Transfer (${details.autopay_bank_name})`;
+        return mergedDetails.autopay_account_last4
+          ? `Bank Transfer (${mergedDetails.autopay_bank_name} ••••${mergedDetails.autopay_account_last4})`
+          : `Bank Transfer (${mergedDetails.autopay_bank_name})`;
       }
       if (normalizedMethod === "wire") {
-        return `Wire Transfer (${details.autopay_bank_name})`;
+        return `Wire Transfer (${mergedDetails.autopay_bank_name})`;
       }
     }
 
@@ -503,20 +614,37 @@ export default function Bills() {
     // Show details for paid bills
     switch (normalizedMethod) {
       case "credit_card":
-        return details.paid_credit_card_last4 ? `Credit Card ••••${details.paid_credit_card_last4}` : "Credit Card";
+        return mergedDetails.paid_credit_card_last4
+          ? `Credit Card ••••${mergedDetails.paid_credit_card_last4}`
+          : "Credit Card";
       case "debit_card":
-        return details.paid_credit_card_last4 ? `Debit Card ••••${details.paid_credit_card_last4}` : "Debit Card";
+        return mergedDetails.paid_debit_card_last4
+          ? `Debit Card ••••${mergedDetails.paid_debit_card_last4}`
+          : mergedDetails.paid_credit_card_last4
+            ? `Debit Card ••••${mergedDetails.paid_credit_card_last4}`
+            : "Debit Card";
       case "ach":
-        return details.paid_bank_name && details.paid_account_last4
-          ? `Bank Transfer (${details.paid_bank_name} ••••${details.paid_account_last4})`
+        return mergedDetails.paid_bank_name && mergedDetails.paid_account_last4
+          ? `Bank Transfer (${mergedDetails.paid_bank_name} ••••${mergedDetails.paid_account_last4})`
           : "Bank Transfer";
       case "wire":
-        return details.paid_bank_name ? `Wire Transfer (${details.paid_bank_name})` : "Wire Transfer";
+        return mergedDetails.paid_bank_name
+          ? `Wire Transfer (${mergedDetails.paid_bank_name})`
+          : "Wire Transfer";
       case "cash":
-        return details.paid_reference ? `Cash (Ref: ${details.paid_reference})` : "Cash";
+        return mergedDetails.paid_reference
+          ? `Cash (Ref: ${mergedDetails.paid_reference})`
+          : "Cash";
       default:
         return paymentMethodEmojiLabel(normalizedMethod);
     }
+  };
+
+  const getBillPaymentMethodLabel = (bill: Bill): string => {
+    // Prefer explicit payment method column when present
+    const method = (bill.payment_method as any) || ((bill.payment_details as any)?.autopay_method as any) || null;
+    if (!method) return "-";
+    return formatPaymentMethod(method, bill);
   };
 
   const getStatusBadge = (status: string) => {
@@ -701,6 +829,72 @@ export default function Bills() {
 
   const totalScheduledAmount = scheduledPayments.reduce((sum, payment) => sum + payment.amount, 0);
 
+  const exportBillsToCSV = () => {
+    if (filteredBills.length === 0) {
+      toast({ title: "Nothing to export", description: "No bills match the current filters." });
+      return;
+    }
+
+    const escapeCsvValue = (value: unknown) => {
+      const raw = value == null ? "" : String(value);
+      if (/[",\n\r]/.test(raw)) return `"${raw.replace(/"/g, '""')}"`;
+      return raw;
+    };
+
+    const headers = [
+      "ID",
+      "Category",
+      "Vendor",
+      "Description",
+      "Amount",
+      "Due Date",
+      "Status",
+      "Invoice Number",
+      "Payment Method",
+      "Payment Date",
+    ];
+
+    const rows: string[] = [];
+    rows.push(headers.map(escapeCsvValue).join(","));
+
+    filteredBills.forEach((bill) => {
+      const details = (bill.payment_details as any) || {};
+      const paymentMethodLabel = getBillPaymentMethodLabel(bill);
+
+      const paymentDateValue = (bill as any).payment_date ?? details.payment_date ?? "";
+
+      const row = [
+        bill.id,
+        normalizeBillCategory(bill.category),
+        bill.vendor,
+        bill.description ?? "",
+        bill.amount,
+        bill.due_date ? formatDateString(bill.due_date) : "",
+        bill.status,
+        bill.invoice_number ?? "",
+        paymentMethodLabel,
+        paymentDateValue,
+      ].map(escapeCsvValue);
+
+      rows.push(row.join(","));
+    });
+
+    // UTF-8 BOM helps Excel open the CSV correctly
+    const csvString = `\uFEFF${rows.join("\n")}`;
+    const blob = new Blob([csvString], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `bills_export_${selectedYear}_${new Date().toISOString().split("T")[0]}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    toast({ title: "Export started", description: "CSV download should begin shortly." });
+  };
+
   const generateAnnualReport = () => {
     try {
       const billsToPrint = filteredBills;
@@ -719,6 +913,37 @@ export default function Bills() {
       const margin = 10;
       const lineHeight = 5;
 
+      const fitText = (text: string, maxWidth: number) => {
+        const safe = (text ?? "").toString();
+        if (!safe) return "";
+        if (pdf.getTextWidth(safe) <= maxWidth) return safe;
+        const ellipsis = "…";
+        let trimmed = safe;
+        while (trimmed.length > 0 && pdf.getTextWidth(trimmed + ellipsis) > maxWidth) {
+          trimmed = trimmed.slice(0, -1);
+        }
+        return trimmed.length ? trimmed + ellipsis : ellipsis;
+      };
+
+      const colWidths = [22, 26, 36, 70, 22, 24, 18, 38];
+      const headers = ["ID", "Category", "Vendor", "Description", "Amount", "Due Date", "Status", "Payment Method"];
+
+      const drawTableHeader = () => {
+        let xPosition = margin;
+        pdf.setFont(undefined, "bold");
+        pdf.setFontSize(9);
+        headers.forEach((header, idx) => {
+          pdf.text(fitText(header, colWidths[idx] - 2), xPosition, yPosition);
+          xPosition += colWidths[idx];
+        });
+        yPosition += lineHeight + 1;
+        pdf.setDrawColor(200);
+        pdf.line(margin, yPosition - 1, pageWidth - margin, yPosition - 1);
+        yPosition += 2;
+        pdf.setFont(undefined, "normal");
+        pdf.setFontSize(8);
+      };
+
       // Title
       pdf.setFontSize(14);
       pdf.setFont(undefined, "bold");
@@ -732,47 +957,37 @@ export default function Bills() {
       yPosition += 8;
 
       // Table headers
-      const colWidths = [18, 18, 22, 28, 15, 15, 15, 15];
-      const headers = ["ID", "Category", "Vendor", "Description", "Amount", "Due Date", "Status", "Payment Method"];
-      let xPosition = margin;
-
-      pdf.setFont(undefined, "bold");
-      pdf.setFontSize(9);
-      headers.forEach((header, idx) => {
-        pdf.text(header, xPosition, yPosition);
-        xPosition += colWidths[idx];
-      });
-      yPosition += lineHeight + 1;
-      pdf.setDrawColor(200);
-      pdf.line(margin, yPosition - 1, pageWidth - margin, yPosition - 1);
-      yPosition += 2;
-
-      // Table rows
-      pdf.setFont(undefined, "normal");
-      pdf.setFontSize(8);
+      drawTableHeader();
 
       billsToPrint.forEach((bill) => {
         if (yPosition > pageHeight - 10) {
           pdf.addPage();
           yPosition = 15;
+          drawTableHeader();
         }
 
-        xPosition = margin;
-        pdf.text(bill.id.substring(0, 10), xPosition, yPosition);
+        const paymentMethodLabel = getBillPaymentMethodLabel(bill);
+
+        let xPosition = margin;
+        pdf.text(fitText(bill.id, colWidths[0] - 2), xPosition, yPosition);
         xPosition += colWidths[0];
-        pdf.text(normalizeBillCategory(bill.category).substring(0, 12), xPosition, yPosition);
+        pdf.text(fitText(normalizeBillCategory(bill.category), colWidths[1] - 2), xPosition, yPosition);
         xPosition += colWidths[1];
-        pdf.text(bill.vendor.substring(0, 15), xPosition, yPosition);
+        pdf.text(fitText(bill.vendor, colWidths[2] - 2), xPosition, yPosition);
         xPosition += colWidths[2];
-        pdf.text(bill.description.substring(0, 20), xPosition, yPosition);
+        pdf.text(fitText(bill.description || "", colWidths[3] - 2), xPosition, yPosition);
         xPosition += colWidths[3];
-        pdf.text(`$${bill.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, xPosition, yPosition);
+        pdf.text(
+          fitText(`$${bill.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, colWidths[4] - 2),
+          xPosition,
+          yPosition,
+        );
         xPosition += colWidths[4];
-        pdf.text(formatDateString(bill.due_date), xPosition, yPosition);
+        pdf.text(fitText(formatDateString(bill.due_date), colWidths[5] - 2), xPosition, yPosition);
         xPosition += colWidths[5];
-        pdf.text(bill.status, xPosition, yPosition);
+        pdf.text(fitText(bill.status, colWidths[6] - 2), xPosition, yPosition);
         xPosition += colWidths[6];
-        pdf.text(bill.payment_method ? bill.payment_method.replace(/_/g, " ") : "-", xPosition, yPosition);
+        pdf.text(fitText(paymentMethodLabel, colWidths[7] - 2), xPosition, yPosition);
 
         yPosition += lineHeight + 1;
       });
@@ -1163,8 +1378,32 @@ export default function Bills() {
             <Printer className="w-4 h-4" />
             Print
           </Button>
+          <Button
+            onClick={exportBillsToCSV}
+            variant="outline"
+            className="gap-2"
+          >
+            <Download className="w-4 h-4" />
+            Export CSV
+          </Button>
         </div>
       </div>
+
+      {loading && (
+        <Card className="border-slate-200">
+          <CardContent className="pt-6">
+            <p className="text-slate-600">Loading bills…</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {!loading && bills.length === 0 && (
+        <Card className="border-slate-200">
+          <CardContent className="pt-6">
+            <p className="text-slate-600">No bills found for {selectedYear}.</p>
+          </CardContent>
+        </Card>
+      )}
 
       {bills.length > 0 && (
         <>
