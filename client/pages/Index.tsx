@@ -258,87 +258,185 @@ export default function Index() {
       const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
-      let yPosition = 15;
       const margin = 15;
-      const lineHeight = 5;
+      const contentWidth = pageWidth - 2 * margin;
 
-      // Title
-      pdf.setFontSize(16);
-      pdf.setFont(undefined, "bold");
-      pdf.text("CABINET BUSINESS MANAGEMENT DASHBOARD", margin, yPosition);
-      yPosition += 8;
+      const formatCurrency = (value: number) =>
+        `$${(Number(value) || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 
-      // Generated date
-      pdf.setFontSize(9);
-      pdf.setFont(undefined, "normal");
-      pdf.text(`Generated: ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`, margin, yPosition);
-      yPosition += 10;
+      const drawHeader = () => {
+        pdf.setFillColor(31, 41, 55);
+        pdf.rect(0, 0, pageWidth, 25, "F");
 
-      // Summary metrics section
-      pdf.setFontSize(12);
-      pdf.setFont(undefined, "bold");
-      pdf.text("SUMMARY METRICS", margin, yPosition);
-      yPosition += 8;
-
-      // Metrics grid
-      pdf.setFont(undefined, "normal");
-      pdf.setFontSize(10);
-      const metricsData = [
-        ["Total Employees", `${dashboardStats.totalEmployees}`, "Active employees"],
-        ["Active Contracts", `${dashboardStats.totalContracts}`, `$${dashboardStats.totalContractValue.toLocaleString()}`],
-        ["Outstanding Bills", `${dashboardStats.totalBills}`, `$${dashboardStats.pendingBills.toLocaleString()}`],
-        ["Total Costs", `$${dashboardStats.totalCosts.toLocaleString()}`, "Project + Operating"],
-        ["Total Profit", `$${dashboardStats.totalProfit.toLocaleString()}`, `${dashboardStats.profitMargin.toFixed(1)}% margin`],
-      ];
-
-      const metricsColWidth = (pageWidth - 2 * margin) / 2;
-
-      metricsData.forEach((metric, idx) => {
-        if (yPosition > pageHeight - 40) {
-          pdf.addPage();
-          yPosition = 15;
-        }
-
+        pdf.setTextColor(255, 255, 255);
+        pdf.setFontSize(20);
         pdf.setFont(undefined, "bold");
-        pdf.text(metric[0], margin, yPosition);
+        pdf.text("SOUTH PARK CABINETS", margin, 12);
+
+        pdf.setFontSize(12);
         pdf.setFont(undefined, "normal");
-        pdf.text(metric[1], margin + metricsColWidth, yPosition);
-        yPosition += 5;
+        pdf.text("Business Dashboard", margin, 20);
+
+        pdf.setFontSize(9);
+        pdf.setTextColor(150, 150, 150);
+        pdf.text(
+          `Generated: ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`,
+          pageWidth - margin,
+          20,
+          { align: "right" },
+        );
+
+        pdf.setTextColor(0, 0, 0);
+      };
+
+      const drawSummaryBoxes = (startY: number) => {
+        const boxWidth = (contentWidth - 12) / 3; // 3 boxes per row
+        const boxHeight = 18;
+
+        const summaryData = [
+          {
+            label: "Total Employees",
+            value: String(dashboardStats.totalEmployees),
+            color: [59, 130, 246] as const,
+            subtitle: "Active staff"
+          },
+          {
+            label: "Active Contracts",
+            value: formatCurrency(dashboardStats.totalContractValue),
+            color: [34, 197, 94] as const,
+            subtitle: `${dashboardStats.totalContracts} contracts`
+          },
+          {
+            label: "Outstanding Bills",
+            value: formatCurrency(dashboardStats.pendingBills),
+            color: [239, 68, 68] as const,
+            subtitle: `${dashboardStats.totalBills} bills`
+          },
+          {
+            label: "Total Costs",
+            value: formatCurrency(dashboardStats.totalCosts),
+            color: [249, 115, 22] as const,
+            subtitle: "Project + Operating"
+          },
+          {
+            label: "Total Profit",
+            value: formatCurrency(dashboardStats.totalProfit),
+            color: [16, 185, 129] as const,
+            subtitle: `${dashboardStats.profitMargin.toFixed(1)}% margin`
+          },
+          {
+            label: "Net Position",
+            value: formatCurrency(dashboardStats.totalContractValue - dashboardStats.pendingBills - dashboardStats.totalCosts),
+            color: [139, 92, 246] as const,
+            subtitle: "Revenue - Expenses"
+          },
+        ];
+
+        let currentY = startY;
+        let currentX = margin;
+
+        summaryData.forEach((item, idx) => {
+          if (idx > 0 && idx % 3 === 0) {
+            currentY += boxHeight + 6;
+            currentX = margin;
+          }
+
+          const [r, g, b] = item.color;
+          pdf.setFillColor(r, g, b);
+          pdf.rect(currentX, currentY, boxWidth, boxHeight, "F");
+
+          pdf.setTextColor(255, 255, 255);
+          pdf.setFontSize(9);
+          pdf.setFont(undefined, "normal");
+          pdf.text(item.label, currentX + 3, currentY + 5);
+
+          pdf.setFontSize(12);
+          pdf.setFont(undefined, "bold");
+          pdf.text(item.value, currentX + 3, currentY + 12);
+
+          pdf.setFontSize(7);
+          pdf.setFont(undefined, "normal");
+          pdf.text(item.subtitle, currentX + 3, currentY + 16);
+
+          currentX += boxWidth + 4;
+        });
+
+        return currentY + boxHeight + 10;
+      };
+
+      const drawDetailedMetrics = (startY: number) => {
+        pdf.setFontSize(14);
+        pdf.setFont(undefined, "bold");
+        pdf.text("DETAILED METRICS", margin, startY);
+        let yPos = startY + 8;
+
+        // Contract breakdown
+        pdf.setFontSize(11);
+        pdf.setFont(undefined, "bold");
+        pdf.text("Contract Status", margin, yPos);
+        yPos += 6;
+
+        pdf.setFontSize(9);
+        pdf.setFont(undefined, "normal");
+        const contractData = [
+          ["Active Contracts", dashboardStats.totalContracts],
+          ["Total Contract Value", formatCurrency(dashboardStats.totalContractValue)],
+        ];
+
+        contractData.forEach(([label, value]) => {
+          pdf.text(`${label}:`, margin, yPos);
+          pdf.text(String(value), margin + 60, yPos);
+          yPos += 5;
+        });
+
+        yPos += 5;
+
+        // Financial breakdown
+        pdf.setFontSize(11);
+        pdf.setFont(undefined, "bold");
+        pdf.text("Financial Overview", margin, yPos);
+        yPos += 6;
+
+        pdf.setFontSize(9);
+        pdf.setFont(undefined, "normal");
+        const financialData = [
+          ["Total Revenue", formatCurrency(dashboardStats.totalContractValue)],
+          ["Outstanding Bills", formatCurrency(dashboardStats.pendingBills)],
+          ["Total Costs", formatCurrency(dashboardStats.totalCosts)],
+          ["Net Profit", formatCurrency(dashboardStats.totalProfit)],
+          ["Profit Margin", `${dashboardStats.profitMargin.toFixed(1)}%`],
+        ];
+
+        financialData.forEach(([label, value]) => {
+          pdf.text(`${label}:`, margin, yPos);
+          pdf.text(String(value), margin + 60, yPos);
+          yPos += 5;
+        });
+
+        return yPos + 10;
+      };
+
+      const drawFooter = (yPos: number) => {
+        const footerY = pageHeight - 15;
+        pdf.setDrawColor(200, 200, 200);
+        pdf.setLineWidth(0.2);
+        pdf.line(margin, footerY - 2, pageWidth - margin, footerY - 2);
+
+        pdf.setFont(undefined, "normal");
         pdf.setFontSize(8);
-        pdf.text(metric[2], margin, yPosition);
-        yPosition += 7;
-        pdf.setFontSize(10);
-      });
+        pdf.setTextColor(150, 150, 150);
+        pdf.text(`Dashboard Report - ${selectedYear}`, margin, footerY);
+        pdf.text(`Page 1 of 1`, pageWidth - margin, footerY, { align: "right" });
+        pdf.setTextColor(0, 0, 0);
+      };
 
-      yPosition += 5;
+      // Generate PDF
+      drawHeader();
+      let currentY = drawSummaryBoxes(35);
+      currentY = drawDetailedMetrics(currentY);
+      drawFooter(currentY);
 
-      // Platform features section
-      pdf.setFont(undefined, "bold");
-      pdf.setFontSize(12);
-      pdf.text("PLATFORM FEATURES", margin, yPosition);
-      yPosition += 8;
-
-      pdf.setFont(undefined, "normal");
-      pdf.setFontSize(9);
-      const features = [
-        "✓ Persistent Database - All data synced to Supabase",
-        "✓ Smart Notifications - Overdue payment alerts",
-        "✓ Auto-generation - Numbers for employees, contracts, bills",
-        "✓ Export & Print - PDF export across all sections",
-        "✓ Tax Reporting - IRS tax reporting ready",
-        "✓ Responsive Design - Works on all devices",
-      ];
-
-      features.forEach((feature) => {
-        if (yPosition > pageHeight - 15) {
-          pdf.addPage();
-          yPosition = 15;
-        }
-        pdf.text(feature, margin, yPosition);
-        yPosition += 5;
-      });
-
-      pdf.save("Dashboard-Report.pdf");
+      pdf.save(`Dashboard-Report-${selectedYear}.pdf`);
     } catch (error) {
       console.error("Error generating dashboard report:", error);
       alert(`Error generating report: ${error instanceof Error ? error.message : "Unknown error"}`);
