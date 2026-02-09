@@ -903,103 +903,302 @@ export default function Bills() {
         return;
       }
 
-      const statusLabel = filterStatus === "all" ? "All Bills" : filterStatus.charAt(0).toUpperCase() + filterStatus.slice(1) + " Bills";
-      const totalAmount = billsToPrint.reduce((sum, b) => sum + b.amount, 0);
+      const statusLabel =
+        filterStatus === "all"
+          ? "All Bills"
+          : `${filterStatus.charAt(0).toUpperCase()}${filterStatus.slice(1)} Bills`;
+      const categoryLabel = filterCategory === "all" ? "All Categories" : filterCategory;
+
+      const totalAmount = billsToPrint.reduce((sum, b) => sum + (Number(b.amount) || 0), 0);
+      const paidAmount = billsToPrint
+        .filter((b) => b.status === "paid")
+        .reduce((sum, b) => sum + (Number(b.amount) || 0), 0);
+      const pendingAmount = billsToPrint
+        .filter((b) => b.status === "pending")
+        .reduce((sum, b) => sum + (Number(b.amount) || 0), 0);
+      const overdueAmount = billsToPrint
+        .filter((b) => b.status === "overdue")
+        .reduce((sum, b) => sum + (Number(b.amount) || 0), 0);
 
       const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
-      let yPosition = 15;
-      const margin = 10;
-      const lineHeight = 5;
+      const margin = 12;
+      const contentWidth = pageWidth - 2 * margin;
+      const footerHeight = 12;
 
-      const fitText = (text: string, maxWidth: number) => {
-        const safe = (text ?? "").toString();
-        if (!safe) return "";
-        if (pdf.getTextWidth(safe) <= maxWidth) return safe;
+      const formatCurrency = (value: number) =>
+        `$${(Number(value) || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+
+      const fitText = (text: string, maxWidth: number, fontSize: number) => {
+        pdf.setFontSize(fontSize);
+        const str = text ?? "";
+        if (pdf.getTextWidth(str) <= maxWidth) return str;
         const ellipsis = "…";
-        let trimmed = safe;
-        while (trimmed.length > 0 && pdf.getTextWidth(trimmed + ellipsis) > maxWidth) {
-          trimmed = trimmed.slice(0, -1);
+        let lo = 0;
+        let hi = str.length;
+        while (lo < hi) {
+          const mid = Math.floor((lo + hi) / 2);
+          const candidate = str.slice(0, mid) + ellipsis;
+          if (pdf.getTextWidth(candidate) <= maxWidth) lo = mid + 1;
+          else hi = mid;
         }
-        return trimmed.length ? trimmed + ellipsis : ellipsis;
+        const finalLen = Math.max(0, lo - 1);
+        return str.slice(0, finalLen) + ellipsis;
       };
 
-      const colWidths = [22, 26, 36, 70, 22, 24, 18, 38];
-      const headers = ["ID", "Category", "Vendor", "Description", "Amount", "Due Date", "Status", "Payment Method"];
+      const wrapLines = (
+        text: unknown,
+        maxWidth: number,
+        fontSize: number,
+        maxLines: number,
+      ): string[] => {
+        pdf.setFontSize(fontSize);
+        const rawLines = pdf.splitTextToSize(String(text ?? ""), maxWidth);
+        return rawLines
+          .slice(0, maxLines)
+          .map((line: string) => fitText(String(line), maxWidth, fontSize));
+      };
 
-      const drawTableHeader = () => {
-        let xPosition = margin;
+      const drawHeader = (isFirstPage: boolean) => {
+        pdf.setFillColor(31, 41, 55);
+        pdf.rect(0, 0, pageWidth, 22, "F");
+
+        pdf.setTextColor(255, 255, 255);
+        pdf.setFontSize(20);
         pdf.setFont(undefined, "bold");
+        pdf.text("SOUTH PARK CABINETS", margin, 10);
+
+        pdf.setFontSize(11);
+        pdf.setFont(undefined, "normal");
+        pdf.text("Bills Report", margin, 18);
+
         pdf.setFontSize(9);
-        headers.forEach((header, idx) => {
-          pdf.text(fitText(header, colWidths[idx] - 2), xPosition, yPosition);
-          xPosition += colWidths[idx];
+        pdf.setTextColor(150, 150, 150);
+        pdf.text(
+          `Generated: ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`,
+          pageWidth - margin,
+          18,
+          { align: "right" },
+        );
+
+        if (isFirstPage) {
+          pdf.setTextColor(200, 200, 200);
+          const parts: string[] = [];
+          parts.push(`Year: ${selectedYear}`);
+          parts.push(`Status: ${statusLabel}`);
+          parts.push(`Category: ${categoryLabel}`);
+          if (filterFromDate) parts.push(`From: ${filterFromDate}`);
+          if (filterToDate) parts.push(`To: ${filterToDate}`);
+          const metaLine = parts.join(" | ");
+          pdf.setFontSize(9);
+          pdf.text(fitText(metaLine, contentWidth, 9), margin, 28);
+        }
+
+        pdf.setTextColor(0, 0, 0);
+      };
+
+      const drawSummary = (startY: number) => {
+        const boxWidth = (contentWidth - 9) / 4;
+        const summaryData = [
+          { label: "Total Bills", value: String(billsToPrint.length), color: [59, 130, 246] as const },
+          { label: "Total Amount", value: formatCurrency(totalAmount), color: [249, 115, 22] as const },
+          { label: "Paid", value: formatCurrency(paidAmount), color: [34, 197, 94] as const },
+          { label: "Overdue", value: formatCurrency(overdueAmount), color: [239, 68, 68] as const },
+        ];
+
+        summaryData.forEach((item, idx) => {
+          const xPos = margin + idx * (boxWidth + 3);
+          const [r, g, b] = item.color;
+          pdf.setFillColor(r, g, b);
+          pdf.rect(xPos, startY, boxWidth, 12, "F");
+          pdf.setTextColor(255, 255, 255);
+          pdf.setFontSize(8);
+          pdf.setFont(undefined, "normal");
+          pdf.text(item.label, xPos + 2, startY + 4);
+          pdf.setFontSize(10);
+          pdf.setFont(undefined, "bold");
+          pdf.text(String(item.value), xPos + 2, startY + 10);
         });
-        yPosition += lineHeight + 1;
-        pdf.setDrawColor(200);
-        pdf.line(margin, yPosition - 1, pageWidth - margin, yPosition - 1);
-        yPosition += 2;
+
+        pdf.setTextColor(0, 0, 0);
+        return startY + 18;
+      };
+
+      // Sum to contentWidth (landscape A4 minus margins)
+      // Further reduced Description width; allow wrapping (more lines) instead of truncation.
+      // Reduced Description further to give more room to Pay Date.
+      const colWidths = [22, 22, 34, 45, 20, 20, 16, 45, 24, 25];
+      const headers = [
+        "ID",
+        "Category",
+        "Vendor",
+        "Description",
+        "Amount",
+        "Due Date",
+        "Status",
+        "Payment Method",
+        "Invoice",
+        "Pay Date",
+      ];
+
+      const drawTableHeader = (y: number) => {
+        pdf.setFillColor(59, 70, 87);
+        pdf.rect(margin, y - 5, contentWidth, 8, "F");
+        pdf.setTextColor(255, 255, 255);
+        pdf.setFont(undefined, "bold");
+        pdf.setFontSize(10);
+
+        let x = margin;
+        headers.forEach((h, idx) => {
+          const w = colWidths[idx];
+          const isNumberCol = idx === 4;
+          if (isNumberCol) {
+            pdf.text(h, x + w - 2, y, { align: "right" });
+          } else {
+            pdf.text(h, x + 2, y);
+          }
+          x += w;
+        });
+
+        pdf.setTextColor(0, 0, 0);
+        return y + 10;
+      };
+
+      const drawFooter = (pageNumber: number) => {
+        const y = pageHeight - 8;
+        pdf.setDrawColor(200, 200, 200);
+        pdf.setLineWidth(0.2);
+        pdf.line(margin, y - 4, pageWidth - margin, y - 4);
         pdf.setFont(undefined, "normal");
         pdf.setFontSize(8);
+        pdf.setTextColor(150, 150, 150);
+        const footerLine = `Total: ${formatCurrency(totalAmount)} | Paid: ${formatCurrency(paidAmount)} | Pending: ${formatCurrency(pendingAmount)}`;
+        pdf.text(fitText(footerLine, contentWidth, 8), margin, y);
+        pdf.text(`Page ${pageNumber}`, pageWidth - margin, y, { align: "right" });
+        pdf.setTextColor(0, 0, 0);
       };
 
-      // Title
-      pdf.setFontSize(14);
-      pdf.setFont(undefined, "bold");
-      pdf.text(statusLabel, margin, yPosition);
-      yPosition += 8;
+      let pageNumber = 1;
+      drawHeader(true);
+      let yPosition = drawSummary(34);
+      yPosition = drawTableHeader(yPosition);
 
-      // Generated date
-      pdf.setFontSize(9);
-      pdf.setFont(undefined, "normal");
-      pdf.text(`Generated: ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`, margin, yPosition);
-      yPosition += 8;
-
-      // Table headers
-      drawTableHeader();
+      const lineHeight = 4.2;
+      let zebra = 0;
 
       billsToPrint.forEach((bill) => {
-        if (yPosition > pageHeight - 10) {
+        const details = (bill.payment_details as any) || {};
+        const paymentMethodLabel = getBillPaymentMethodLabel(bill);
+        const paymentDateValue = (bill as any).payment_date ?? details.payment_date ?? "";
+        const paymentDateDisplay = paymentDateValue
+          ? formatDateString(String(paymentDateValue).split("T")[0])
+          : "";
+
+        const idLines = wrapLines(bill.id, colWidths[0] - 4, 8.5, 3);
+        const categoryLines = wrapLines(normalizeBillCategory(bill.category), colWidths[1] - 4, 8.5, 3);
+        const vendorLines = wrapLines(bill.vendor, colWidths[2] - 4, 8.5, 3);
+        const descLines = wrapLines(bill.description, colWidths[3] - 4, 8.5, 8);
+        const methodLines = wrapLines(paymentMethodLabel, colWidths[7] - 4, 8.5, 3);
+        const invoiceLines = wrapLines(bill.invoice_number, colWidths[8] - 4, 8.5, 2);
+
+        const maxLines = Math.max(
+          1,
+          idLines.length,
+          categoryLines.length,
+          vendorLines.length,
+          descLines.length,
+          methodLines.length,
+          invoiceLines.length,
+        );
+        const rowHeight = Math.max(8, 2 + maxLines * lineHeight);
+
+        if (yPosition + rowHeight > pageHeight - footerHeight) {
+          drawFooter(pageNumber);
           pdf.addPage();
-          yPosition = 15;
-          drawTableHeader();
+          pageNumber += 1;
+          drawHeader(false);
+          yPosition = 30;
+          yPosition = drawTableHeader(yPosition);
+          zebra = 0;
         }
 
-        const paymentMethodLabel = getBillPaymentMethodLabel(bill);
+        pdf.setFillColor(zebra % 2 === 0 ? 240 : 255, zebra % 2 === 0 ? 245 : 255, zebra % 2 === 0 ? 250 : 255);
+        pdf.rect(margin, yPosition - 4, contentWidth, rowHeight, "F");
+        pdf.setDrawColor(220, 220, 220);
+        pdf.setLineWidth(0.2);
+        pdf.line(margin, yPosition - 4 + rowHeight, margin + contentWidth, yPosition - 4 + rowHeight);
 
-        let xPosition = margin;
-        pdf.text(fitText(bill.id, colWidths[0] - 2), xPosition, yPosition);
-        xPosition += colWidths[0];
-        pdf.text(fitText(normalizeBillCategory(bill.category), colWidths[1] - 2), xPosition, yPosition);
-        xPosition += colWidths[1];
-        pdf.text(fitText(bill.vendor, colWidths[2] - 2), xPosition, yPosition);
-        xPosition += colWidths[2];
-        pdf.text(fitText(bill.description || "", colWidths[3] - 2), xPosition, yPosition);
-        xPosition += colWidths[3];
+        pdf.setFontSize(8.5);
+        pdf.setFont(undefined, "normal");
+        const topY = yPosition;
+        let x = margin;
+
+        // ID (wrap)
+        pdf.setFont(undefined, "bold");
+        idLines.forEach((line: string, i: number) => {
+          pdf.text(line, x + 2, topY + i * lineHeight);
+        });
+        x += colWidths[0];
+
+        // Category (wrap)
+        pdf.setFont(undefined, "normal");
+        categoryLines.forEach((line: string, i: number) => {
+          pdf.text(line, x + 2, topY + i * lineHeight);
+        });
+        x += colWidths[1];
+
+        // Vendor (wrap)
+        vendorLines.forEach((line: string, i: number) => {
+          pdf.text(line, x + 2, topY + i * lineHeight);
+        });
+        x += colWidths[2];
+
+        // Description (wrap)
+        descLines.forEach((line: string, i: number) => {
+          pdf.text(line, x + 2, topY + i * lineHeight);
+        });
+        x += colWidths[3];
+
+        // Amount (right aligned)
+        const amountText = formatCurrency(bill.amount);
+        pdf.text(amountText, x + colWidths[4] - 2, topY, { align: "right" });
+        x += colWidths[4];
+
+        // Due Date
         pdf.text(
-          fitText(`$${bill.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, colWidths[4] - 2),
-          xPosition,
-          yPosition,
+          fitText(bill.due_date ? formatDateString(bill.due_date) : "", colWidths[5] - 4, 8.5),
+          x + 2,
+          topY,
         );
-        xPosition += colWidths[4];
-        pdf.text(fitText(formatDateString(bill.due_date), colWidths[5] - 2), xPosition, yPosition);
-        xPosition += colWidths[5];
-        pdf.text(fitText(bill.status, colWidths[6] - 2), xPosition, yPosition);
-        xPosition += colWidths[6];
-        pdf.text(fitText(paymentMethodLabel, colWidths[7] - 2), xPosition, yPosition);
+        x += colWidths[5];
 
-        yPosition += lineHeight + 1;
+        // Status
+        pdf.text(fitText(String(bill.status || ""), colWidths[6] - 4, 8.5), x + 2, topY);
+        x += colWidths[6];
+
+        // Payment Method (wrap)
+        methodLines.forEach((line: string, i: number) => {
+          pdf.text(line, x + 2, topY + i * lineHeight);
+        });
+        x += colWidths[7];
+
+        // Invoice
+        invoiceLines.forEach((line: string, i: number) => {
+          pdf.text(line, x + 2, topY + i * lineHeight);
+        });
+        x += colWidths[8];
+
+        // Payment Date
+        pdf.text(fitText(String(paymentDateDisplay || ""), colWidths[9] - 4, 8.5), x + 2, topY);
+
+        yPosition += rowHeight;
+        zebra += 1;
       });
 
-      // Total footer
-      yPosition += 3;
-      pdf.setFont(undefined, "bold");
-      pdf.setFontSize(9);
-      pdf.text(`Total: $${totalAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, margin, yPosition);
-      pdf.text(`Count: ${billsToPrint.length}`, margin + 50, yPosition);
+      drawFooter(pageNumber);
 
-      pdf.save(`Bills-${statusLabel.replace(/\s+/g, "-")}.pdf`);
+      pdf.save(`Bills-Report-${selectedYear}-${statusLabel.replace(/\s+/g, "-")}.pdf`);
     } catch (error) {
       console.error("Error generating annual report:", error);
       alert("Error generating report. Please try again.");
