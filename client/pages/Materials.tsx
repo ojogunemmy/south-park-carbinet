@@ -40,10 +40,11 @@ export default function Materials() {
       const data = await materialsService.getAll();
       setMaterials(data);
     } catch (error: any) {
+      console.error("[Materials] Failed to load materials:", error);
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Failed to load materials",
+        description: error?.message || "Failed to load materials",
       });
     } finally {
       setLoading(false);
@@ -69,6 +70,7 @@ export default function Materials() {
 
     try {
       const newMaterial = await materialsService.create({
+        id: globalThis.crypto?.randomUUID?.(),
         code: formData.code,
         name: formData.name,
         category: formData.category,
@@ -83,10 +85,11 @@ export default function Materials() {
       setIsAddModalOpen(false);
       toast({ title: "Material Added", description: `${newMaterial.name} added successfully` });
     } catch (error: any) {
+      console.error("[Materials] Failed to add material:", error);
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Failed to add material",
+        description: error?.message || "Failed to add material",
       });
     }
   };
@@ -114,10 +117,11 @@ export default function Materials() {
       setIsEditModalOpen(false);
       toast({ title: "Material Updated", description: "Material updated successfully" });
     } catch (error: any) {
+      console.error("[Materials] Failed to update material:", error);
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Failed to update material",
+        description: error?.message || "Failed to update material",
       });
     }
   };
@@ -133,10 +137,11 @@ export default function Materials() {
         description: "Material removed successfully",
       });
     } catch (error: any) {
+      console.error("[Materials] Failed to delete material:", error);
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Failed to delete material",
+        description: error?.message || "Failed to delete material",
       });
     }
   };

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { randomUUID } from 'crypto';
 import { getSupabase } from '../middleware/auth';
 
 const router = Router();
@@ -21,15 +22,30 @@ router.post('/', async (req, res) => {
   try {
     const supabase = getSupabase();
     const materialData = req.body;
+    const now = new Date().toISOString();
+    const bodyId = materialData?.id;
+    const id = bodyId || randomUUID();
+    // Prevent client-provided null/undefined id overwriting generated id
+    const { id: _ignoredId, ...materialWithoutId } = (materialData ?? {}) as Record<string, unknown>;
     const { data, error } = await supabase
       .from('materials')
-      .insert(materialData)
+      .insert({
+        ...materialWithoutId,
+        id,
+        created_at: materialData?.created_at ?? now,
+        updated_at: materialData?.updated_at ?? now,
+      })
       .select()
       .single();
     if (error) throw error;
     res.json(data);
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    const message =
+      error?.message ||
+      error?.details ||
+      error?.hint ||
+      'Failed to create material';
+    res.status(500).json({ error: message });
   }
 });
 
@@ -47,7 +63,12 @@ router.patch('/:id', async (req, res) => {
     if (error) throw error;
     res.json(data);
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    const message =
+      error?.message ||
+      error?.details ||
+      error?.hint ||
+      'Failed to update material';
+    res.status(500).json({ error: message });
   }
 });
 

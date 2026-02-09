@@ -5,13 +5,24 @@ let supabaseClient: any = null;
 
 export const getSupabase = () => {
   if (!supabaseClient) {
-    const url = process.env.VITE_SUPABASE_URL;
+
+    const url = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
     const key =
-      process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+      process.env.SUPABASE_SERVICE_ROLE_KEY ||
+      process.env.SUPABASE_SERVICE_KEY ||
+      process.env.SUPABASE_ANON_KEY ||
+      process.env.VITE_SUPABASE_ANON_KEY;
 
     if (!url || !key) {
+      const missing: string[] = [];
+      if (!url) missing.push("SUPABASE_URL (or VITE_SUPABASE_URL)");
+      if (!key) {
+        missing.push(
+          "SUPABASE_SERVICE_ROLE_KEY / SUPABASE_SERVICE_KEY / SUPABASE_ANON_KEY (or VITE_SUPABASE_ANON_KEY)",
+        );
+      }
       throw new Error(
-        "Missing Supabase environment variables in Auth Middleware",
+        `Missing Supabase environment variables: ${missing.join(", ")}`,
       );
     }
     supabaseClient = createSharedSupabaseClient(url, key);
