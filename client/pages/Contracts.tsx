@@ -507,13 +507,11 @@ export default function Contracts() {
       return statusMatch && dateMatch;
     })
     .sort((a, b) => {
-      // Sort by due_date in descending order (most recent first)
-      if (!a.due_date) return 1;
-      if (!b.due_date) return -1;
-      const aParts = a.due_date.split('-');
-      const bParts = b.due_date.split('-');
-      const aDate = new Date(parseInt(aParts[0]), parseInt(aParts[1]) - 1, parseInt(aParts[2]));
-      const bDate = new Date(parseInt(bParts[0]), parseInt(bParts[1]) - 1, parseInt(bParts[2]));
+      // Sort by created_at in descending order (newest contracts first)
+      if (!a.created_at) return 1;
+      if (!b.created_at) return -1;
+      const aDate = new Date(a.created_at);
+      const bDate = new Date(b.created_at);
       return bDate.getTime() - aDate.getTime();
     });
 

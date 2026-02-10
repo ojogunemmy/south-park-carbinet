@@ -175,12 +175,12 @@ export default function Costs() {
       return statusMatch && dateMatch;
     })
     .sort((a, b) => {
-      // Sort by ID in reverse order (most recent contracts first)
-      // Extract numeric part of ID (handles CNT-123, CON-001, etc.)
-      const aNum = parseInt(String(a.id || "").replace(/\D/g, ""), 10);
-      const bNum = parseInt(String(b.id || "").replace(/\D/g, ""), 10);
-      if (Number.isFinite(aNum) && Number.isFinite(bNum)) return bNum - aNum;
-      return String(b.id || "").localeCompare(String(a.id || ""));
+      // Sort by created_at in descending order (newest contracts first)
+      if (!a.created_at) return 1;
+      if (!b.created_at) return -1;
+      const aDate = new Date(a.created_at);
+      const bDate = new Date(b.created_at);
+      return bDate.getTime() - aDate.getTime();
     });
 
   const totalContractValue = filteredContracts.reduce((sum, c) => sum + (c.total_value || 0), 0);
