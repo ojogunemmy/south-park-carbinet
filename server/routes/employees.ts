@@ -45,23 +45,67 @@ router.delete('/:id', async (req, res) => {
   try {
     const supabase = getSupabase();
     const { id } = req.params;
-    
+
     // Check if employee exists first
     const { data: existing, error: fetchError } = await supabase
       .from('employees')
       .select('id')
       .eq('id', id)
       .single();
-      
+
     if (fetchError || !existing) {
       return res.status(404).json({ error: 'Employee not found' });
     }
-    
+
+    // Delete in proper order to handle foreign key constraints
+    // 1. Get payment IDs for this employee
+    const { data: paymentIds, error: paymentIdsError } = await supabase
+      .from('payments')
+      .select('id')
+      .eq('employee_id', id);
+
+    if (paymentIdsError) throw paymentIdsError;
+
+    // 2. Delete audit log entries for this employee's payments
+    if (paymentIds && paymentIds.length > 0) {
+      const { error: auditLogError } = await supabase
+        .from('payment_audit_log')
+        .delete()
+        .in('payment_id', paymentIds.map(p => p.id));
+
+      if (auditLogError) throw auditLogError;
+    }
+
+    // 3. Delete payments for this employee
+    const { error: paymentsError } = await supabase
+      .from('payments')
+      .delete()
+      .eq('employee_id', id);
+
+    if (paymentsError) throw paymentsError;
+
+    // 3. Delete absences for this employee
+    const { error: absencesError } = await supabase
+      .from('employee_absences')
+      .delete()
+      .eq('employee_id', id);
+
+    if (absencesError) throw absencesError;
+
+    // 4. Delete salary history for this employee
+    const { error: salaryError } = await supabase
+      .from('salary_history')
+      .delete()
+      .eq('employee_id', id);
+
+    if (salaryError) throw salaryError;
+
+    // 5. Finally delete the employee
     const { error } = await supabase
       .from('employees')
       .delete()
       .eq('id', id);
-    
+
     if (error) throw error;
     res.json({ message: 'Employee deleted successfully' });
   } catch (error: any) {
