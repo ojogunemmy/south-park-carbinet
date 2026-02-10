@@ -57,6 +57,7 @@ router.delete('/:id', async (req, res) => {
       return res.status(404).json({ error: 'Employee not found' });
     }
 
+    // Use a database transaction-like approach by ensuring all operations succeed
     // Delete in proper order to handle foreign key constraints
     // 1. Get payment IDs for this employee
     const { data: paymentIds, error: paymentIdsError } = await supabase
@@ -73,7 +74,10 @@ router.delete('/:id', async (req, res) => {
         .delete()
         .in('payment_id', paymentIds.map(p => p.id));
 
-      if (auditLogError) throw auditLogError;
+      if (auditLogError) {
+        console.error('Error deleting audit logs:', auditLogError);
+        throw auditLogError;
+      }
     }
 
     // 3. Delete payments for this employee
@@ -82,33 +86,47 @@ router.delete('/:id', async (req, res) => {
       .delete()
       .eq('employee_id', id);
 
-    if (paymentsError) throw paymentsError;
+    if (paymentsError) {
+      console.error('Error deleting payments:', paymentsError);
+      throw paymentsError;
+    }
 
-    // 3. Delete absences for this employee
+    // 4. Delete absences for this employee
     const { error: absencesError } = await supabase
       .from('employee_absences')
       .delete()
       .eq('employee_id', id);
 
-    if (absencesError) throw absencesError;
+    if (absencesError) {
+      console.error('Error deleting absences:', absencesError);
+      throw absencesError;
+    }
 
-    // 4. Delete salary history for this employee
+    // 5. Delete salary history for this employee
     const { error: salaryError } = await supabase
       .from('salary_history')
       .delete()
       .eq('employee_id', id);
 
-    if (salaryError) throw salaryError;
+    if (salaryError) {
+      console.error('Error deleting salary history:', salaryError);
+      throw salaryError;
+    }
 
-    // 5. Finally delete the employee
+    // 6. Finally delete the employee
     const { error } = await supabase
       .from('employees')
       .delete()
       .eq('id', id);
 
-    if (error) throw error;
+    if (error) {
+      console.error('Error deleting employee:', error);
+      throw error;
+    }
+
     res.json({ message: 'Employee deleted successfully' });
   } catch (error: any) {
+    console.error('Employee deletion failed:', error);
     res.status(500).json({ error: error.message });
   }
 });
