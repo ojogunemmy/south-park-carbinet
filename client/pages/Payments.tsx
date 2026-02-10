@@ -1606,6 +1606,48 @@ export default function Payments() {
     setIsDeleteConfirmOpen(true);
   };
 
+  const getDeletePaidReason = (weekStart: string) => {
+    const weekLabel = new Date(weekStart).toLocaleDateString();
+    return `Deleted paid payment (week of ${weekLabel})`;
+  };
+
+  const handleDeletePaidPayment = async (paymentId: string) => {
+    const paymentToDelete = payments.find((p) => p.id === paymentId);
+    if (!paymentToDelete) return;
+    if (paymentToDelete.status !== "paid") return;
+    if ((paymentToDelete as any).is_correction) return;
+    if ((paymentToDelete as any).reversed_by_payment_id) return;
+
+    const weekLabel = new Date(paymentToDelete.week_start_date).toLocaleDateString();
+    const ok = window.confirm(
+      `Delete PAID payment for ${paymentToDelete.employee_name} (week of ${weekLabel})? This will create a reversal entry to preserve ledger history.`,
+    );
+    if (!ok) return;
+
+    try {
+      setIsSubmitting(true);
+      await paymentsService.reversePayment(
+        paymentToDelete.id,
+        getDeletePaidReason(paymentToDelete.week_start_date),
+      );
+      await loadFreshData();
+      toast({
+        title: "✓ Payment Deleted",
+        description: `Created a reversal entry for ${paymentToDelete.employee_name}'s payment.`,
+      });
+    } catch (error: any) {
+      console.error("Error deleting paid payment:", error);
+      toast({
+        title: "Error",
+        description: error?.message || "Failed to delete paid payment.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+
   const handleBulkReverseWeek = () => {
     // Get all paid payments for the selected week that aren't already reversed or reversals
     const paidPaymentsForWeek = filteredPayments.filter(
@@ -1640,25 +1682,77 @@ export default function Payments() {
 
   const isCancelledStatus = (status: unknown) => status === "cancelled" || status === "canceled";
 
-  const getCleanableGeneratedWeekPayments = (weekStart: string) => {
-    if (!weekStart) return [];
-    return payments.filter((p) => {
-      if (p.week_start_date !== weekStart) return false;
-      if (p.status !== "pending") return false;
+  const handleCancelPendingPayment = async (paymentId: string) => {
+    const paymentToDelete = payments.find((p) => p.id === paymentId);
+    if (!paymentToDelete) return;
+    if (paymentToDelete.status !== "pending") return;
+    if ((paymentToDelete as any).is_correction) return;
+    if ((paymentToDelete as any).reversed_by_payment_id) return;
+
+    const weekLabel = new Date(paymentToDelete.week_start_date).toLocaleDateString();
+    const ok = window.confirm(
+      `Delete pending payment for ${paymentToDelete.employee_name} (week of ${weekLabel})? This will permanently delete it.`,
+    );
+    if (!ok) return;
+
+    try {
+      setIsSubmitting(true);
+      const { error } = await supabase
+        .from("payments")
+        .delete()
+        .eq("id", paymentId);
+      if (error) throw error;
+
+      await loadFreshData();
+      toast({
+        title: "✓ Payment Deleted",
+        description: `Deleted pending payment for ${paymentToDelete.employee_name}.`,
+      });
+    } catch (error) {
+      const errAny = error as any;
+      const message =
+        errAny?.message ||
+        errAny?.details ||
+        errAny?.hint ||
+        errAny?.error_description ||
+        (typeof errAny === "string" ? errAny : "Unknown error");
+      console.error("Error deleting pending payment:", error);
+      toast({
+        title: "Error",
+        description: `Failed to delete pending payment. ${message}`,
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const getWeekDeletions = (weekStart: string) => {
+    if (!weekStart) {
+      return {
+        weekPayments: [] as PaymentObligation[],
+        pendingToDelete: [] as PaymentObligation[],
+        paidToReverse: [] as PaymentObligation[],
+      };
+    }
+
+    const weekPayments = payments.filter((p) => p.week_start_date === weekStart);
+
+    const pendingToDelete = weekPayments.filter((p) => {
+      if (p.status !== "pending" && !isCancelledStatus(p.status)) return false;
       if ((p as any).is_correction) return false;
       if ((p as any).reversed_by_payment_id) return false;
-      if ((p as any).is_severance || (p as any).severance_date) return false;
-
-      const notes = (p as any).notes;
-      const daysWorked = Number((p as any).days_worked ?? p.days_worked ?? 0);
-
-      // Generated week payments are created either as:
-      // - weekly salary rows: notes null/empty, days_worked > 0
-      // - queued additional rows: days_worked === 0 (note contains the reason)
-      const looksLikeWeeklySalary = notes == null || String(notes).trim() === "" || String(notes).trim() === "Weekly Salary";
-      const looksLikeAdditional = daysWorked === 0;
-      return looksLikeWeeklySalary || looksLikeAdditional;
+      return true;
     });
+
+    const paidToReverse = weekPayments.filter((p) => {
+      if (p.status !== "paid") return false;
+      if ((p as any).is_correction) return false;
+      if ((p as any).reversed_by_payment_id) return false;
+      return true;
+    });
+
+    return { weekPayments, pendingToDelete, paidToReverse };
   };
 
   const handleCleanGeneratedWeekPayments = async () => {
@@ -1671,40 +1765,58 @@ export default function Payments() {
       return;
     }
 
-    const candidates = getCleanableGeneratedWeekPayments(selectedWeek);
-    if (candidates.length === 0) {
+    const { weekPayments, pendingToDelete, paidToReverse } = getWeekDeletions(selectedWeek);
+    if (weekPayments.length === 0) {
       toast({
         title: "Nothing to Clean",
-        description: "No pending generated week payments found for this week.",
+        description: "No payments found for this week.",
       });
       return;
     }
 
     const weekLabel = new Date(selectedWeek).toLocaleDateString();
     const ok = window.confirm(
-      `Clean generated payments for week of ${weekLabel}? This will mark ${candidates.length} payment(s) as cancelled.`,
+      `Delete week of ${weekLabel}? This will remove the week from the list.
+
+Pending payments deleted: ${pendingToDelete.length}
+Paid payments deleted via reversals: ${paidToReverse.length}
+Already reversed/corrections kept for ledger: ${Math.max(0, weekPayments.length - pendingToDelete.length - paidToReverse.length)}`,
     );
     if (!ok) return;
 
     try {
       setIsSubmitting(true);
-      const ids = candidates.map((p) => p.id);
 
-      const chunkSize = 50;
-      for (let i = 0; i < ids.length; i += chunkSize) {
-        const chunk = ids.slice(i, i + chunkSize);
-        const { error } = await supabase
-          .from("payments")
-          .update({ status: "cancelled" })
-          .in("id", chunk);
-        if (error) throw error;
+      // 1) Hard delete pending/cancelled payments for this week
+      if (pendingToDelete.length > 0) {
+        const ids = pendingToDelete.map((p) => p.id);
+        const chunkSize = 50;
+        for (let i = 0; i < ids.length; i += chunkSize) {
+          const chunk = ids.slice(i, i + chunkSize);
+          const { error } = await supabase
+            .from("payments")
+            .delete()
+            .in("id", chunk);
+          if (error) throw error;
+        }
+      }
+
+      // 2) Ledger-safe delete paid payments via reversals
+      if (paidToReverse.length > 0) {
+        const reason = `Deleted week (week of ${weekLabel})`;
+        for (const payment of paidToReverse) {
+          await paymentsService.reversePayment(payment.id, reason);
+        }
       }
 
       await loadFreshData();
 
+      // Ensure the week can be "deleted" from view even when everything is already reversed.
+      hideWeek(selectedWeek);
+
       toast({
         title: "✓ Week Cleaned",
-        description: `Cancelled ${candidates.length} generated payment(s) for ${weekLabel}.`,
+        description: `Deleted ${pendingToDelete.length} pending payment(s) and created ${paidToReverse.length} reversal entr${paidToReverse.length === 1 ? "y" : "ies"} for paid payment(s) for ${weekLabel}.`,
       });
     } catch (error) {
       const errAny = error as any;
@@ -1806,11 +1918,53 @@ export default function Payments() {
 
   const [isClearAllConfirmOpen, setIsClearAllConfirmOpen] = useState(false);
 
+  const hiddenWeeksStorageKey = `payments_hidden_weeks_${selectedYear}`;
+  const [hiddenWeeks, setHiddenWeeks] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem(`payments_hidden_weeks_${selectedYear}`);
+      if (!raw) return new Set();
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return new Set();
+      return new Set(parsed.filter((v) => typeof v === "string"));
+    } catch {
+      return new Set();
+    }
+  });
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(hiddenWeeksStorageKey);
+      if (!raw) {
+        setHiddenWeeks(new Set());
+        return;
+      }
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) {
+        setHiddenWeeks(new Set());
+        return;
+      }
+      setHiddenWeeks(new Set(parsed.filter((v) => typeof v === "string")));
+    } catch {
+      setHiddenWeeks(new Set());
+    }
+  }, [hiddenWeeksStorageKey]);
+
+  const hideWeek = (weekStart: string) => {
+    if (!weekStart) return;
+    setHiddenWeeks((prev) => {
+      const next = new Set(prev);
+      next.add(weekStart);
+      try {
+        localStorage.setItem(hiddenWeeksStorageKey, JSON.stringify(Array.from(next)));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  };
+
   const handleConfirmReversePayment = async () => {
-    // Use custom reason if "Custom reason..." selected, otherwise use template
-    const finalReason = reversalReason === "Custom reason..." 
-      ? customReversalReason.trim()
-      : reversalReason.trim();
+    const finalReason = reversalReason.trim() || customReversalReason.trim();
 
     if (!selectedReversalPaymentId || !finalReason) {
       toast({
@@ -1849,6 +2003,7 @@ export default function Payments() {
   // Find the earliest pending payment date (coming week to pay)
   // Get all unique week start dates
   const availableWeeks = Array.from(new Set(payments.map(p => p.week_start_date)))
+    .filter((w) => !hiddenWeeks.has(w))
     .sort((a, b) => b.localeCompare(a)); // Sort descending (newest first)
 
   // Determine default week (Earliest Pending > Current Real Week > Latest Available)
@@ -1857,6 +2012,7 @@ export default function Payments() {
     const pendingWeeks = payments
       .filter(p => p.status === "pending")
       .map(p => p.week_start_date)
+      .filter((w) => !hiddenWeeks.has(w))
       .sort();
     
     if (pendingWeeks.length > 0) return pendingWeeks[0];
@@ -1866,7 +2022,7 @@ export default function Payments() {
 
     // 3. Fallback to current week (2026-01-26 context)
     return "2026-01-25"; // Approximate default
-  }, [payments, availableWeeks]);
+  }, [payments, availableWeeks, hiddenWeeks]);
 
   // Persist selected week per year so view survives refresh
   const selectedWeekStorageKey = `payments_selected_week_${selectedYear}`;
@@ -1884,7 +2040,7 @@ export default function Payments() {
   useEffect(() => {
     try {
       const saved = localStorage.getItem(selectedWeekStorageKey);
-      if (saved) {
+      if (saved && !hiddenWeeks.has(saved)) {
         setSelectedWeek(saved);
         return;
       }
@@ -1896,6 +2052,12 @@ export default function Payments() {
       setSelectedWeek(defaultWeek);
     }
   }, [defaultWeek, selectedYear]);
+
+  useEffect(() => {
+    if (selectedWeek && hiddenWeeks.has(selectedWeek)) {
+      setSelectedWeek(defaultWeek || "");
+    }
+  }, [hiddenWeeks, selectedWeek, defaultWeek]);
 
   // Save selectedWeek whenever it changes
   useEffect(() => {
@@ -2930,11 +3092,11 @@ export default function Payments() {
                   variant="outline"
                   onClick={handleCleanGeneratedWeekPayments}
                   className="gap-2 border-red-200 hover:bg-red-50 hover:text-red-700 hover:border-red-300"
-                  title="Cancel the generated pending payments for this week"
-                  disabled={isSubmitting || getCleanableGeneratedWeekPayments(selectedWeek).length === 0}
+                  title="Delete this week (pending hard-delete + paid reversal entries)"
+                  disabled={isSubmitting || getWeekDeletions(selectedWeek).weekPayments.length === 0}
                 >
                   <Trash2 className="w-4 h-4" />
-                  Clean Week
+                  Delete Week
                 </Button>
               </div>
 
@@ -3185,15 +3347,37 @@ export default function Payments() {
                               </button>
                           )}
 
-                          {payment.status === "paid" && !(payment as any).is_correction && !(payment as any).reversed_by_payment_id && (
+                          {payment.status === "pending" && !isCancelledStatus(payment.status) && (
                             <button
-                              className="flex items-center gap-1 text-sm text-orange-600 hover:text-orange-800"
-                              onClick={() => handleReversePayment(payment.id)}
-                              title="Create reversal entry for this payment"
+                              className="flex items-center gap-1 text-sm text-red-600 hover:text-red-800"
+                              onClick={() => handleCancelPendingPayment(payment.id)}
+                              title="Delete pending payment"
                             >
-                              <AlertCircle className="w-4 h-4" />
-                              <span>Reverse</span>
+                              <Trash2 className="w-4 h-4" />
+                              <span>Delete</span>
                             </button>
+                          )}
+
+                          {payment.status === "paid" && !(payment as any).is_correction && !(payment as any).reversed_by_payment_id && (
+                            <>
+                              <button
+                                className="flex items-center gap-1 text-sm text-orange-600 hover:text-orange-800"
+                                onClick={() => handleReversePayment(payment.id)}
+                                title="Create reversal entry for this payment"
+                              >
+                                <AlertCircle className="w-4 h-4" />
+                                <span>Reverse</span>
+                              </button>
+
+                              <button
+                                className="flex items-center gap-1 text-sm text-red-600 hover:text-red-800"
+                                onClick={() => handleDeletePaidPayment(payment.id)}
+                                title="Delete paid payment (creates a reversal entry to preserve ledger history)"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                                <span>Delete</span>
+                              </button>
+                            </>
                           )}
                         </div>
                       </td>
@@ -3341,6 +3525,16 @@ export default function Payments() {
                             <Calendar className="w-4 h-4" />
                           </button>
                       )}
+
+                      {payment.status === "pending" && !isCancelledStatus(payment.status) && (
+                        <button
+                          className="p-2 text-red-600 hover:bg-red-50 rounded-full"
+                          onClick={() => handleCancelPendingPayment(payment.id)}
+                          title="Delete"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                       
                       {/* Mark as paid button embedded for quick action if pending */}
                       {payment.status === "pending" && (
@@ -3353,13 +3547,22 @@ export default function Payments() {
                       )}
                       
                       {payment.status === "paid" && !(payment as any).is_correction && !(payment as any).reversed_by_payment_id && (
-                        <button
-                          className="p-2 text-orange-600 hover:bg-orange-50 rounded-full ml-auto"
-                          onClick={() => handleReversePayment(payment.id)}
-                          title="Reverse Payment"
-                        >
-                          <AlertCircle className="w-4 h-4" />
-                        </button>
+                        <>
+                          <button
+                            className="p-2 text-orange-600 hover:bg-orange-50 rounded-full ml-auto"
+                            onClick={() => handleReversePayment(payment.id)}
+                            title="Reverse Payment"
+                          >
+                            <AlertCircle className="w-4 h-4" />
+                          </button>
+                          <button
+                            className="p-2 text-red-600 hover:bg-red-50 rounded-full"
+                            onClick={() => handleDeletePaidPayment(payment.id)}
+                            title="Delete paid payment (creates reversal entry)"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </>
                       )}
                   </div>
                 </div>
@@ -4101,6 +4304,7 @@ export default function Payments() {
 
       {isDeleteConfirmOpen && selectedReversalPaymentId && (() => {
         const paymentToReverse = payments.find(p => p.id === selectedReversalPaymentId);
+        const finalReason = reversalReason.trim() || customReversalReason.trim();
 
         return (
           <Dialog open={isDeleteConfirmOpen} onOpenChange={setIsDeleteConfirmOpen}>
@@ -4195,7 +4399,7 @@ export default function Payments() {
                 <Button
                   onClick={handleConfirmReversePayment}
                   className="bg-orange-600 hover:bg-orange-700"
-                  disabled={!reversalReason.trim()}
+                  disabled={!finalReason}
                 >
                   Create Reversal
                 </Button>
