@@ -18,6 +18,26 @@ router.get('/', async (_req, res) => {
   }
 });
 
+// Get contract by ID
+router.get('/:id', async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const { id } = req.params;
+    const { data, error } = await supabase
+      .from('contracts')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) {
+      return res.status(404).json({ error: 'Contract not found' });
+    }
+    res.json(data);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Update contract
 router.patch('/:id', async (req, res) => {
   try {

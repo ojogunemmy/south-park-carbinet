@@ -207,23 +207,7 @@ interface ContractAttachment {
   description?: string;
 }
 
-interface DownPayment {
-  id: string;
-  amount: number;
-  date: string;
-  method: string;
-  description?: string;
-  receipt_attachment?: string;
-  // Additional fields for different payment methods
-  bank_name?: string;
-  routing_number?: string;
-  account_number?: string;
-  account_type?: string;
-  check_number?: string;
-  check_attachment?: string;
-  transaction_reference?: string;
-  credit_card_last4?: string;
-}
+
 
 interface CostTracking {
   materials: MaterialItem[];
@@ -344,24 +328,6 @@ export default function Contracts() {
   const [detailsContractId, setDetailsContractId] = useState<string | null>(null);
   const [isCalculatorOpen, setIsCalculatorOpen] = useState(false);
   const [calculatorMaterials, setCalculatorMaterials] = useState<MaterialItem[]>([]);
-  const [isDownPaymentModalOpen, setIsDownPaymentModalOpen] = useState(false);
-  const [downPaymentForm, setDownPaymentForm] = useState<DownPayment>({
-    id: "",
-    amount: 0,
-    date: "",
-    method: "wire",
-    description: "",
-    receipt_attachment: "",
-    bank_name: "",
-    routing_number: "",
-    account_number: "",
-    account_type: "checking",
-    check_number: "",
-    check_attachment: "",
-    transaction_reference: "",
-    credit_card_last4: ""
-  });
-  const [editingDownPaymentId, setEditingDownPaymentId] = useState<string | null>(null);
   const [paymentForm, setPaymentForm] = useState<Payment>({
     id: "",
     description: "",
@@ -1091,136 +1057,7 @@ export default function Contracts() {
     }
   };
 
-  const handleSaveDownPayment = async () => {
-    if (!downPaymentForm.amount || !downPaymentForm.date || !detailsContractId) {
-      alert("Please fill in Amount and Date");
-      return;
-    }
 
-    // Validate conditional fields based on payment method
-    if (downPaymentForm.method === "check" && !downPaymentForm.check_number?.trim()) {
-      alert("Please enter a check number");
-      return;
-    }
-
-    if (isWireTransferMethod(downPaymentForm.method)) {
-      if (!downPaymentForm.transaction_reference?.trim()) {
-        alert("Please enter the TRN (Transaction Reference Number) for wire transfer");
-        return;
-      }
-    }
-
-    if (isBankTransferMethod(downPaymentForm.method)) {
-      if (!downPaymentForm.bank_name?.trim() || !downPaymentForm.routing_number?.trim() || !downPaymentForm.account_number?.trim()) {
-        alert("Please fill in all required bank transfer details (Bank Name, Routing Number, Account Number)");
-        return;
-      }
-    }
-
-    if (downPaymentForm.method === "credit_card" && !downPaymentForm.credit_card_last4?.trim()) {
-      alert("Please enter the last 4 digits of the credit card");
-      return;
-    }
-
-    if (downPaymentForm.method === "direct_deposit") {
-      if (!downPaymentForm.bank_name?.trim() || !downPaymentForm.routing_number?.trim() || !downPaymentForm.account_number?.trim()) {
-        alert("Please fill in all required direct deposit details (Bank Name, Routing Number, Account Number)");
-        return;
-      }
-    }
-
-    if (downPaymentForm.method === "zelle" && !downPaymentForm.transaction_reference?.trim()) {
-      alert("Please enter the Zelle transaction reference");
-      return;
-    }
-
-    try {
-      const contract = contracts.find(c => c.id === detailsContractId);
-      if (!contract) return;
-
-      const updatedDownPayments = editingDownPaymentId
-        ? (contract.down_payments || []).map((dp: any) => dp.id === editingDownPaymentId ? downPaymentForm : dp)
-        : [...(contract.down_payments || []), { ...downPaymentForm, id: `DP-${Date.now()}` }];
-
-      await contractsService.update(detailsContractId, { down_payments: updatedDownPayments });
-      
-      const updatedContract = { ...contract, down_payments: updatedDownPayments };
-      
-      // Auto-generate invoice
-      if (!editingDownPaymentId) {
-        generateInvoicePDF(updatedContract);
-        toast({
-          title: "✅ Down Payment Recorded",
-          description: `Down payment of $${downPaymentForm.amount.toFixed(2)} recorded. Invoice generated.`,
-        });
-      } else {
-        generateInvoicePDF(updatedContract);
-        toast({
-          title: "✅ Down Payment Updated",
-          description: `Down payment updated. Invoice regenerated.`,
-        });
-      }
-
-      setIsDownPaymentModalOpen(false);
-      setDownPaymentForm({
-        id: "",
-        amount: 0,
-        date: "",
-        method: "wire",
-        description: "",
-        receipt_attachment: "",
-        bank_name: "",
-        routing_number: "",
-        account_number: "",
-        account_type: "checking",
-        check_number: "",
-        check_attachment: "",
-        transaction_reference: "",
-        credit_card_last4: ""
-      });
-      setEditingDownPaymentId(null);
-      fetchData();
-    } catch (error) {
-      console.error("Error saving down payment:", error);
-      toast({ title: "Error", description: "Failed to save down payment", variant: "destructive" });
-    }
-  };
-
-  const handleDeleteDownPayment = async () => {
-    if (window.confirm("Are you sure you want to delete this down payment?") && detailsContractId && editingDownPaymentId) {
-      try {
-        const contract = contracts.find(c => c.id === detailsContractId);
-        if (!contract) return;
-        
-        const updatedDownPayments = (contract.down_payments || []).filter((dp: any) => dp.id !== editingDownPaymentId);
-        await contractsService.update(detailsContractId, { down_payments: updatedDownPayments });
-        
-        setIsDownPaymentModalOpen(false);
-        setDownPaymentForm({
-          id: "",
-          amount: 0,
-          date: "",
-          method: "wire",
-          description: "",
-          receipt_attachment: "",
-          bank_name: "",
-          routing_number: "",
-          account_number: "",
-          account_type: "checking",
-          check_number: "",
-          check_attachment: "",
-          transaction_reference: "",
-          credit_card_last4: ""
-        });
-        setEditingDownPaymentId(null);
-        fetchData();
-        toast({ title: "Down Payment Deleted", description: "The record has been removed." });
-      } catch (error) {
-        console.error("Error deleting down payment:", error);
-        toast({ title: "Error", description: "Failed to delete down payment", variant: "destructive" });
-      }
-    }
-  };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, contractId?: string) => {
     const files = e.target.files;
@@ -1998,14 +1835,23 @@ export default function Contracts() {
     }
   };
 
-  const generateInvoicePDF = (contract: Contract) => {
-    const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-    const pageWidth = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
-    let yPosition = 20;
-    const margin = 15;
-    const lineHeight = 6;
-    const contentWidth = pageWidth - 2 * margin;
+  const generateInvoicePDF = async (contractId: string) => {
+    try {
+      // Fetch the latest contract data from the database to ensure we have the most recent payments
+      const latestContract = await contractsService.getById(contractId);
+      if (!latestContract) {
+        toast({ title: "Error", description: "Contract not found", variant: "destructive" });
+        return;
+      }
+
+      const contract = latestContract;
+      const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      let yPosition = 20;
+      const margin = 15;
+      const lineHeight = 6;
+      const contentWidth = pageWidth - 2 * margin;
 
     // Add logo
     addLogoToPageTop(pdf, pageWidth);
@@ -2228,6 +2074,10 @@ export default function Contracts() {
     pdf.text("For questions about this invoice, please contact South Park Cabinets INC", margin, yPosition);
 
     pdf.save(`${contract.id}-Invoice.pdf`);
+    } catch (error) {
+      console.error("Error generating invoice:", error);
+      toast({ title: "Error", description: "Failed to generate invoice", variant: "destructive" });
+    }
   };
 
   const handleCloseModal = () => {
@@ -5850,90 +5700,6 @@ export default function Contracts() {
                   </div>
                 </div>
 
-                {/* Down Payments */}
-                <div className="border-b pb-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="font-semibold text-slate-900">Down Payments</h3>
-                    <Button
-                      size="sm"
-                      onClick={() => {
-                        setDownPaymentForm({
-                          id: `DP-${generateShortId()}`,
-                          amount: 0,
-                          date: "",
-                          method: "wire",
-                          description: "",
-                          receipt_attachment: "",
-                          bank_name: "",
-                          routing_number: "",
-                          account_number: "",
-                          account_type: "checking",
-                          check_number: "",
-                          check_attachment: "",
-                          transaction_reference: "",
-                          credit_card_last4: ""
-                        });
-                        setEditingDownPaymentId(null);
-                        setIsDownPaymentModalOpen(true);
-                      }}
-                      className="h-8 gap-2 bg-green-600 hover:bg-green-700"
-                    >
-                      <Plus className="w-3 h-3" />
-                      Add Down Payment
-                    </Button>
-                  </div>
-
-                  {contract.down_payments && contract.down_payments.length > 0 ? (
-                    <div className="space-y-2">
-                      {contract.down_payments.map((dp: any) => (
-                        <div key={dp.id} className="flex items-center justify-between p-3 bg-slate-50 rounded border border-slate-200 text-sm">
-                          <div className="flex-1">
-                            <div className="font-medium text-slate-900">${(dp.amount || 0).toLocaleString()}</div>
-                            <div className="text-xs text-slate-600">{dp.date ? new Date(dp.date).toLocaleDateString() : "N/A"} • {dp.method.replace("_", " ")}</div>
-                            {dp.description && <div className="text-xs text-slate-600 mt-1">{dp.description}</div>}
-                          </div>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => {
-                              const downPayment = contract.down_payments!.find((p: any) => p.id === dp.id);
-                              if (downPayment) {
-                                setDownPaymentForm(downPayment);
-                                setEditingDownPaymentId(dp.id);
-                                setIsDownPaymentModalOpen(true);
-                              }
-                            }}
-                            className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 h-8 px-2"
-                          >
-                            Edit
-                          </Button>
-                        </div>
-                      ))}
-                      <div className="mt-3 p-3 bg-green-50 rounded border border-green-200">
-                        <div className="flex justify-between items-center">
-                          <div className="flex-1">
-                            <div className="flex justify-between text-sm">
-                              <span className="font-medium text-slate-900">Total Down Payments:</span>
-                              <span className="font-bold text-green-600">${(contract.down_payments.reduce((sum: number, dp: any) => sum + (dp.amount || 0), 0)).toLocaleString()}</span>
-                            </div>
-                          </div>
-                          <Button
-                            size="sm"
-                            onClick={() => generateInvoicePDF(contract)}
-                            className="ml-3 bg-green-600 hover:bg-green-700"
-                            title="Generate invoice PDF"
-                          >
-                            <Download className="w-4 h-4 mr-1" />
-                            Invoice
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="text-sm text-slate-600 italic">No down payments recorded yet</p>
-                  )}
-                </div>
-
                 {/* Additional Info */}
                 {(contract.cost_tracking?.materials || []).length > 0 && (
                   <div className="border-b pb-4">
@@ -6029,19 +5795,8 @@ export default function Contracts() {
                   Edit
                 </Button>
                 <Button
-                  onClick={() => {
-                    setPdfSelectContractId(contract.id);
-                    setDetailsContractId(null);
-                  }}
-                  variant="outline"
-                  className="flex-1 border-slate-300"
-                >
-                  <Download className="w-4 h-4 mr-2" />
-                  PDF
-                </Button>
-                <Button
-                  onClick={() => {
-                    generateInvoicePDF(contract);
+                  onClick={async () => {
+                    await generateInvoicePDF(contract.id);
                     setDetailsContractId(null);
                   }}
                   variant="outline"
@@ -6063,382 +5818,7 @@ export default function Contracts() {
         );
       })()}
 
-      {/* Down Payment Modal */}
-      <Dialog open={isDownPaymentModalOpen} onOpenChange={setIsDownPaymentModalOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>{editingDownPaymentId ? "Edit Down Payment" : "Add Down Payment"}</DialogTitle>
-            <DialogDescription>
-              Record a down payment for the selected contract
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="downPaymentAmount">Amount *</Label>
-              <Input
-                id="downPaymentAmount"
-                type="number"
-                placeholder="0.00"
-                value={String(downPaymentForm.amount || "")}
-                onChange={(e) =>
-                  setDownPaymentForm({
-                    ...downPaymentForm,
-                    amount: parseFloat(e.target.value) || 0
-                  })
-                }
-                className="border-slate-300"
-                step="0.01"
-                min="0"
-              />
-            </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="downPaymentDate">Date *</Label>
-              <Input
-                id="downPaymentDate"
-                type="date"
-                value={downPaymentForm.date}
-                onChange={(e) =>
-                  setDownPaymentForm({
-                    ...downPaymentForm,
-                    date: e.target.value
-                  })
-                }
-                className="border-slate-300"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="downPaymentMethod">Payment Method *</Label>
-              <Select
-                value={downPaymentForm.method}
-                onValueChange={(value) => {
-                  const newMethod = value as DownPayment["method"];
-                  // Clear conditional fields when payment method changes
-                  setDownPaymentForm({
-                    ...downPaymentForm,
-                    method: newMethod,
-                    // Clear all conditional fields
-                    check_number: "",
-                    bank_name: "",
-                    routing_number: "",
-                    account_number: "",
-                    account_type: "checking",
-                    transaction_reference: "",
-                    credit_card_last4: ""
-                  });
-                }}
-              >
-                <SelectTrigger className="border-slate-300">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="cash">💵 Cash</SelectItem>
-                  <SelectItem value="credit_card">💳 Credit Card</SelectItem>
-                  <SelectItem value="debit_card">💳 Debit Card</SelectItem>
-                  <SelectItem value="check">🧾 Check</SelectItem>
-                  <SelectItem value="direct_deposit">📥 Direct Deposit</SelectItem>
-                  <SelectItem value="ach">🏦 Bank Transfer (ACH)</SelectItem>
-                  <SelectItem value="wire">🏦 Wire Transfer</SelectItem>
-                  <SelectItem value="zelle">⚡ Zelle</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {downPaymentForm.method === "check" && (
-              <div className="border-t pt-4 space-y-2">
-                <p className="text-sm font-semibold text-slate-700 mb-3">Check Details</p>
-                <div className="space-y-2">
-                  <Label htmlFor="downPaymentCheckNumber">Check Number *</Label>
-                  <Input
-                    id="downPaymentCheckNumber"
-                    type="text"
-                    value={downPaymentForm.check_number || ""}
-                    onChange={(e) =>
-                      setDownPaymentForm({
-                        ...downPaymentForm,
-                        check_number: e.target.value
-                      })
-                    }
-                    placeholder="e.g., 1001"
-                    className="border-slate-300"
-                  />
-                </div>
-              </div>
-            )}
-
-            {isBankTransferMethod(downPaymentForm.method) && (
-              <div className="border-t pt-4 space-y-2">
-                <p className="text-sm font-semibold text-slate-700 mb-3">Bank Transfer Details</p>
-                <div className="space-y-2">
-                  <Label htmlFor="downPaymentBankName">Bank Name *</Label>
-                  <Input
-                    id="downPaymentBankName"
-                    type="text"
-                    value={downPaymentForm.bank_name || ""}
-                    onChange={(e) =>
-                      setDownPaymentForm({
-                        ...downPaymentForm,
-                        bank_name: e.target.value
-                      })
-                    }
-                    placeholder="e.g., Wells Fargo, Chase Bank"
-                    className="border-slate-300"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="downPaymentRoutingNumber">Routing Number *</Label>
-                  <Input
-                    id="downPaymentRoutingNumber"
-                    type="text"
-                    maxLength={9}
-                    value={downPaymentForm.routing_number || ""}
-                    onChange={(e) =>
-                      setDownPaymentForm({
-                        ...downPaymentForm,
-                        routing_number: e.target.value.replace(/\D/g, "")
-                      })
-                    }
-                    placeholder="9-digit routing number"
-                    className="border-slate-300"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="downPaymentAccountNumber">Account Number *</Label>
-                  <Input
-                    id="downPaymentAccountNumber"
-                    type="password"
-                    value={downPaymentForm.account_number || ""}
-                    onChange={(e) =>
-                      setDownPaymentForm({
-                        ...downPaymentForm,
-                        account_number: e.target.value
-                      })
-                    }
-                    placeholder="Account number (masked for security)"
-                    className="border-slate-300"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="downPaymentAccountType">Account Type</Label>
-                  <Select
-                    value={downPaymentForm.account_type || ""}
-                    onValueChange={(value) =>
-                      setDownPaymentForm({
-                        ...downPaymentForm,
-                        account_type: value as "checking" | "savings"
-                      })
-                    }
-                  >
-                    <SelectTrigger className="border-slate-300">
-                      <SelectValue placeholder="Select account type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="checking">Checking</SelectItem>
-                      <SelectItem value="savings">Savings</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="downPaymentTransactionReference">Transaction Reference</Label>
-                  <Input
-                    id="downPaymentTransactionReference"
-                    type="text"
-                    value={downPaymentForm.transaction_reference || ""}
-                    onChange={(e) =>
-                      setDownPaymentForm({
-                        ...downPaymentForm,
-                        transaction_reference: e.target.value
-                      })
-                    }
-                    placeholder="e.g., TXN123456789"
-                    className="border-slate-300"
-                  />
-                </div>
-              </div>
-            )}
-
-            {isWireTransferMethod(downPaymentForm.method) && (
-              <div className="border-t pt-4 space-y-2">
-                <p className="text-sm font-semibold text-slate-700 mb-3">Wire Transfer Details</p>
-                <div className="space-y-2">
-                  <Label htmlFor="downPaymentWireTRN">TRN (Transaction Reference Number) *</Label>
-                  <Input
-                    id="downPaymentWireTRN"
-                    type="text"
-                    value={downPaymentForm.transaction_reference || ""}
-                    onChange={(e) =>
-                      setDownPaymentForm({
-                        ...downPaymentForm,
-                        transaction_reference: e.target.value
-                      })
-                    }
-                    placeholder="e.g., WIRE123456789"
-                    className="border-slate-300"
-                  />
-                  <p className="text-xs text-slate-500">Required for wire transfer verification</p>
-                </div>
-              </div>
-            )}
-
-            {downPaymentForm.method === "credit_card" && (
-              <div className="border-t pt-4 space-y-2">
-                <p className="text-sm font-semibold text-slate-700 mb-3">Card Details</p>
-                <div className="space-y-2">
-                  <Label htmlFor="downPaymentCreditCardLast4">Card Last 4 Digits *</Label>
-                  <Input
-                    id="downPaymentCreditCardLast4"
-                    type="text"
-                    maxLength={4}
-                    value={downPaymentForm.credit_card_last4 || ""}
-                    onChange={(e) =>
-                      setDownPaymentForm({
-                        ...downPaymentForm,
-                        credit_card_last4: e.target.value.replace(/\D/g, "")
-                      })
-                    }
-                    placeholder="e.g., 4242"
-                    className="border-slate-300"
-                  />
-                  <p className="text-xs text-slate-500">Last 4 digits of the card used</p>
-                </div>
-              </div>
-            )}
-
-            {downPaymentForm.method === "direct_deposit" && (
-              <div className="border-t pt-4 space-y-2">
-                <p className="text-sm font-semibold text-slate-700 mb-3">Direct Deposit Details</p>
-                <div className="space-y-2">
-                  <Label htmlFor="downPaymentBankName">Bank Name *</Label>
-                  <Input
-                    id="downPaymentBankName"
-                    type="text"
-                    value={downPaymentForm.bank_name || ""}
-                    onChange={(e) =>
-                      setDownPaymentForm({
-                        ...downPaymentForm,
-                        bank_name: e.target.value
-                      })
-                    }
-                    placeholder="e.g., Wells Fargo, Chase Bank"
-                    className="border-slate-300"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="downPaymentRoutingNumber">Routing Number *</Label>
-                  <Input
-                    id="downPaymentRoutingNumber"
-                    type="text"
-                    maxLength={9}
-                    value={downPaymentForm.routing_number || ""}
-                    onChange={(e) =>
-                      setDownPaymentForm({
-                        ...downPaymentForm,
-                        routing_number: e.target.value.replace(/\D/g, "")
-                      })
-                    }
-                    placeholder="9-digit routing number"
-                    className="border-slate-300"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="downPaymentAccountNumber">Account Number *</Label>
-                  <Input
-                    id="downPaymentAccountNumber"
-                    type="password"
-                    value={downPaymentForm.account_number || ""}
-                    onChange={(e) =>
-                      setDownPaymentForm({
-                        ...downPaymentForm,
-                        account_number: e.target.value
-                      })
-                    }
-                    placeholder="Account number (masked for security)"
-                    className="border-slate-300"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="downPaymentAccountType">Account Type</Label>
-                  <Select
-                    value={downPaymentForm.account_type || ""}
-                    onValueChange={(value) =>
-                      setDownPaymentForm({
-                        ...downPaymentForm,
-                        account_type: value as "checking" | "savings"
-                      })
-                    }
-                  >
-                    <SelectTrigger className="border-slate-300">
-                      <SelectValue placeholder="Select account type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="checking">Checking</SelectItem>
-                      <SelectItem value="savings">Savings</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            )}
-
-            {downPaymentForm.method === "zelle" && (
-              <div className="border-t pt-4 space-y-2">
-                <p className="text-sm font-semibold text-slate-700 mb-3">Zelle Details</p>
-                <div className="space-y-2">
-                  <Label htmlFor="downPaymentZelleReference">Transaction Reference *</Label>
-                  <Input
-                    id="downPaymentZelleReference"
-                    type="text"
-                    value={downPaymentForm.transaction_reference || ""}
-                    onChange={(e) =>
-                      setDownPaymentForm({
-                        ...downPaymentForm,
-                        transaction_reference: e.target.value
-                      })
-                    }
-                    placeholder="e.g., ZELLE123456789"
-                    className="border-slate-300"
-                  />
-                  <p className="text-xs text-slate-500">Zelle transaction confirmation number</p>
-                </div>
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <Label htmlFor="downPaymentDescription">Description (Optional)</Label>
-              <textarea
-                id="downPaymentDescription"
-                placeholder="e.g., Wire transfer for down payment"
-                value={downPaymentForm.description || ""}
-                onChange={(e) =>
-                  setDownPaymentForm({
-                    ...downPaymentForm,
-                    description: e.target.value
-                  })
-                }
-                className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                rows={2}
-              />
-            </div>
-
-            <div className="flex gap-3 pt-4">
-              <Button
-                onClick={handleSaveDownPayment}
-                className="flex-1 bg-blue-600 hover:bg-blue-700"
-              >
-                {editingDownPaymentId ? "Update" : "Add"} Down Payment & Generate Invoice
-              </Button>
-              {editingDownPaymentId && (
-                <Button
-                  onClick={handleDeleteDownPayment}
-                  variant="destructive"
-                >
-                  Delete
-                </Button>
-              )}
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       {/* Material Calculator Modal */}
       <Dialog open={isCalculatorOpen} onOpenChange={setIsCalculatorOpen}>
