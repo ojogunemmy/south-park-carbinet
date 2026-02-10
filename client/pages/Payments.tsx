@@ -959,6 +959,13 @@ export default function Payments() {
       // Save for current year
       saveYearData("payments", selectedYear, ledgerPayments);
       window.dispatchEvent(new Event("paymentsUpdated"));
+      // Also notify other tabs/windows via localStorage "storage" event.
+      // (The custom event above only works within the same tab.)
+      try {
+        localStorage.setItem(`payments_updated_at_${selectedYear}`, String(Date.now()));
+      } catch {
+        // ignore
+      }
     } catch (error) {
       console.error("Error loading data:", error);
       toast({

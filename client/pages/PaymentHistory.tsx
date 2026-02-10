@@ -318,9 +318,19 @@ export default function PaymentHistory() {
     // Listen for custom events (from same tab - Payments page)
     window.addEventListener("paymentsUpdated", handlePaymentUpdate);
 
+    // Listen for cross-tab updates (Payments page writes localStorage key)
+    const handleStorageUpdate = (e: StorageEvent) => {
+      if (!e.key) return;
+      if (e.key !== `payments_updated_at_${selectedYear}`) return;
+      console.log("🔄 Payment history: Cross-tab payment update detected - refreshing");
+      loadAndRefreshPaymentRecords();
+    };
+    window.addEventListener("storage", handleStorageUpdate);
+
     // Cleanup
     return () => {
       window.removeEventListener("paymentsUpdated", handlePaymentUpdate);
+      window.removeEventListener("storage", handleStorageUpdate);
     };
   }, [selectedYear, filterReason, filterFromDate, filterToDate]);
 

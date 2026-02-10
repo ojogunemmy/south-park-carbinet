@@ -66,32 +66,52 @@ export default function Index() {
   const [showEditUserPassword, setShowEditUserPassword] = useState(false);
   const [isMonthlyBreakdownOpen, setIsMonthlyBreakdownOpen] = useState(false);
 
+  const fetchData = async () => {
+    setIsLoading(true);
+    try {
+      const [empData, conData, billData, payData, profData] = await Promise.all([
+        employeesService.getAll(),
+        contractsService.getAll(),
+        billsService.getAll(),
+        paymentsService.getAll(),
+        profilesService.getAll(),
+      ]);
+
+      setEmployees(empData || []);
+      setContracts(conData || []);
+      setBills(billData || []);
+      setPayments(payData || []);
+      setProfiles(profData || []);
+    } catch (error) {
+      console.error("Error fetching dashboard data:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Fetch all data on mount or year change
   useEffect(() => {
-    const fetchData = async () => {
-      setIsLoading(true);
-      try {
-        const [empData, conData, billData, payData, profData] = await Promise.all([
-          employeesService.getAll(),
-          contractsService.getAll(),
-          billsService.getAll(),
-          paymentsService.getAll(),
-          profilesService.getAll()
-        ]);
-        
-        setEmployees(empData || []);
-        setContracts(conData || []);
-        setBills(billData || []);
-        setPayments(payData || []);
-        setProfiles(profData || []);
-      } catch (error) {
-        console.error("Error fetching dashboard data:", error);
-      } finally {
-        setIsLoading(false);
-      }
+    fetchData();
+  }, [selectedYear]);
+
+  // Refresh dashboard totals when Payroll updates payments (same tab + cross-tab)
+  useEffect(() => {
+    const handlePaymentsUpdated = () => {
+      fetchData();
     };
 
-    fetchData();
+    const handleStorageUpdate = (e: StorageEvent) => {
+      if (!e.key) return;
+      if (e.key !== `payments_updated_at_${selectedYear}`) return;
+      fetchData();
+    };
+
+    window.addEventListener("paymentsUpdated", handlePaymentsUpdated);
+    window.addEventListener("storage", handleStorageUpdate);
+    return () => {
+      window.removeEventListener("paymentsUpdated", handlePaymentsUpdated);
+      window.removeEventListener("storage", handleStorageUpdate);
+    };
   }, [selectedYear]);
 
   const handleAddUser = async () => {
