@@ -5522,6 +5522,30 @@ export default function Contracts() {
                     </div>
                   </div>
                 </Button>
+
+                <Button
+                  onClick={async () => {
+                    const contract = contracts.find((c) => c.id === pdfSelectContractId);
+                    if (contract) {
+                      await generateInvoicePDF(contract.id);
+                    }
+                    setPdfSelectContractId(null);
+                    setPdfGenerationStep("type-selection");
+                    setTempPdfAttachments([]);
+                  }}
+                  variant="outline"
+                  className="w-full justify-start border-slate-300 h-16 text-lg px-6 hover:bg-slate-50 hover:border-blue-300 transition-all"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="bg-purple-100 p-2 rounded text-purple-700">
+                      <Download className="w-6 h-6" />
+                    </div>
+                    <div className="text-left">
+                      <div className="font-semibold text-slate-900">Invoice</div>
+                      <div className="text-sm text-slate-500 font-normal">Payment summary & balance due</div>
+                    </div>
+                  </div>
+                </Button>
               </div>
             ) : (
               <div className="space-y-6">
@@ -5793,17 +5817,6 @@ export default function Contracts() {
                 >
                   <Edit2 className="w-4 h-4 mr-2" />
                   Edit
-                </Button>
-                <Button
-                  onClick={async () => {
-                    await generateInvoicePDF(contract.id);
-                    setDetailsContractId(null);
-                  }}
-                  variant="outline"
-                  className="flex-1 border-slate-300"
-                >
-                  <Download className="w-4 h-4 mr-2" />
-                  Invoice
                 </Button>
                 <Button
                   onClick={() => setDetailsContractId(null)}
