@@ -325,86 +325,208 @@ export default function PaymentHistory() {
   }, [selectedYear, filterReason, filterFromDate, filterToDate]);
 
   const generatePaymentPDF = (record: PaymentRecord): { data: Uint8Array; fileName: string } => {
-    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const margin = 12;
+    const contentWidth = pageWidth - 2 * margin;
+    let yPosition = 12;
 
     const weekStart = new Date(record.weekStartDate);
     const weekEnd = new Date(record.weekEndDate);
     const paidDate = new Date(record.paidDate);
 
-    let y = 15;
+    const formatCurrency = (value: number) =>
+      `$${(Number(value) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-    // Title
-    doc.setFontSize(16);
-    doc.setFont(undefined, 'bold');
-    doc.text('Payment History Report', 15, y);
-    y += 10;
+    // Header band
+    pdf.setFillColor(31, 41, 55);
+    pdf.rect(0, 0, pageWidth, 22, 'F');
 
-    // Period information
-    doc.setFontSize(10);
-    doc.setFont(undefined, 'normal');
-    doc.text(`Week: ${weekStart.toLocaleDateString('en-US')} - ${weekEnd.toLocaleDateString('en-US')}`, 15, y);
-    y += 5;
-    doc.text(`Payment Date: ${paidDate.toLocaleDateString('en-US')}`, 15, y);
-    y += 5;
-    doc.text(`Total Paid: $${record.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 15, y);
-    y += 10;
+    pdf.setTextColor(255, 255, 255);
+    pdf.setFontSize(20);
+    pdf.setFont(undefined, 'bold');
+    pdf.text('SOUTH PARK CABINETS', margin, 10);
+    yPosition = 18;
 
-    // Table header
-    doc.setFont(undefined, 'bold');
-    doc.setFillColor(240, 240, 240);
-    doc.rect(15, y - 3, 180, 5, 'F');
-    doc.text('Employee', 15, y);
-    doc.text('Position', 50, y);
-    doc.text('Amount', 85, y);
-    doc.text('Reason', 110, y);
-    doc.text('Payment Method', 140, y);
-    y += 6;
+    pdf.setFontSize(11);
+    pdf.setFont(undefined, 'normal');
+    pdf.text('Payment History Report', margin, yPosition);
+    pdf.setTextColor(150, 150, 150);
+    pdf.setFontSize(9);
+    pdf.text(
+      `Week: ${weekStart.toLocaleDateString('en-US')} - ${weekEnd.toLocaleDateString('en-US')}`,
+      pageWidth - margin - 85,
+      14,
+    );
+    pdf.text(`Payment Date: ${paidDate.toLocaleDateString('en-US')}`, pageWidth - margin - 85, 18);
+    pdf.setTextColor(0, 0, 0);
 
-    // Table rows
-    doc.setFont(undefined, 'normal');
-    doc.setFontSize(8);
+    yPosition = 28;
 
+    // Summary boxes
+    const boxWidth = (contentWidth - 9) / 4;
+    const employeesAffected = new Set(record.entries.map((e) => e.employee_id)).size;
+    const summaryData = [
+      { label: 'Employees', value: employeesAffected, color: [59, 130, 246] as const },
+      { label: 'Entries', value: record.entries.length, color: [34, 197, 94] as const },
+      { label: 'Total Paid', value: formatCurrency(record.totalAmount), color: [249, 115, 22] as const },
+      { label: 'Avg/Entry', value: formatCurrency(record.entries.length ? record.totalAmount / record.entries.length : 0), color: [168, 85, 247] as const },
+    ];
+
+    summaryData.forEach((item, idx) => {
+      const xPos = margin + idx * (boxWidth + 3);
+      const [r, g, b] = item.color;
+      pdf.setFillColor(r, g, b);
+      pdf.rect(xPos, yPosition, boxWidth, 12, 'F');
+
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFontSize(8);
+      pdf.setFont(undefined, 'normal');
+      pdf.text(item.label, xPos + 2, yPosition + 4);
+
+      pdf.setFontSize(10);
+      pdf.setFont(undefined, 'bold');
+      pdf.text(String(item.value), xPos + 2, yPosition + 10);
+    });
+    pdf.setTextColor(0, 0, 0);
+
+    yPosition += 18;
+
+    // Table
+    const colWidths = [80, 30, 35, 65, 25];
+    const headers = ['Employee', 'Position', 'Amount', 'Reason', 'Payment Method'];
+
+    const drawRightAlignedLines = (lines: string[], xRight: number, yTop: number, lineStep = 6) => {
+      lines.forEach((line, i) => {
+        pdf.text(line, xRight, yTop + i * lineStep, { align: 'right' });
+      });
+    };
+
+    const drawTableHeader = (y: number) => {
+      pdf.setFillColor(59, 70, 87);
+      pdf.rect(margin, y - 5, contentWidth, 8, 'F');
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFont(undefined, 'bold');
+      pdf.setFontSize(11);
+      let x = margin + 2;
+      headers.forEach((h, idx) => {
+        const w = colWidths[idx];
+        if (idx === 2) pdf.text(h, x + w - 2, y, { align: 'right' });
+        else pdf.text(h, x, y);
+        x += w;
+      });
+      pdf.setTextColor(0, 0, 0);
+      return y + 12;
+    };
+
+    yPosition = drawTableHeader(yPosition);
+
+    let lineIndex = 0;
     record.entries.forEach((entry) => {
-      if (y > 250) {
-        doc.addPage();
-        y = 15;
+      const methodKey = normalizePaymentMethod(entry.payment_method) || entry.payment_method || 'Unknown';
+      let methodDisplay = paymentMethodPlainLabel(methodKey) || 'Unknown';
+      if (methodKey === 'check' && entry.check_number) methodDisplay = `Check #${entry.check_number}`;
+
+      const reason = entry.reversal_reason || entry.severance_reason || entry.notes || (entry.is_correction ? 'Reversal' : 'Regular');
+      const employeeName = entry.employee_name || 'Unknown';
+      const employeePos = entry.employee_position || '';
+
+      const nameLines = pdf.splitTextToSize(employeeName, colWidths[0] - 4);
+      const posLines = pdf.splitTextToSize(employeePos, colWidths[1] - 4);
+      const amountText = formatCurrency(entry.amount || 0);
+      const amountLines = pdf.splitTextToSize(amountText, colWidths[2]);
+      const reasonLines = pdf.splitTextToSize(String(reason), colWidths[3] - 4);
+      const methodLines = pdf.splitTextToSize(methodDisplay, colWidths[4] - 4);
+      const maxLines = Math.max(1, nameLines.length, posLines.length, amountLines.length, reasonLines.length, methodLines.length);
+      const rowHeight = Math.max(12, 6 + maxLines * 6);
+
+      if (yPosition + rowHeight > pageHeight - 15) {
+        pdf.setFontSize(9);
+        pdf.setTextColor(150, 150, 150);
+        pdf.text(`Page ${pdf.internal.pages.length}`, pageWidth - margin - 10, pageHeight - 5);
+        pdf.setTextColor(0, 0, 0);
+
+        pdf.addPage();
+        yPosition = 15;
+        yPosition = drawTableHeader(yPosition);
+        lineIndex = 0;
       }
 
-      doc.text((entry.employee_name || 'Unknown').substring(0, 18), 15, y);
-      doc.text((entry.employee_position || '').substring(0, 12), 50, y);
-      doc.text(
-        `$${(entry.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-        85,
-        y
-      );
-      const reason = entry.reversal_reason || entry.severance_reason || entry.notes;
-      doc.text(reason ? reason.substring(0, 12) : (entry.is_correction ? 'Reversal' : 'Regular'), 110, y);
+      if (lineIndex % 2 === 0) pdf.setFillColor(240, 245, 250);
+      else pdf.setFillColor(255, 255, 255);
+      pdf.rect(margin, yPosition - 6, contentWidth, rowHeight, 'F');
+      pdf.setDrawColor(200, 200, 200);
+      pdf.setLineWidth(0.2);
+      pdf.line(margin, yPosition - 6 + rowHeight, margin + contentWidth, yPosition - 6 + rowHeight);
 
-      // Combine payment method with check number
-      const methodKey = normalizePaymentMethod(entry.payment_method) || entry.payment_method || "Unknown";
-      let methodDisplay = paymentMethodPlainLabel(methodKey).substring(0, 20) || "Unknown";
-      if (methodKey === 'check' && entry.check_number) {
-        methodDisplay = `Check #${entry.check_number}`;
+      let x = margin + 2;
+      const baseY = yPosition;
+
+      pdf.setFont(undefined, 'bold');
+      pdf.setFontSize(10);
+      pdf.text(nameLines[0] || '', x, baseY);
+      if (nameLines.length > 1) {
+        pdf.setFont(undefined, 'normal');
+        pdf.setFontSize(9);
+        pdf.setTextColor(80, 80, 80);
+        pdf.text(nameLines.slice(1), x, baseY + 6);
+        pdf.setTextColor(0, 0, 0);
       }
-      doc.text(methodDisplay, 140, y);
-      y += 4;
+      x += colWidths[0];
+
+      pdf.setFont(undefined, 'normal');
+      pdf.setFontSize(9);
+      pdf.text(posLines, x, baseY);
+      x += colWidths[1];
+
+      pdf.setFont(undefined, 'bold');
+      pdf.setFontSize(10);
+      pdf.text(formatCurrency(entry.amount || 0), x + colWidths[2] - 2, baseY, { align: 'right' });
+      x += colWidths[2];
+
+      pdf.setFont(undefined, 'normal');
+      pdf.setFontSize(9);
+      pdf.text(reasonLines, x, baseY);
+      x += colWidths[3];
+
+      pdf.text(methodLines, x, baseY);
+
+      yPosition += rowHeight;
+      lineIndex += 1;
     });
 
     // Footer
-    y += 5;
-    doc.setFontSize(8);
-    doc.setTextColor(100, 100, 100);
-    doc.text(
-      `Generated on ${new Date().toLocaleDateString('en-US')} at ${new Date().toLocaleTimeString('en-US')}`,
-      15,
-      280
+    const footerY = pageHeight - 10;
+    pdf.setDrawColor(200, 200, 200);
+    pdf.line(margin, footerY, pageWidth - margin, footerY);
+    pdf.setFont(undefined, 'bold');
+    pdf.setFontSize(9);
+    pdf.setTextColor(0, 0, 0);
+    pdf.text(
+      `Entries: ${record.entries.length} | Total Paid: ${formatCurrency(record.totalAmount)}`,
+      margin,
+      footerY + 5,
     );
+    pdf.setFontSize(8);
+    pdf.setTextColor(150, 150, 150);
+    pdf.text(`Page ${pdf.internal.pages.length}`, pageWidth - margin - 10, footerY + 5);
 
     const fileName = `payment_history_${record.paidDate}.pdf`;
     return {
-      data: new Uint8Array(doc.output('arraybuffer')),
-      fileName
+      data: new Uint8Array(pdf.output('arraybuffer')),
+      fileName,
     };
+  };
+
+  const printPaymentLedger = () => {
+    if (paymentRecords.length === 0) {
+      toast({ description: 'No payment records to print' });
+      return;
+    }
+
+    // Print a single report for the most recent batch by default
+    downloadPaymentReport(paymentRecords[0]);
   };
 
   const downloadPaymentReport = (record: PaymentRecord) => {
@@ -474,10 +596,7 @@ export default function PaymentHistory() {
           <p className="text-slate-600 text-sm md:text-base mt-1">Review and archive payment records</p>
         </div>
         <Button
-          onClick={() => {
-            document.body.setAttribute('data-current-page', `Payment Ledger - ${selectedYear}`);
-            window.print();
-          }}
+          onClick={printPaymentLedger}
           className="gap-2 bg-slate-700 hover:bg-slate-800"
           title="Print payment ledger"
         >

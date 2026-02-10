@@ -2170,78 +2170,260 @@ export default function Contracts() {
 
   const printAllContracts = () => {
     try {
-      console.log("Print function called, contracts count:", filteredContracts.length);
-
       if (filteredContracts.length === 0) {
         alert("No contracts to print");
         return;
       }
 
-      const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+      const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
-      let yPosition = 15;
-      const margin = 10;
-      const lineHeight = 6;
+      const margin = 12;
+      const contentWidth = pageWidth - 2 * margin;
+      let yPosition = 12;
 
-      // Add logo
-      addLogoToPageTop(pdf, pageWidth);
+      const generatedLabel = `${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`;
 
-      // Title
-      pdf.setFontSize(16);
+      const hardWrap = (text: string, maxWidth: number) => {
+        const safeText = String(text ?? "");
+        const initial = pdf.splitTextToSize(safeText, maxWidth) as string[];
+        const out: string[] = [];
+
+        for (const line of initial) {
+          if (pdf.getTextWidth(line) <= maxWidth + 0.01) {
+            out.push(line);
+            continue;
+          }
+          let current = "";
+          for (const ch of line) {
+            const next = current + ch;
+            if (current && pdf.getTextWidth(next) > maxWidth) {
+              out.push(current);
+              current = ch;
+            } else {
+              current = next;
+            }
+          }
+          if (current) out.push(current);
+        }
+
+        return out.length ? out : [""];
+      };
+
+      // Summary data
+      const totalValue = filteredContracts.reduce((sum, c) => sum + (c.total_value || 0), 0);
+      const completedCount = filteredContracts.filter((c) => c.status === "completed").length;
+      const inProgressCount = filteredContracts.filter((c) => c.status === "in-progress").length;
+      const overdueCount = filteredContracts.filter((c) => c.due_date && isOverdue(c.due_date)).length;
+
+      // Company Header Background
+      pdf.setFillColor(31, 41, 55);
+      pdf.rect(0, 0, pageWidth, 22, "F");
+
+      // Company Title
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFontSize(20);
       pdf.setFont(undefined, "bold");
-      pdf.text("CONTRACTS REPORT", margin, yPosition);
-      yPosition += 10;
+      pdf.text("SOUTH PARK CABINETS", margin, 10);
 
-      // Generated date
-      pdf.setFontSize(9);
+      // Subtitle
+      pdf.setFontSize(11);
       pdf.setFont(undefined, "normal");
-      pdf.text(`Generated: ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`, margin, yPosition);
-      yPosition += 8;
-      pdf.text(`Total Contracts: ${filteredContracts.length}`, margin, yPosition);
-      yPosition += 10;
+      pdf.text("Contracts Report", margin, 18);
+      pdf.setTextColor(150, 150, 150);
+      pdf.setFontSize(9);
+      pdf.text(`Generated: ${generatedLabel}`, pageWidth - margin - 75, 18);
+      pdf.setTextColor(0, 0, 0);
 
-      // Contracts list
-      pdf.setFont(undefined, "bold");
-      pdf.setFontSize(10);
+      yPosition = 28;
 
-      filteredContracts.forEach((contract, idx) => {
-        if (yPosition > pageHeight - 20) {
-          pdf.addPage();
-          addLogoToPageTop(pdf, pageWidth);
-          yPosition = 15;
-        }
+      // Summary Statistics Boxes
+      const boxWidth = (contentWidth - 9) / 4;
+      const summaryData = [
+        { label: "Total Contracts", value: filteredContracts.length, color: [59, 130, 246] as const },
+        { label: "In Progress", value: inProgressCount, color: [168, 85, 247] as const },
+        { label: "Completed", value: completedCount, color: [34, 197, 94] as const },
+        { label: "Total Value", value: `$${totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}`, color: [249, 115, 22] as const },
+      ];
 
-        // Contract header
-        pdf.text(`${idx + 1}. ${contract.id} - ${contract.project_name}`, margin, yPosition);
-        yPosition += lineHeight;
+      summaryData.forEach((item, idx) => {
+        const xPos = margin + idx * (boxWidth + 3);
+        const [r, g, b] = item.color;
+        pdf.setFillColor(r, g, b);
+        pdf.rect(xPos, yPosition, boxWidth, 12, "F");
 
-        // Contract details
+        pdf.setTextColor(255, 255, 255);
+        pdf.setFontSize(8);
         pdf.setFont(undefined, "normal");
-        pdf.setFontSize(9);
+        pdf.text(item.label, xPos + 2, yPosition + 4);
 
-        pdf.text(`Client: ${contract.client_name}`, margin + 5, yPosition);
-        yPosition += lineHeight;
-        pdf.text(`Status: ${contract.status.replace("-", " ")}`, margin + 5, yPosition);
-        yPosition += lineHeight;
-        pdf.text(`Value: $${(contract.total_value || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })} | Deposit: $${(contract.deposit_amount || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`, margin + 5, yPosition);
-        yPosition += lineHeight;
-        pdf.text(`Start: ${formatDateString(contract.start_date)} | Due: ${formatDateString(contract.due_date)}`, margin + 5, yPosition);
-        yPosition += lineHeight;
+        pdf.setFontSize(10);
+        pdf.setFont(undefined, "bold");
+        pdf.text(String(item.value), xPos + 2, yPosition + 10);
+      });
+      pdf.setTextColor(0, 0, 0);
 
-        if (contract.payment_schedule && contract.payment_schedule.length > 0) {
-          pdf.text(`Payments: ${contract.payment_schedule.length}`, margin + 5, yPosition);
-          yPosition += lineHeight;
+      yPosition += 18;
+
+      // Table headers
+      const colWidths = [8, 28, 70, 50, 22, 28, 24, 24];
+      const headers = ["#", "ID", "PROJECT", "CLIENT", "STATUS", "VALUE", "START", "DUE"];
+
+      pdf.setFillColor(59, 70, 87);
+      pdf.rect(margin, yPosition - 5, contentWidth, 8, "F");
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFont(undefined, "bold");
+      pdf.setFontSize(11);
+      let xPosition = margin + 2;
+      headers.forEach((header, idx) => {
+        if (idx === headers.length - 1 || idx === headers.length - 3) {
+          pdf.text(header, xPosition + colWidths[idx] - 3, yPosition, { align: "right" });
+        } else {
+          pdf.text(header, xPosition, yPosition);
+        }
+        xPosition += colWidths[idx];
+      });
+      pdf.setTextColor(0, 0, 0);
+      yPosition += 12;
+
+      let lineIndex = 0;
+      filteredContracts.forEach((contract, contractIdx) => {
+        const valueText = `$${(contract.total_value || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+        const statusText = (contract.status || "").replace(/-/g, " ");
+        const startText = formatDateString(contract.start_date);
+        const dueText = formatDateString(contract.due_date);
+
+        const numLines = hardWrap(String(contractIdx + 1), colWidths[0] - 2);
+        const idLines = hardWrap(String(contract.id || "-"), colWidths[1] - 4);
+        const projectLines = hardWrap(contract.project_name || "-", colWidths[2] - 4);
+        const clientLines = hardWrap(contract.client_name || "-", colWidths[3] - 4);
+        const statusLines = hardWrap(statusText || "-", colWidths[4] - 4);
+        const valueLines = hardWrap(valueText, colWidths[5] - 4);
+        const startLines = hardWrap(startText || "-", colWidths[6] - 4);
+        const dueLines = hardWrap(dueText || "-", colWidths[7] - 4);
+
+        const rowLines = Math.max(
+          1,
+          numLines.length,
+          idLines.length,
+          projectLines.length,
+          clientLines.length,
+          statusLines.length,
+          valueLines.length,
+          startLines.length,
+          dueLines.length,
+        );
+        const rowHeight = Math.max(10, 6 + rowLines * 4);
+
+        if (yPosition + rowHeight > pageHeight - 15) {
+          pdf.setFontSize(9);
+          pdf.setTextColor(150, 150, 150);
+          pdf.text(`Page ${pdf.internal.pages.length}`, pageWidth - margin - 10, pageHeight - 5);
+          pdf.setTextColor(0, 0, 0);
+
+          pdf.addPage();
+          yPosition = 15;
+
+          pdf.setFillColor(59, 70, 87);
+          pdf.rect(margin, yPosition - 5, contentWidth, 8, "F");
+          pdf.setTextColor(255, 255, 255);
+          pdf.setFont(undefined, "bold");
+          pdf.setFontSize(11);
+          xPosition = margin + 2;
+          headers.forEach((header, idx) => {
+            if (idx === headers.length - 1 || idx === headers.length - 3) {
+              pdf.text(header, xPosition + colWidths[idx] - 3, yPosition, { align: "right" });
+            } else {
+              pdf.text(header, xPosition, yPosition);
+            }
+            xPosition += colWidths[idx];
+          });
+          pdf.setTextColor(0, 0, 0);
+          yPosition += 12;
+          lineIndex = 0;
         }
 
-        yPosition += 4;
+        // Alternating row background
+        if (lineIndex % 2 === 0) {
+          pdf.setFillColor(240, 245, 250);
+        } else {
+          pdf.setFillColor(255, 255, 255);
+        }
+        pdf.rect(margin, yPosition - 6, contentWidth, rowHeight, "F");
+
+        // Border line
+        pdf.setDrawColor(200, 200, 200);
+        pdf.setLineWidth(0.2);
+        pdf.line(margin, yPosition - 6 + rowHeight, margin + contentWidth, yPosition - 6 + rowHeight);
+
+        // Row content
+        xPosition = margin + 2;
+        const baseY = yPosition;
+
         pdf.setFont(undefined, "bold");
         pdf.setFontSize(10);
+        pdf.text(numLines, xPosition, baseY);
+        xPosition += colWidths[0];
+
+        pdf.setFont(undefined, "normal");
+        pdf.setFontSize(9);
+        pdf.text(idLines, xPosition, baseY);
+        xPosition += colWidths[1];
+
+        pdf.setFont(undefined, "bold");
+        pdf.setFontSize(10);
+        pdf.text(projectLines[0] || "", xPosition, baseY);
+        if (projectLines.length > 1) {
+          pdf.setFont(undefined, "normal");
+          pdf.setFontSize(9);
+          pdf.setTextColor(80, 80, 80);
+          pdf.text(projectLines.slice(1), xPosition, baseY + 4);
+          pdf.setTextColor(0, 0, 0);
+        }
+        xPosition += colWidths[2];
+
+        pdf.setFont(undefined, "normal");
+        pdf.setFontSize(9);
+        pdf.text(clientLines, xPosition, baseY);
+        xPosition += colWidths[3];
+
+        pdf.setFont(undefined, "normal");
+        pdf.setFontSize(10);
+        pdf.text(statusLines, xPosition, baseY);
+        xPosition += colWidths[4];
+
+        pdf.setFont(undefined, "bold");
+        pdf.setFontSize(10);
+        pdf.text(valueLines, xPosition + colWidths[5] - 3, baseY, { align: "right" });
+        xPosition += colWidths[5];
+
+        pdf.setFont(undefined, "normal");
+        pdf.setFontSize(9);
+        pdf.text(startLines, xPosition, baseY);
+        xPosition += colWidths[6];
+        pdf.text(dueLines, xPosition, baseY);
+
+        yPosition += rowHeight;
+        lineIndex += 1;
       });
 
-      console.log("PDF created successfully");
-      pdf.save("Contracts-Report.pdf");
-      console.log("PDF saved");
+      // Footer
+      const footerY = pageHeight - 10;
+      pdf.setDrawColor(200, 200, 200);
+      pdf.line(margin, footerY, pageWidth - margin, footerY);
+      pdf.setFont(undefined, "bold");
+      pdf.setFontSize(9);
+      pdf.setTextColor(0, 0, 0);
+      pdf.text(
+        `Total Contracts: ${filteredContracts.length} | Overdue: ${overdueCount} | Total Value: $${totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
+        margin,
+        footerY + 5,
+      );
+      pdf.setFontSize(8);
+      pdf.setTextColor(150, 150, 150);
+      pdf.text(`Page ${pdf.internal.pages.length}`, pageWidth - margin - 10, footerY + 5);
+
+      pdf.save(`Contracts-Report-${new Date().toISOString().split("T")[0]}.pdf`);
     } catch (error) {
       console.error("Error generating contracts report:", error);
       alert(`Error generating report: ${error instanceof Error ? error.message : "Unknown error"}`);
@@ -4740,122 +4922,233 @@ export default function Contracts() {
               const profitMargin = (contract.total_value || 0) > 0 ? (projectedProfit / contract.total_value) * 100 : 0;
 
               const handlePrintBudgetSummary = () => {
-                const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-                const margin = 20;
+                const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
                 const pageWidth = pdf.internal.pageSize.getWidth();
                 const pageHeight = pdf.internal.pageSize.getHeight();
-                let yPosition = 20;
-                const lineHeight = 6;
+                const margin = 12;
                 const contentWidth = pageWidth - 2 * margin;
+                let yPosition = 12;
 
-                // Header
-                pdf.setFontSize(16);
-                pdf.setFont(undefined, "bold");
-                pdf.text("BUDGET SUMMARY", margin, yPosition);
-                yPosition += 8;
+                const generatedLabel = `${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`;
+                const contractTotal = contract.total_value || 0;
 
-                pdf.setFontSize(10);
-                pdf.setFont(undefined, "normal");
-                pdf.text(`Contract ID: ${contract.id}`, margin, yPosition);
-                yPosition += lineHeight;
-                pdf.text(`Project: ${contract.project_name}`, margin, yPosition);
-                yPosition += lineHeight;
-                pdf.text(`Client: ${contract.client_name}`, margin, yPosition);
-                yPosition += lineHeight;
-                pdf.text(`Generated: ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`, margin, yPosition);
-                yPosition += 15;
+                // Build line items table
+                const items: Array<{ category: string; item: string; qty: string; unit: string; cost: number }> = [];
 
-                // Labor Costs
-                pdf.setFont(undefined, "bold");
-                pdf.text("💼 Labor Costs", margin, yPosition);
-                yPosition += lineHeight;
-                pdf.setFont(undefined, "normal");
-                pdf.text(contract.cost_tracking?.labor_cost?.description || "No description provided", margin + 3, yPosition);
-                yPosition += lineHeight;
-                pdf.text(`$${laborCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, margin + 3, yPosition);
-                yPosition += lineHeight;
-                if (contract.cost_tracking?.labor_cost?.daily_rate && contract.cost_tracking?.labor_cost?.days) {
-                  pdf.setFontSize(8);
-                  pdf.text(`$${contract.cost_tracking.labor_cost.daily_rate} × ${contract.cost_tracking.labor_cost.days} days`, margin + 5, yPosition);
-                  yPosition += lineHeight;
-                  pdf.setFontSize(10);
-                }
-                yPosition += 10;
-
-                // Material Costs
-                pdf.setFont(undefined, "bold");
-                pdf.text("🛠️ Material Costs", margin, yPosition);
-                yPosition += lineHeight;
-                pdf.setFont(undefined, "normal");
-
-                const materialsWithQty = (contract.cost_tracking?.materials || []).filter((m: any) => m.quantity > 0);
-                if (materialsWithQty.length > 0) {
-                  materialsWithQty.forEach((material: any) => {
-                    const cost = material.quantity * (material.unit_price || 0);
-                    const predefinedMaterial = availableMaterials.find(m => m.id === material.id);
-                    const supplier = material.supplier || predefinedMaterial?.supplier;
-                    const supplierText = supplier ? ` (${supplier})` : "";
-                    const text = `${material.name} (${material.quantity} ${material.unit}) - $${cost.toLocaleString(undefined, { maximumFractionDigits: 2 })}${supplierText}`;
-                    pdf.text(text, margin + 3, yPosition, { maxWidth: contentWidth - 3 });
-                    yPosition += lineHeight;
-                  });
-                  yPosition += 5;
-                  pdf.setFont(undefined, "bold");
-                  pdf.text(`Total Material Cost: $${materialCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, margin, yPosition);
-                } else {
-                  pdf.text("No materials added", margin + 3, yPosition);
-                }
-                yPosition += lineHeight + 10;
-
-                // Miscellaneous
-                if ((contract.cost_tracking?.miscellaneous || []).length > 0) {
-                  pdf.setFont(undefined, "bold");
-                  pdf.text("📋 Miscellaneous Costs", margin, yPosition);
-                  yPosition += lineHeight;
-                  pdf.setFont(undefined, "normal");
-
-                  contract.cost_tracking!.miscellaneous.forEach((item: any) => {
-                    pdf.text(`${item.description}: $${(item.amount || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`, margin + 3, yPosition);
-                    yPosition += lineHeight;
-                  });
-                  yPosition += 5;
-                  pdf.setFont(undefined, "bold");
-                  pdf.text(`Total Miscellaneous: $${miscellaneousCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, margin, yPosition);
-                  yPosition += lineHeight + 10;
-                }
-
-                // Summary
-                pdf.setFont(undefined, "bold");
-                pdf.setFontSize(12);
-                pdf.text("EXPENSE SUMMARY", margin, yPosition);
-                yPosition += 10;
-
-                pdf.setFontSize(10);
-                pdf.setFont(undefined, "normal");
-                const summaryItems = [
-                  [`Contract Total:`, `$${(contract.total_value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`],
-                  [`Material Costs:`, `$${materialCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}`],
-                  [`Labor Costs:`, `$${laborCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}`],
-                  [`Miscellaneous Costs:`, `$${miscellaneousCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}`],
-                  [`Total Expenses:`, `$${totalCosts.toLocaleString(undefined, { maximumFractionDigits: 2 })}`],
-                ];
-
-                summaryItems.forEach(([label, value]) => {
-                  pdf.text(label, margin + 5, yPosition);
-                  pdf.text(value, margin + 80, yPosition);
-                  yPosition += lineHeight;
+                // Labor
+                items.push({
+                  category: "Labor",
+                  item: contract.cost_tracking?.labor_cost?.description || "Labor",
+                  qty:
+                    contract.cost_tracking?.labor_cost?.calculation_method === "daily" && contract.cost_tracking?.labor_cost?.days
+                      ? String(contract.cost_tracking.labor_cost.days)
+                      : contract.cost_tracking?.labor_cost?.calculation_method === "monthly" && contract.cost_tracking?.labor_cost?.months
+                        ? String(contract.cost_tracking.labor_cost.months)
+                        : "-",
+                  unit:
+                    contract.cost_tracking?.labor_cost?.calculation_method === "daily"
+                      ? "days"
+                      : contract.cost_tracking?.labor_cost?.calculation_method === "monthly"
+                        ? "months"
+                        : "-",
+                  cost: laborCost,
                 });
 
+                // Materials
+                const materialsWithQty = (contract.cost_tracking?.materials || []).filter((m: any) => m.quantity > 0);
+                materialsWithQty.forEach((material: any) => {
+                  const cost = material.quantity * (material.unit_price || 0);
+                  items.push({
+                    category: "Materials",
+                    item: material.name || "Material",
+                    qty: String(material.quantity || 0),
+                    unit: material.unit || "-",
+                    cost,
+                  });
+                });
+
+                // Misc
+                (contract.cost_tracking?.miscellaneous || []).forEach((m: any) => {
+                  items.push({
+                    category: "Misc",
+                    item: m.description || "Misc",
+                    qty: "-",
+                    unit: "-",
+                    cost: m.amount || 0,
+                  });
+                });
+
+                // Company Header Background
+                pdf.setFillColor(31, 41, 55);
+                pdf.rect(0, 0, pageWidth, 22, "F");
+                pdf.setTextColor(255, 255, 255);
+                pdf.setFontSize(20);
+                pdf.setFont(undefined, "bold");
+                pdf.text("SOUTH PARK CABINETS", margin, 10);
+
+                pdf.setFontSize(11);
+                pdf.setFont(undefined, "normal");
+                pdf.text("Budget Summary", margin, 18);
+                pdf.setTextColor(150, 150, 150);
+                pdf.setFontSize(9);
+                pdf.text(`Contract: ${contract.id}`, pageWidth - margin - 80, 14);
+                pdf.text(`Generated: ${generatedLabel}`, pageWidth - margin - 80, 18);
+                pdf.setTextColor(0, 0, 0);
+
+                yPosition = 28;
+
+                // Summary Statistics Boxes
+                const boxWidth = (contentWidth - 9) / 4;
+                const summaryData = [
+                  { label: "Contract Total", value: `$${contractTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, color: [59, 130, 246] as const },
+                  { label: "Total Costs", value: `$${totalCosts.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, color: [168, 85, 247] as const },
+                  { label: "Projected Profit", value: `$${projectedProfit.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, color: [34, 197, 94] as const },
+                  { label: "Profit Margin", value: `${profitMargin.toFixed(1)}%`, color: [249, 115, 22] as const },
+                ];
+
+                summaryData.forEach((item, idx) => {
+                  const xPos = margin + idx * (boxWidth + 3);
+                  const [r, g, b] = item.color;
+                  pdf.setFillColor(r, g, b);
+                  pdf.rect(xPos, yPosition, boxWidth, 12, "F");
+
+                  pdf.setTextColor(255, 255, 255);
+                  pdf.setFontSize(8);
+                  pdf.setFont(undefined, "normal");
+                  pdf.text(item.label, xPos + 2, yPosition + 4);
+
+                  pdf.setFontSize(10);
+                  pdf.setFont(undefined, "bold");
+                  pdf.text(String(item.value), xPos + 2, yPosition + 10);
+                });
+                pdf.setTextColor(0, 0, 0);
+
+                yPosition += 18;
+
+                // Contract meta lines
+                pdf.setFont(undefined, "bold");
+                pdf.setFontSize(10);
+                pdf.text(`Project: ${contract.project_name || "-"}`, margin, yPosition);
+                yPosition += 6;
+                pdf.setFont(undefined, "normal");
+                pdf.text(`Client: ${contract.client_name || "-"}`, margin, yPosition);
                 yPosition += 10;
+
+                // Table headers
+                const colWidths = [22, 135, 22, 22, 34];
+                const headers = ["CATEGORY", "ITEM", "QTY", "UNIT", "COST"];
+                pdf.setFillColor(59, 70, 87);
+                pdf.rect(margin, yPosition - 5, contentWidth, 8, "F");
+                pdf.setTextColor(255, 255, 255);
                 pdf.setFont(undefined, "bold");
                 pdf.setFontSize(11);
-                const profitColor = projectedProfit >= 0 ? [0, 100, 0] : [200, 0, 0];
-                pdf.setTextColor(profitColor[0], profitColor[1], profitColor[2]);
-                pdf.text(`Projected Profit: $${projectedProfit.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, margin, yPosition);
-                yPosition += lineHeight;
-                pdf.text(`Profit Margin: ${profitMargin.toFixed(1)}%`, margin, yPosition);
+                let xPosition = margin + 2;
+                headers.forEach((h, idx) => {
+                  if (idx === headers.length - 1) {
+                    pdf.text(h, xPosition + colWidths[idx] - 3, yPosition, { align: "right" });
+                  } else {
+                    pdf.text(h, xPosition, yPosition);
+                  }
+                  xPosition += colWidths[idx];
+                });
+                pdf.setTextColor(0, 0, 0);
+                yPosition += 12;
 
-                pdf.save(`${contract.id}-Budget-Summary.pdf`);
+                let lineIndex = 0;
+                items.forEach((row) => {
+                  const categoryLines = pdf.splitTextToSize(row.category || "-", colWidths[0] - 4);
+                  const itemLines = pdf.splitTextToSize(row.item || "-", colWidths[1] - 4);
+                  const qtyLines = pdf.splitTextToSize(row.qty || "-", colWidths[2] - 4);
+                  const unitLines = pdf.splitTextToSize(row.unit || "-", colWidths[3] - 4);
+                  const costLines = pdf.splitTextToSize(
+                    `$${(row.cost || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`,
+                    colWidths[4] - 4,
+                  );
+                  const rowLines = Math.max(1, categoryLines.length, itemLines.length, qtyLines.length, unitLines.length, costLines.length);
+                  const rowHeight = Math.max(10, 6 + rowLines * 4);
+
+                  if (yPosition + rowHeight > pageHeight - 15) {
+                    pdf.setFontSize(9);
+                    pdf.setTextColor(150, 150, 150);
+                    pdf.text(`Page ${pdf.internal.pages.length}`, pageWidth - margin - 10, pageHeight - 5);
+                    pdf.setTextColor(0, 0, 0);
+
+                    pdf.addPage();
+                    yPosition = 15;
+
+                    pdf.setFillColor(59, 70, 87);
+                    pdf.rect(margin, yPosition - 5, contentWidth, 8, "F");
+                    pdf.setTextColor(255, 255, 255);
+                    pdf.setFont(undefined, "bold");
+                    pdf.setFontSize(11);
+                    xPosition = margin + 2;
+                    headers.forEach((h, idx) => {
+                      if (idx === headers.length - 1) {
+                        pdf.text(h, xPosition + colWidths[idx] - 3, yPosition, { align: "right" });
+                      } else {
+                        pdf.text(h, xPosition, yPosition);
+                      }
+                      xPosition += colWidths[idx];
+                    });
+                    pdf.setTextColor(0, 0, 0);
+                    yPosition += 12;
+                    lineIndex = 0;
+                  }
+
+                  if (lineIndex % 2 === 0) {
+                    pdf.setFillColor(240, 245, 250);
+                  } else {
+                    pdf.setFillColor(255, 255, 255);
+                  }
+                  pdf.rect(margin, yPosition - 6, contentWidth, rowHeight, "F");
+                  pdf.setDrawColor(200, 200, 200);
+                  pdf.setLineWidth(0.2);
+                  pdf.line(margin, yPosition - 6 + rowHeight, margin + contentWidth, yPosition - 6 + rowHeight);
+
+                  xPosition = margin + 2;
+                  const baseY = yPosition;
+
+                  pdf.setFont(undefined, "normal");
+                  pdf.setFontSize(10);
+                  pdf.text(categoryLines, xPosition, baseY);
+                  xPosition += colWidths[0];
+
+                  pdf.setFont(undefined, "normal");
+                  pdf.setFontSize(9);
+                  pdf.text(itemLines, xPosition, baseY);
+                  xPosition += colWidths[1];
+
+                  pdf.setFontSize(10);
+                  pdf.text(qtyLines, xPosition, baseY);
+                  xPosition += colWidths[2];
+
+                  pdf.text(unitLines, xPosition, baseY);
+                  xPosition += colWidths[3];
+
+                  pdf.setFont(undefined, "bold");
+                  pdf.text(costLines, xPosition + colWidths[4] - 3, baseY, { align: "right" });
+
+                  yPosition += rowHeight;
+                  lineIndex += 1;
+                });
+
+                // Footer
+                const footerY = pageHeight - 10;
+                pdf.setDrawColor(200, 200, 200);
+                pdf.line(margin, footerY, pageWidth - margin, footerY);
+                pdf.setFont(undefined, "bold");
+                pdf.setFontSize(9);
+                pdf.setTextColor(0, 0, 0);
+                pdf.text(
+                  `Total Costs: $${totalCosts.toLocaleString(undefined, { maximumFractionDigits: 2 })} | Projected Profit: $${projectedProfit.toLocaleString(undefined, { maximumFractionDigits: 2 })}`,
+                  margin,
+                  footerY + 5,
+                );
+                pdf.setFontSize(8);
+                pdf.setTextColor(150, 150, 150);
+                pdf.text(`Page ${pdf.internal.pages.length}`, pageWidth - margin - 10, footerY + 5);
+
+                pdf.save(`${contract.id}-Budget-Summary-${new Date().toISOString().split("T")[0]}.pdf`);
               };
 
               return (

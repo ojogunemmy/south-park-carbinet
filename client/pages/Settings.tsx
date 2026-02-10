@@ -5,6 +5,7 @@ import { Label } from "@/components/ui/label";
 import { useState, useEffect } from "react";
 import { useYear } from "@/contexts/YearContext";
 import { getYearData, saveYearData } from "@/utils/yearStorage";
+import jsPDF from "jspdf";
 
 interface CompanySettings {
   companyName: string;
@@ -70,6 +71,84 @@ export default function Settings() {
       localStorage.removeItem("employeeAbsences");
       window.location.href = "/";
     }
+  };
+
+  const generateSettingsPDF = () => {
+    const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const margin = 20;
+    let yPosition = 20;
+
+    // Header
+    pdf.setFillColor(31, 41, 55);
+    pdf.rect(0, 0, pageWidth, 30, 'F');
+    pdf.setTextColor(255, 255, 255);
+    pdf.setFontSize(24);
+    pdf.setFont(undefined, 'bold');
+    pdf.text('SOUTH PARK CABINETS', margin, 15);
+    pdf.setFontSize(14);
+    pdf.setFont(undefined, 'normal');
+    pdf.text('Company Settings Report', margin, 25);
+    pdf.setTextColor(0, 0, 0);
+
+    yPosition = 45;
+
+    // Company Information Section
+    pdf.setFontSize(16);
+    pdf.setFont(undefined, 'bold');
+    pdf.text('Company Information', margin, yPosition);
+    yPosition += 10;
+
+    pdf.setFontSize(12);
+    pdf.setFont(undefined, 'normal');
+    const companyInfo = [
+      { label: 'Company Name:', value: settings.companyName },
+      { label: 'Address:', value: settings.companyAddress },
+      { label: 'City:', value: `${settings.companyCity}, ${settings.companyState} ${settings.companyZip}` },
+      { label: 'Phone:', value: settings.companyPhone }
+    ];
+
+    companyInfo.forEach((info) => {
+      pdf.setFont(undefined, 'bold');
+      pdf.text(info.label, margin, yPosition);
+      pdf.setFont(undefined, 'normal');
+      pdf.text(info.value, margin + 50, yPosition);
+      yPosition += 8;
+    });
+
+    yPosition += 10;
+
+    // Bank Information Section
+    pdf.setFontSize(16);
+    pdf.setFont(undefined, 'bold');
+    pdf.text('Bank Information', margin, yPosition);
+    yPosition += 10;
+
+    pdf.setFontSize(12);
+    pdf.setFont(undefined, 'normal');
+    const bankInfo = [
+      { label: 'Bank Name:', value: settings.bankName },
+      { label: 'Routing Number:', value: settings.routingNumber },
+      { label: 'Account Number:', value: `••••••••${settings.accountNumber.slice(-4)}` },
+      { label: 'Starting Check Number:', value: settings.checkStartNumber.toString() }
+    ];
+
+    bankInfo.forEach((info) => {
+      pdf.setFont(undefined, 'bold');
+      pdf.text(info.label, margin, yPosition);
+      pdf.setFont(undefined, 'normal');
+      pdf.text(info.value, margin + 50, yPosition);
+      yPosition += 8;
+    });
+
+    // Footer
+    const footerY = pageHeight - 15;
+    pdf.setFontSize(10);
+    pdf.setTextColor(150, 150, 150);
+    pdf.text(`Generated: ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`, margin, footerY);
+
+    pdf.save(`Company-Settings-${new Date().toISOString().split('T')[0]}.pdf`);
   };
 
   return (
@@ -228,6 +307,21 @@ export default function Settings() {
             <div>Routing: {settings.routingNumber}</div>
             <div>Account: •••••••••••{settings.accountNumber.slice(-4)}</div>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-slate-200">
+        <CardHeader>
+          <CardTitle>Export Settings</CardTitle>
+          <CardDescription>Download company settings as PDF</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button
+            onClick={generateSettingsPDF}
+            className="bg-slate-600 hover:bg-slate-700"
+          >
+            Export Settings PDF
+          </Button>
         </CardContent>
       </Card>
 

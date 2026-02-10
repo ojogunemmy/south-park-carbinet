@@ -181,6 +181,43 @@ export default function Payments() {
     }
   };
 
+  const handleEditingPaymentMethodChange = (method: string, payment?: PaymentObligation | null) => {
+    const normalized = normalizePaymentMethod(method) || method;
+    setEditingPaymentMethod(normalized);
+
+    if (normalized !== "check") {
+      setEditingCheckNumber("");
+      return;
+    }
+
+    // Preserve existing check number if already set; otherwise auto-assign next.
+    const existing = payment?.check_number || "";
+    if (existing.trim()) {
+      setEditingCheckNumber(existing);
+      return;
+    }
+    const next = getNextCheckNumber();
+    setEditingCheckNumber(String(next));
+  };
+
+  const parseYmdLocal = (dateString?: string | null) => {
+    if (!dateString) return null;
+    const parts = String(dateString).split("-");
+    if (parts.length !== 3) return null;
+    const year = Number(parts[0]);
+    const month = Number(parts[1]);
+    const day = Number(parts[2]);
+    if (!year || !month || !day) return null;
+    return new Date(year, month - 1, day);
+  };
+
+  const getPaymentCheckNumber = (payment: PaymentObligation, fallback?: number) => {
+    const fromRow = parseInt(payment.check_number || "", 10);
+    if (Number.isFinite(fromRow) && fromRow > 0) return fromRow;
+    if (typeof fallback === "number" && Number.isFinite(fallback) && fallback > 0) return fallback;
+    return 0;
+  };
+
   // Generate batch PDF with multiple checks
   const generateBatchChecksPDF = (checksToGenerate: PaymentObligation[]) => {
     if (checksToGenerate.length === 0) {
@@ -189,14 +226,13 @@ export default function Payments() {
     }
 
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-    let pageNumber = 1;
 
     checksToGenerate.forEach((payment, index) => {
       if (index > 0) {
         doc.addPage();
-        pageNumber++;
       }
 
+      const width = doc.internal.pageSize.getWidth();
       let y = 15;
 
       // Company header
@@ -213,12 +249,12 @@ export default function Payments() {
       y += 10;
 
       // Check number (top right)
-      const checkNum = parseInt(payment.check_number || '0', 10);
+      const checkNum = getPaymentCheckNumber(payment);
       doc.setFontSize(10);
       doc.setFont(undefined, 'bold');
-      doc.text(checkNum.toString().padStart(4, '0'), 180, 20);
+      doc.text(checkNum.toString().padStart(4, '0'), width - 30, 20);
       doc.setFontSize(8);
-      doc.text('Check #', 180, 26);
+      doc.text('Check #', width - 30, 26);
 
       // Date
       y += 5;
@@ -226,7 +262,12 @@ export default function Payments() {
       doc.setFont(undefined, 'bold');
       doc.text('DATE', 15, y);
       doc.setFont(undefined, 'normal');
-      doc.text(new Date().toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' }), 35, y);
+      const issuedDate = parseYmdLocal(payment.paid_date) || parseYmdLocal(payment.due_date) || new Date();
+      doc.text(
+        issuedDate.toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' }),
+        35,
+        y,
+      );
       y += 8;
 
       // Pay to the order of
@@ -254,10 +295,14 @@ export default function Payments() {
       // Dollar amount (right side)
       doc.setFontSize(9);
       doc.setFont(undefined, 'bold');
-      doc.text('AMOUNT', 155, y - wordLines.length * 5 - 5);
+      doc.text('AMOUNT', width - 50, y - wordLines.length * 5 - 5);
       doc.setFontSize(16);
       doc.setFont(undefined, 'bold');
-      doc.text(`$${(payment.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 155, y - wordLines.length * 5 + 4);
+      doc.text(
+        `$${(payment.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+        width - 50,
+        y - wordLines.length * 5 + 4,
+      );
 
       y += 10;
 
@@ -268,7 +313,9 @@ export default function Payments() {
       y += 5;
       doc.setFont(undefined, 'normal');
       doc.setFontSize(10);
-      const memo = payment.is_severance ? 'Severance Payment' : `Week of ${new Date(payment.week_start_date).toLocaleDateString()}`;
+      const memo = payment.is_severance
+        ? 'Severance Payment'
+        : `Week of ${new Date(payment.week_start_date).toLocaleDateString()}`;
       doc.text(memo, 15, y);
       y += 12;
 
@@ -283,7 +330,9 @@ export default function Payments() {
       y += 20;
       doc.setFontSize(14);
       doc.setFont(undefined, 'bold');
-      const micrLine = `|${settings?.routing_number?.padEnd(9, '0') || '000000000'}|${payment.employee_id.padEnd(12, ' ')}|${checkNum.toString().padStart(8, '0')}|`;
+      const routing = String(settings?.routing_number || '000000000').padEnd(9, '0').slice(0, 9);
+      const account = String(settings?.account_number || payment.employee_id || '').padEnd(12, ' ').slice(0, 12);
+      const micrLine = `|${routing}|${account}|${checkNum.toString().padStart(8, '0')}|`;
       doc.text(micrLine, 15, y);
     });
 
@@ -306,133 +355,299 @@ export default function Payments() {
         return;
       }
 
-      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-      const width = doc.internal.pageSize.getWidth();
-      
-      let y = 15;
-      const margin = 15;
+      const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const margin = 12;
+      const contentWidth = pageWidth - 2 * margin;
+      let yPosition = 12;
 
-      // Header
-      doc.setFontSize(18);
-      doc.setFont(undefined, 'bold');
-      doc.text("WEEKLY PAYMENTS REPORT", margin, y);
-      y += 8;
+      const weekLabel = new Date(selectedWeek).toLocaleDateString();
+      const generatedLabel = `${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`;
 
-      doc.setFontSize(10);
-      doc.setFont(undefined, 'normal');
-      doc.text(`Generated: ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`, margin, y);
-      y += 6;
-      doc.text(`Week: ${new Date(selectedWeek).toLocaleDateString()}`, margin, y);
-      y += 6;
+      const hardWrap = (text: string, maxWidth: number) => {
+        const safeText = String(text ?? '');
+        const initial = pdf.splitTextToSize(safeText, maxWidth) as string[];
+        const out: string[] = [];
 
-      y += 10;
+        for (const line of initial) {
+          if (pdf.getTextWidth(line) <= maxWidth + 0.01) {
+            out.push(line);
+            continue;
+          }
 
-      // Table Headers
-      doc.setFont(undefined, 'bold');
-      doc.setFontSize(9);
-      doc.setFillColor(240, 240, 240);
-      doc.rect(margin, y - 5, width - 2 * margin, 8, 'F');
-      
-      doc.text("DATE", margin, y);
-      doc.text("RECIPIENT", margin + 25, y);
-      doc.text("DESCRIPTION", margin + 65, y); // Adjusted X
-      doc.text("METHOD", margin + 115, y);      // Adjusted X
-      doc.text("STATUS", margin + 145, y);      // New Column
-      doc.text("AMOUNT", width - margin, y, { align: "right" });
-      
-      y += 8;
+          let current = '';
+          for (const ch of line) {
+            const next = current + ch;
+            if (current && pdf.getTextWidth(next) > maxWidth) {
+              out.push(current);
+              current = ch;
+            } else {
+              current = next;
+            }
+          }
+          if (current) out.push(current);
+        }
 
-      // Table Content
-      doc.setFont(undefined, 'normal');
+        return out.length ? out : [''];
+      };
+
+      const drawRightAlignedLines = (lines: string[], xRight: number, yTop: number, lineStep = 6) => {
+        lines.forEach((line, i) => {
+          pdf.text(line, xRight, yTop + i * lineStep, { align: 'right' });
+        });
+      };
+
+      // Totals for summary
       let totalPaid = 0;
       let totalPending = 0;
+      let paidCount = 0;
+      let pendingCount = 0;
 
-      filteredPayments.forEach((payment, index) => {
-        if (y > 270) {
-          doc.addPage();
-          y = 20;
-          // Re-print headers on new page
-          doc.setFont(undefined, 'bold');
-          doc.setFillColor(240, 240, 240);
-          doc.rect(margin, y - 5, width - 2 * margin, 8, 'F');
-          
-          doc.text("DATE", margin, y);
-          doc.text("RECIPIENT", margin + 25, y);
-          doc.text("DESCRIPTION", margin + 65, y);
-          doc.text("METHOD", margin + 115, y);
-          doc.text("STATUS", margin + 145, y);
-          doc.text("AMOUNT", width - margin, y, { align: "right" });
-          doc.setFont(undefined, 'normal');
-          y += 8;
+      filteredPayments.forEach((p) => {
+        if (p.status === 'paid') {
+          totalPaid += p.amount || 0;
+          paidCount += 1;
+        } else if (p.status === 'pending') {
+          totalPending += p.amount || 0;
+          pendingCount += 1;
         }
+      });
+      const grandTotal = totalPaid + totalPending;
 
-        const dateStr = new Date(payment.week_start_date).toLocaleDateString();
-        const methodStr = (payment.payment_method || "N/A").replace("_", " ");
-        
-        // Determine description: Use notes if available (covers Severance), else default to Weekly Salary
-        let descStr = payment.notes || (payment.is_severance ? "Severance" : "Weekly Salary");
-        
-        if (payment.check_number) descStr += ` (Chk #${payment.check_number})`;
-        
-        // Status formatting
-        const statusStr = payment.status.charAt(0).toUpperCase() + payment.status.slice(1);
-        
-        // Calculate Totals based on status
-        if (payment.status === "paid") {
-          totalPaid += payment.amount;
-        } else if (payment.status === "pending") {
-          totalPending += payment.amount;
+      // Company Header Background
+      pdf.setFillColor(31, 41, 55);
+      pdf.rect(0, 0, pageWidth, 22, 'F');
+
+      // Company Title
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFontSize(20);
+      pdf.setFont(undefined, 'bold');
+      pdf.text(settings?.company_name || 'SOUTH PARK CABINETS', margin, 10);
+
+      // Subtitle + generated
+      pdf.setFontSize(11);
+      pdf.setFont(undefined, 'normal');
+      pdf.text('Weekly Payments Report', margin, 18);
+      pdf.setTextColor(150, 150, 150);
+      pdf.setFontSize(9);
+      pdf.text(`Week: ${weekLabel}`, pageWidth - margin - 70, 14);
+      pdf.text(`Generated: ${generatedLabel}`, pageWidth - margin - 70, 18);
+      pdf.setTextColor(0, 0, 0);
+
+      yPosition = 28;
+
+      // Summary Statistics Boxes
+      const boxWidth = (contentWidth - 9) / 4;
+      const summaryData = [
+        { label: 'Total Payments', value: filteredPayments.length, color: [59, 130, 246] as const },
+        { label: 'Paid', value: paidCount, color: [34, 197, 94] as const },
+        { label: 'Pending', value: pendingCount, color: [168, 85, 247] as const },
+        { label: 'Total Amount', value: `$${grandTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, color: [249, 115, 22] as const },
+      ];
+
+      summaryData.forEach((item, idx) => {
+        const xPos = margin + idx * (boxWidth + 3);
+        const [r, g, b] = item.color;
+        pdf.setFillColor(r, g, b);
+        pdf.rect(xPos, yPosition, boxWidth, 12, 'F');
+
+        pdf.setTextColor(255, 255, 255);
+        pdf.setFontSize(8);
+        pdf.setFont(undefined, 'normal');
+        pdf.text(item.label, xPos + 2, yPosition + 4);
+
+        pdf.setFontSize(10);
+        pdf.setFont(undefined, 'bold');
+        pdf.text(String(item.value), xPos + 2, yPosition + 10);
+      });
+      pdf.setTextColor(0, 0, 0);
+
+      yPosition += 18;
+
+      // Table headers with background
+      const colWidths = [22, 70, 70, 28, 26, 28];
+      const headers = ['DATE', 'RECIPIENT', 'DESCRIPTION', 'METHOD', 'STATUS', 'AMOUNT'];
+
+      pdf.setFillColor(59, 70, 87);
+      pdf.rect(margin, yPosition - 5, contentWidth, 8, 'F');
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFont(undefined, 'bold');
+      pdf.setFontSize(11);
+
+      let xPosition = margin + 2;
+      headers.forEach((header, idx) => {
+        if (idx === headers.length - 1) {
+          pdf.text(header, xPosition + colWidths[idx] - 2, yPosition, { align: 'right' });
+        } else {
+          pdf.text(header, xPosition, yPosition);
         }
-
-        doc.text(dateStr, margin, y);
-        
-        // Truncate long names
-        const name = payment.employee_name.length > 20 ? payment.employee_name.substring(0, 18) + "..." : payment.employee_name;
-        doc.text(name, margin + 25, y);
-
-        // Truncate long descriptions
-        const desc = descStr.length > 25 ? descStr.substring(0, 23) + "..." : descStr;
-        doc.text(desc, margin + 65, y);
-
-        doc.text(methodStr, margin + 115, y);
-        
-        // Status with color indication (simple caps for now)
-        doc.text(statusStr, margin + 145, y);
-
-        doc.text(`$${payment.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, width - margin, y, { align: "right" });
-
-        y += 6;
+        xPosition += colWidths[idx];
       });
 
-      // Totals Section
-      y += 4;
-      doc.setDrawColor(0, 0, 0);
-      doc.line(margin, y, width - margin, y);
-      y += 8;
-      
-      // Totals breakdown
-      const totalColX = margin + 130;
-      
-      doc.setFont(undefined, 'normal');
-      doc.text("Total Paid:", totalColX, y);
-      doc.text(`$${totalPaid.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, width - margin, y, { align: "right" });
-      y += 6;
+      pdf.setTextColor(0, 0, 0);
+      yPosition += 12;
 
-      doc.text("Total Pending:", totalColX, y);
-      doc.text(`$${totalPending.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, width - margin, y, { align: "right" });
-      y += 8;
+      // Table rows
+      let lineIndex = 0;
+      filteredPayments.forEach((payment) => {
+        const dateObj =
+          parseYmdLocal(payment.paid_date) ||
+          parseYmdLocal(payment.due_date) ||
+          parseYmdLocal(payment.week_start_date) ||
+          new Date();
+        const dateStr = dateObj.toLocaleDateString();
 
-      // Grand Total line
-      doc.setDrawColor(200, 200, 200);
-      doc.line(totalColX, y - 2, width - margin, y - 2);
-      
-      doc.setFont(undefined, 'bold');
-      doc.setFontSize(11);
-      doc.text("TOTAL:", totalColX, y);
-      const grandTotal = totalPaid + totalPending;
-      doc.text(`$${grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, width - margin, y, { align: "right" });
+        const methodStr = paymentMethodPlainLabel(
+          normalizePaymentMethod(payment.payment_method) || payment.payment_method || 'N/A',
+        );
 
-      doc.save(`Weekly-Payments-Report-${formatDateToString(new Date())}.pdf`);
+        const statusStr = isCancelledStatus(payment.status)
+          ? 'Cancelled'
+          : payment.status.charAt(0).toUpperCase() + payment.status.slice(1);
+
+        let descStr = payment.notes || (payment.is_severance ? 'Severance' : 'Weekly Salary');
+        if (payment.check_number) descStr += ` (Chk #${payment.check_number})`;
+
+        // Wrap all columns using the same font sizes they will be rendered with
+        pdf.setFont(undefined, 'normal');
+        pdf.setFontSize(10);
+        const dateLines = hardWrap(dateStr, colWidths[0] - 4);
+
+        pdf.setFont(undefined, 'bold');
+        pdf.setFontSize(10);
+        const nameLines = hardWrap(payment.employee_name || '', colWidths[1] - 4);
+
+        pdf.setFont(undefined, 'normal');
+        pdf.setFontSize(9);
+        const descLines = hardWrap(descStr, colWidths[2] - 4);
+
+        pdf.setFont(undefined, 'normal');
+        pdf.setFontSize(10);
+        const methodLines = hardWrap(methodStr, colWidths[3] - 4);
+        const statusLines = hardWrap(statusStr, colWidths[4] - 4);
+
+        pdf.setFont(undefined, 'bold');
+        pdf.setFontSize(10);
+        const amountText = `$${(payment.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        const amountLines = hardWrap(amountText, colWidths[5] - 4);
+
+        const rowLines = Math.max(
+          1,
+          dateLines.length,
+          nameLines.length,
+          descLines.length,
+          methodLines.length,
+          statusLines.length,
+          amountLines.length,
+        );
+        const rowHeight = Math.max(10, 6 + rowLines * 6);
+
+        // Page break
+        if (yPosition + rowHeight > pageHeight - 15) {
+          // Footer with page number
+          pdf.setFontSize(9);
+          pdf.setTextColor(150, 150, 150);
+          pdf.text(`Page ${pdf.internal.pages.length}`, pageWidth - margin - 10, pageHeight - 5);
+          pdf.setTextColor(0, 0, 0);
+
+          pdf.addPage();
+          yPosition = 15;
+
+          // Repeat table header
+          pdf.setFillColor(59, 70, 87);
+          pdf.rect(margin, yPosition - 5, contentWidth, 8, 'F');
+          pdf.setTextColor(255, 255, 255);
+          pdf.setFont(undefined, 'bold');
+          pdf.setFontSize(11);
+          xPosition = margin + 2;
+          headers.forEach((header, idx) => {
+            if (idx === headers.length - 1) {
+              pdf.text(header, xPosition + colWidths[idx] - 2, yPosition, { align: 'right' });
+            } else {
+              pdf.text(header, xPosition, yPosition);
+            }
+            xPosition += colWidths[idx];
+          });
+          pdf.setTextColor(0, 0, 0);
+          yPosition += 12;
+          lineIndex = 0;
+        }
+
+        // Alternating row background
+        if (lineIndex % 2 === 0) {
+          pdf.setFillColor(240, 245, 250);
+        } else {
+          pdf.setFillColor(255, 255, 255);
+        }
+        pdf.rect(margin, yPosition - 6, contentWidth, rowHeight, 'F');
+
+        // Border line
+        pdf.setDrawColor(200, 200, 200);
+        pdf.setLineWidth(0.2);
+        pdf.line(margin, yPosition - 6 + rowHeight, margin + contentWidth, yPosition - 6 + rowHeight);
+
+        // Row content
+        xPosition = margin + 2;
+        const baseY = yPosition;
+
+        pdf.setFont(undefined, 'normal');
+        pdf.setFontSize(10);
+        pdf.text(dateLines, xPosition, baseY);
+        xPosition += colWidths[0];
+
+        pdf.setFont(undefined, 'bold');
+        pdf.setFontSize(10);
+        pdf.text(nameLines[0] || '', xPosition, baseY);
+        if (nameLines.length > 1) {
+          pdf.setFont(undefined, 'normal');
+          pdf.setFontSize(9);
+          pdf.setTextColor(80, 80, 80);
+          pdf.text(nameLines.slice(1), xPosition, baseY + 6);
+          pdf.setTextColor(0, 0, 0);
+        }
+        xPosition += colWidths[1];
+
+        pdf.setFont(undefined, 'normal');
+        pdf.setFontSize(9);
+        pdf.text(descLines, xPosition, baseY);
+        xPosition += colWidths[2];
+
+        pdf.setFont(undefined, 'normal');
+        pdf.setFontSize(10);
+        pdf.text(methodLines, xPosition, baseY);
+        xPosition += colWidths[3];
+
+        pdf.setFont(undefined, 'normal');
+        pdf.setFontSize(10);
+        pdf.text(statusLines, xPosition, baseY);
+        xPosition += colWidths[4];
+
+        pdf.setFont(undefined, 'bold');
+        pdf.setFontSize(10);
+        drawRightAlignedLines(amountLines, xPosition + colWidths[5] - 2, baseY);
+
+        yPosition += rowHeight;
+        lineIndex += 1;
+      });
+
+      // Footer
+      const footerY = pageHeight - 10;
+      pdf.setDrawColor(200, 200, 200);
+      pdf.line(margin, footerY, pageWidth - margin, footerY);
+      pdf.setFont(undefined, 'bold');
+      pdf.setFontSize(9);
+      pdf.setTextColor(0, 0, 0);
+      pdf.text(
+        `Total Paid: $${totalPaid.toLocaleString(undefined, { maximumFractionDigits: 2 })} | Total Pending: $${totalPending.toLocaleString(undefined, { maximumFractionDigits: 2 })} | Total: $${grandTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}`,
+        margin,
+        footerY + 5,
+      );
+      pdf.setFontSize(8);
+      pdf.setTextColor(150, 150, 150);
+      pdf.text(`Page ${pdf.internal.pages.length}`, pageWidth - margin - 10, footerY + 5);
+
+      pdf.save(`Weekly-Payments-Report-${formatDateToString(new Date())}.pdf`);
       toast({
         title: "✓ Report Generated",
         description: `Weekly payments report saved with totals breakdown.`,
@@ -451,31 +666,30 @@ export default function Payments() {
   // Generate PDF check
   const generateCheckPDF = (payment: PaymentObligation, checkNum: number, settings: any) => {
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-    const width = doc.internal.pageSize.getWidth();
-    const height = doc.internal.pageSize.getHeight();
 
-    // Set up the check layout
+    const width = doc.internal.pageSize.getWidth();
     let y = 15;
+
+    const actualCheckNum = getPaymentCheckNumber(payment, checkNum);
+    const issuedDate = parseYmdLocal(payment.paid_date) || parseYmdLocal(payment.due_date) || new Date();
 
     // Company header
     doc.setFontSize(18);
     doc.setFont(undefined, 'bold');
-    doc.text(settings?.companyName || 'Your Company', 15, y);
+    doc.text(settings?.company_name || 'Your Company', 15, y);
     y += 7;
 
     doc.setFontSize(9);
     doc.setFont(undefined, 'normal');
-    doc.text(settings?.companyAddress || '', 15, y);
+    doc.text(settings?.company_address || '', 15, y);
     y += 5;
-    doc.text(`${settings?.companyCity}, ${settings?.companyState} ${settings?.companyZip}`, 15, y);
-    y += 5;
-    doc.text(settings?.companyPhone || '', 15, y);
+    doc.text(settings?.company_phone || '', 15, y);
     y += 10;
 
     // Check number (top right)
     doc.setFontSize(10);
     doc.setFont(undefined, 'bold');
-    doc.text(checkNum.toString().padStart(4, '0'), width - 30, 20);
+    doc.text(actualCheckNum.toString().padStart(4, '0'), width - 30, 20);
     doc.setFontSize(8);
     doc.text('Check #', width - 30, 26);
 
@@ -485,7 +699,11 @@ export default function Payments() {
     doc.setFont(undefined, 'bold');
     doc.text('DATE', 15, y);
     doc.setFont(undefined, 'normal');
-    doc.text(new Date().toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' }), 35, y);
+    doc.text(
+      issuedDate.toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' }),
+      35,
+      y,
+    );
     y += 8;
 
     // Pay to the order of
@@ -516,7 +734,11 @@ export default function Payments() {
     doc.text('AMOUNT', width - 50, y - wordLines.length * 5 - 5);
     doc.setFontSize(16);
     doc.setFont(undefined, 'bold');
-    doc.text(`$${(payment.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, width - 50, y - wordLines.length * 5 + 4);
+    doc.text(
+      `$${(payment.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      width - 50,
+      y - wordLines.length * 5 + 4,
+    );
 
     y += 10;
 
@@ -527,7 +749,9 @@ export default function Payments() {
     y += 5;
     doc.setFont(undefined, 'normal');
     doc.setFontSize(10);
-    const memo = payment.is_severance ? 'Severance Payment' : `Week of ${new Date(payment.week_start_date).toLocaleDateString()}`;
+    const memo = payment.is_severance
+      ? 'Severance Payment'
+      : `Week of ${new Date(payment.week_start_date).toLocaleDateString()}`;
     doc.text(memo, 15, y);
     y += 12;
 
@@ -542,11 +766,12 @@ export default function Payments() {
     y += 20;
     doc.setFontSize(14);
     doc.setFont(undefined, 'bold');
-    const micrLine = `|${settings?.routing_number?.padEnd(9, '0') || '000000000'}|${payment.employee_id.padEnd(12, ' ')}|${checkNum.toString().padStart(8, '0')}|`;
+    const routing = String(settings?.routing_number || '000000000').padEnd(9, '0').slice(0, 9);
+    const account = String(settings?.account_number || payment.employee_id || '').padEnd(12, ' ').slice(0, 12);
+    const micrLine = `|${routing}|${account}|${actualCheckNum.toString().padStart(8, '0')}|`;
     doc.text(micrLine, 15, y);
 
-    // Save PDF
-    const fileName = `check_${payment.employee_name.replace(/\s+/g, '_')}_${checkNum}.pdf`;
+    const fileName = `check_${payment.employee_name.replace(/\s+/g, '_')}_${actualCheckNum}.pdf`;
     doc.save(fileName);
   };
 
@@ -569,7 +794,7 @@ export default function Payments() {
   const [editingAmount, setEditingAmount] = useState<number>(0);
   const [editingCheckNumber, setEditingCheckNumber] = useState<string>("");
   const [editingPaymentMethod, setEditingPaymentMethod] = useState<string>("");
-  const [filterStatus, setFilterStatus] = useState<"all" | "pending" | "paid">("all");
+  const [filterStatus, setFilterStatus] = useState<"all" | "pending" | "paid" | "cancelled">("all");
   const [filterEmployee, setFilterEmployee] = useState<string>("all");
   const [isCheckPrintModalOpen, setIsCheckPrintModalOpen] = useState(false);
   const [selectedCheckPaymentId, setSelectedCheckPaymentId] = useState<string | null>(null);
@@ -934,12 +1159,10 @@ export default function Payments() {
       return;
     }
 
-    // Validate check number if payment method is check
+    // Validate check number (auto-assigned) if payment method is check
     if (editingPaymentMethod === "check" && editingCheckNumber.trim()) {
       const isValid = await validateCheckNumber(editingCheckNumber, editingPaymentId);
-      if (!isValid) {
-        return;
-      }
+      if (!isValid) return;
     }
 
     try {
@@ -948,11 +1171,12 @@ export default function Payments() {
         payment_method: editingPaymentMethod
       };
       
-      // Only update check_number if payment method is check
-      if (editingPaymentMethod === "check") {
-        updateData.check_number = editingCheckNumber || null;
-      } else {
+      // Check numbers are unique and should not be manually edited.
+      // Preserve existing check_number when staying on check; clear it when switching away from check.
+      if (editingPaymentMethod !== "check") {
         updateData.check_number = null;
+      } else {
+        updateData.check_number = editingCheckNumber || null;
       }
 
       const { error } = await supabase
@@ -1414,6 +1638,93 @@ export default function Payments() {
     setIsBulkReverseOpen(true);
   };
 
+  const isCancelledStatus = (status: unknown) => status === "cancelled" || status === "canceled";
+
+  const getCleanableGeneratedWeekPayments = (weekStart: string) => {
+    if (!weekStart) return [];
+    return payments.filter((p) => {
+      if (p.week_start_date !== weekStart) return false;
+      if (p.status !== "pending") return false;
+      if ((p as any).is_correction) return false;
+      if ((p as any).reversed_by_payment_id) return false;
+      if ((p as any).is_severance || (p as any).severance_date) return false;
+
+      const notes = (p as any).notes;
+      const daysWorked = Number((p as any).days_worked ?? p.days_worked ?? 0);
+
+      // Generated week payments are created either as:
+      // - weekly salary rows: notes null/empty, days_worked > 0
+      // - queued additional rows: days_worked === 0 (note contains the reason)
+      const looksLikeWeeklySalary = notes == null || String(notes).trim() === "" || String(notes).trim() === "Weekly Salary";
+      const looksLikeAdditional = daysWorked === 0;
+      return looksLikeWeeklySalary || looksLikeAdditional;
+    });
+  };
+
+  const handleCleanGeneratedWeekPayments = async () => {
+    if (!selectedWeek) {
+      toast({
+        title: "No Week Selected",
+        description: "Please select a week first.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const candidates = getCleanableGeneratedWeekPayments(selectedWeek);
+    if (candidates.length === 0) {
+      toast({
+        title: "Nothing to Clean",
+        description: "No pending generated week payments found for this week.",
+      });
+      return;
+    }
+
+    const weekLabel = new Date(selectedWeek).toLocaleDateString();
+    const ok = window.confirm(
+      `Clean generated payments for week of ${weekLabel}? This will mark ${candidates.length} payment(s) as cancelled.`,
+    );
+    if (!ok) return;
+
+    try {
+      setIsSubmitting(true);
+      const ids = candidates.map((p) => p.id);
+
+      const chunkSize = 50;
+      for (let i = 0; i < ids.length; i += chunkSize) {
+        const chunk = ids.slice(i, i + chunkSize);
+        const { error } = await supabase
+          .from("payments")
+          .update({ status: "cancelled" })
+          .in("id", chunk);
+        if (error) throw error;
+      }
+
+      await loadFreshData();
+
+      toast({
+        title: "✓ Week Cleaned",
+        description: `Cancelled ${candidates.length} generated payment(s) for ${weekLabel}.`,
+      });
+    } catch (error) {
+      const errAny = error as any;
+      const message =
+        errAny?.message ||
+        errAny?.details ||
+        errAny?.hint ||
+        errAny?.error_description ||
+        (typeof errAny === "string" ? errAny : "Unknown error");
+      console.error("Error cleaning generated week payments:", error);
+      toast({
+        title: "Error",
+        description: `Failed to clean generated week payments. ${message}`,
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const handleConfirmBulkReverse = async () => {
     if (selectedReversalPayments.size === 0) {
       toast({
@@ -1650,7 +1961,9 @@ export default function Payments() {
 
   const filteredPayments = payments
     .filter((p) => {
-      const statusMatch = filterStatus === "all" || p.status === filterStatus;
+      const statusMatch =
+        filterStatus === "all" ||
+        (filterStatus === "cancelled" ? isCancelledStatus(p.status) : p.status === filterStatus);
       const employeeMatch = filterEmployee === "all" || p.employee_id === filterEmployee;
 
       // Strict Week Filtering
@@ -1658,7 +1971,7 @@ export default function Payments() {
 
       // Filter out pending or canceled payments for laid-off employees unless it's severance
       let laidOffFilter = true;
-      if ((p.status === "pending" || p.status === "canceled") && p.employee_status === "laid_off") {
+      if ((p.status === "pending" || isCancelledStatus(p.status)) && p.employee_status === "laid_off") {
         // Rely strictly on DB flags as requested by user
         // p.is_severance is the primary truth. p.severance_date is a secondary confirmation.
         const isSeverance = !!p.is_severance || !!p.severance_date;
@@ -2363,10 +2676,7 @@ export default function Payments() {
             {viewMode === "weekly" ? "Yearly Earnings" : "All Payments"}
           </Button>
           <Button
-            onClick={() => {
-              document.body.setAttribute('data-current-page', `Payroll - ${viewMode === "weekly" ? "Weekly Payments" : "Yearly Earnings"}`);
-              window.print();
-            }}
+            onClick={generateWeeklyReportPDF}
             className="gap-2 bg-slate-700 hover:bg-slate-800"
             title="Print payroll information"
           >
@@ -2523,7 +2833,7 @@ export default function Payments() {
                       <SelectItem value="all">All Status</SelectItem>
                       <SelectItem value="pending">Pending</SelectItem>
                       <SelectItem value="paid">Paid</SelectItem>
-                      <SelectItem value="canceled">Canceled</SelectItem>
+                      <SelectItem value="cancelled">Canceled</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -2614,6 +2924,17 @@ export default function Payments() {
                 >
                   <Edit2 className="w-4 h-4" />
                   Edit Week Payments
+                </Button>
+
+                <Button
+                  variant="outline"
+                  onClick={handleCleanGeneratedWeekPayments}
+                  className="gap-2 border-red-200 hover:bg-red-50 hover:text-red-700 hover:border-red-300"
+                  title="Cancel the generated pending payments for this week"
+                  disabled={isSubmitting || getCleanableGeneratedWeekPayments(selectedWeek).length === 0}
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Clean Week
                 </Button>
               </div>
 
@@ -2800,7 +3121,7 @@ export default function Payments() {
                               <CheckCircle className="w-4 h-4 text-green-600" />
                               <span className="text-xs font-medium text-green-700">Paid {new Date(payment.paid_date!).toLocaleDateString()}</span>
                             </>
-                          ) : payment.status === "canceled" ? (
+                          ) : isCancelledStatus(payment.status) ? (
                             <>
                               <AlertCircle className="w-4 h-4 text-red-600" />
                               <span className="text-xs font-medium text-red-700">Canceled</span>
@@ -2910,7 +3231,7 @@ export default function Payments() {
                             <CheckCircle className="w-3 h-3" />
                             Paid
                           </div>
-                        ) : payment.status === "canceled" ? (
+                        ) : isCancelledStatus(payment.status) ? (
                           <div className="flex items-center gap-1 text-xs font-medium text-red-700 bg-red-50 px-2 py-0.5 rounded-full">
                             <AlertCircle className="w-3 h-3" />
                             Canceled
@@ -3110,11 +3431,11 @@ export default function Payments() {
                       id="check_number"
                       type="text"
                       value={check_number}
-                      onChange={(e) => setPaidCheckNumber(e.target.value)}
+                      onChange={(e) => setPaidCheckNumber(e.target.value.replace(/\D/g, ""))}
                       placeholder="e.g., 1001"
                       className="border-slate-300 font-semibold text-blue-600"
                     />
-                    <p className="text-xs text-green-600 font-medium">✓ Next sequential check number auto-assigned</p>
+                    <p className="text-xs text-slate-500">Check numbers must be unique. Tip: selecting “Check” auto-fills the next number.</p>
                   </div>
                 )}
 
@@ -3270,7 +3591,7 @@ export default function Payments() {
 
                     <div className="space-y-2">
                       <Label htmlFor="editPaymentMethod">Payment Method</Label>
-                      <Select value={editingPaymentMethod} onValueChange={setEditingPaymentMethod}>
+                      <Select value={editingPaymentMethod} onValueChange={(value) => handleEditingPaymentMethodChange(value, payment)}>
                         <SelectTrigger className="w-full">
                           <SelectValue placeholder="Select payment method" />
                         </SelectTrigger>
@@ -3287,16 +3608,26 @@ export default function Payments() {
                     {editingPaymentMethod === "check" && (
                       <div className="space-y-2">
                         <Label htmlFor="editCheckNumber">Check Number</Label>
-                        <Input
-                          id="editCheckNumber"
-                          type="text"
-                          value={editingCheckNumber}
-                          onChange={(e) => setEditingCheckNumber(e.target.value)}
-                          placeholder="e.g., 1001"
-                          className="border-slate-300"
-                        />
+                        <div className="flex items-center gap-2">
+                          <Input
+                            id="editCheckNumber"
+                            type="text"
+                            value={editingCheckNumber}
+                            onChange={(e) => setEditingCheckNumber(e.target.value.replace(/\D/g, ""))}
+                            placeholder="e.g., 1001"
+                            className="border-slate-300 flex-1"
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setEditingCheckNumber(String(getNextCheckNumber()))}
+                            className="border-slate-300"
+                          >
+                            Auto-assign
+                          </Button>
+                        </div>
                         <p className="text-xs text-slate-500">
-                          {payment.check_number ? `Original: #${payment.check_number}` : "No check number set"}
+                          {payment.check_number ? `Original: #${payment.check_number} • ` : ""}Check numbers must be unique. Tip: use Auto-assign if you’re unsure.
                         </p>
                       </div>
                     )}
@@ -3761,13 +4092,6 @@ export default function Payments() {
                     <Download className="w-4 h-4" />
                     Export as PDF
                   </Button>
-                  <Button
-                    onClick={() => window.print()}
-                    className="bg-blue-600 hover:bg-blue-700 gap-2"
-                  >
-                    <Printer className="w-4 h-4" />
-                    Print Check
-                  </Button>
                 </div>
               </div>
             </DialogContent>
@@ -3799,7 +4123,7 @@ export default function Payments() {
                     <span className="font-medium">Amount:</span> ${(paymentToReverse.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </p>
                   <p className="text-sm text-slate-600">
-                    <span className="font-medium">Status:</span> {paymentToReverse.status === "paid" ? "Paid" : paymentToReverse.status === "canceled" ? "Canceled" : "Pending"}
+                    <span className="font-medium">Status:</span> {paymentToReverse.status === "paid" ? "Paid" : isCancelledStatus(paymentToReverse.status) ? "Canceled" : "Pending"}
                   </p>
                 </div>
               )}
@@ -3926,6 +4250,8 @@ export default function Payments() {
                   </Button>
                 </div>
               )}
+
+              <p className="text-xs text-blue-800 mt-2">Check numbers must be unique. Tip: use Auto-assign if you’re unsure.</p>
             </div>
 
             {/* Individual payment method and check number assignments */}
@@ -3995,13 +4321,17 @@ export default function Payments() {
                             id={`check-${payment.id}`}
                             type="text"
                             value={bulkCheckNumbers[payment.id] || ""}
-                            onChange={(e) => setBulkCheckNumbers(prev => ({
-                              ...prev,
-                              [payment.id]: e.target.value
-                            }))}
+                            onChange={(e) => {
+                              const digitsOnly = e.target.value.replace(/\D/g, "");
+                              setBulkCheckNumbers(prev => ({
+                                ...prev,
+                                [payment.id]: digitsOnly,
+                              }));
+                            }}
                             className="w-full"
                             placeholder="1001"
                           />
+                          <p className="text-xs text-slate-500">Must be unique. Tip: use Auto-assign above.</p>
                         </div>
                       )}
                     </div>

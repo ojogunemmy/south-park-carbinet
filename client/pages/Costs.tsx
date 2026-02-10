@@ -389,7 +389,7 @@ export default function Costs() {
 
       // Must sum to contentWidth (landscape A4 minus margins)
       // Wider Contract column so full IDs show without truncation
-      const colWidths = [7, 28, 47, 30, 18, 23, 20, 20, 20, 23, 23, 14];
+      const colWidths = [7, 28, 42, 30, 18, 23, 20, 20, 20, 23, 23, 14];
       const headers = [
         "#",
         "Contract",

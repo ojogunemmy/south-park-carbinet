@@ -243,7 +243,7 @@ export default function Materials() {
       yPosition += 18;
 
       // Table headers with background - bigger, bolder
-      const colWidths = [10, 85, 15, 18, 22];
+      const colWidths = [10, 100, 15, 18, 22];
       const headers = ["#", "Product and Description", "Unit", "Price", "Amount"];
 
       pdf.setFillColor(59, 70, 87); // Darker slate

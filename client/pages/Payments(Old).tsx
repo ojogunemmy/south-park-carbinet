@@ -1714,7 +1714,7 @@ export default function Payments() {
                   <SelectItem value="all">All Status</SelectItem>
                   <SelectItem value="pending">Pending</SelectItem>
                   <SelectItem value="paid">Paid</SelectItem>
-                  <SelectItem value="canceled">Canceled</SelectItem>
+                      <SelectItem value="cancelled">Canceled</SelectItem>
                 </SelectContent>
               </Select>
 
@@ -1923,7 +1923,7 @@ export default function Payments() {
                               <CheckCircle className="w-4 h-4 text-green-600" />
                               <span className="text-xs font-medium text-green-700">Paid {new Date(payment.paid_date!).toLocaleDateString()}</span>
                             </>
-                          ) : payment.status === "canceled" ? (
+                          ) : payment.status === "cancelled" || payment.status === "canceled" ? (
                             <>
                               <AlertCircle className="w-4 h-4 text-red-600" />
                               <span className="text-xs font-medium text-red-700">Canceled</span>
@@ -2005,7 +2005,7 @@ export default function Payments() {
                               >
                                 Paid
                               </Button>
-                            ) : payment.status === "canceled" ? (
+                            ) : payment.status === "cancelled" || payment.status === "canceled" ? (
                               <span className="text-xs text-slate-500">—</span>
                             ) : (
                               <Button
@@ -2739,7 +2739,7 @@ export default function Payments() {
                     <span className="font-medium">Amount:</span> ${(paymentToDelete.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </p>
                   <p className="text-sm text-slate-600">
-                    <span className="font-medium">Status:</span> {paymentToDelete.status === "paid" ? "Paid" : paymentToDelete.status === "canceled" ? "Canceled" : "Pending"}
+                    <span className="font-medium">Status:</span> {paymentToDelete.status === "paid" ? "Paid" : paymentToDelete.status === "cancelled" || paymentToDelete.status === "canceled" ? "Canceled" : "Pending"}
                   </p>
                 </div>
               )}

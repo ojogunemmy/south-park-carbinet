@@ -149,117 +149,219 @@ export default function Workers() {
         return;
       }
 
-      const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+      const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
-      let yPosition = 15;
-      const margin = 10;
-      const lineHeight = 5;
+      const margin = 12;
+      const contentWidth = pageWidth - 2 * margin;
+      let yPosition = 12;
 
-      // Title
-      pdf.setFontSize(14);
-      pdf.setFont(undefined, "bold");
-      pdf.text("Workers Management", margin, yPosition);
-      yPosition += 8;
+      const totalWeeklyPayroll = workers.reduce((sum, w) => sum + (Number(w.weekly_rate) || 0), 0);
+      const activeWorkers = workers.filter((w) => w.payment_status === 'active').length;
+      const uniquePositions = new Set(workers.map((w) => w.position).filter(Boolean)).size;
 
-      // Generated date
+      // Company Header Background
+      pdf.setFillColor(31, 41, 55);
+      pdf.rect(0, 0, pageWidth, 22, 'F');
+
+      // Company Title
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFontSize(20);
+      pdf.setFont(undefined, 'bold');
+      pdf.text('SOUTH PARK CABINETS', margin, 10);
+      yPosition = 18;
+
+      // Subtitle
+      pdf.setFontSize(11);
+      pdf.setFont(undefined, 'normal');
+      pdf.text('Workers List', margin, yPosition);
+      pdf.setTextColor(150, 150, 150);
       pdf.setFontSize(9);
-      pdf.setFont(undefined, "normal");
-      pdf.text(`Generated: ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`, margin, yPosition);
-      yPosition += 8;
+      pdf.text(
+        `Generated: ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`,
+        pageWidth - margin - 60,
+        yPosition,
+      );
+      pdf.setTextColor(0, 0, 0);
 
-      // Summary
-      const totalWeeklyPayroll = workers.reduce((sum, w) => sum + w.weekly_rate, 0);
-      const activeWorkers = workers.filter((w) => w.payment_status === "active").length;
-      pdf.setFontSize(9);
-      pdf.text(`Total Workers: ${workers.length} | Active: ${activeWorkers} | Weekly Payroll: $${totalWeeklyPayroll.toLocaleString()}`, margin, yPosition);
-      yPosition += 6;
+      yPosition = 28;
 
-      // Table with significantly wider columns to prevent overlapping
-      const colWidths = [15, 45, 42, 25, 25, 35, 20];
-      const headers = ["ID", "Name", "Position", "Weekly Rate", "Start Date", "Payment Method", "Status"];
-      const cellPadding = 1.5;
-      let xPosition = margin;
+      // Summary Statistics Boxes
+      const boxWidth = (contentWidth - 9) / 4;
+      const summaryData = [
+        { label: 'Total Workers', value: workers.length, color: [59, 130, 246] as const },
+        { label: 'Active', value: activeWorkers, color: [34, 197, 94] as const },
+        { label: 'Positions', value: uniquePositions, color: [168, 85, 247] as const },
+        { label: 'Weekly Payroll', value: `$${totalWeeklyPayroll.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, color: [249, 115, 22] as const },
+      ];
 
-      // Draw header row
-      pdf.setFont(undefined, "bold");
-      pdf.setFontSize(9);
+      summaryData.forEach((item, idx) => {
+        const xPos = margin + idx * (boxWidth + 3);
+        const [r, g, b] = item.color;
+        pdf.setFillColor(r, g, b);
+        pdf.rect(xPos, yPosition, boxWidth, 12, 'F');
+
+        pdf.setTextColor(255, 255, 255);
+        pdf.setFontSize(8);
+        pdf.setFont(undefined, 'normal');
+        pdf.text(item.label, xPos + 2, yPosition + 4);
+
+        pdf.setFontSize(10);
+        pdf.setFont(undefined, 'bold');
+        pdf.text(String(item.value), xPos + 2, yPosition + 10);
+      });
+      pdf.setTextColor(0, 0, 0);
+
+      yPosition += 18;
+
+      // Table headers with background
+      const colWidths = [18, 52, 44, 26, 24, 34, 27];
+      const headers = ['ID', 'Name', 'Position', 'Weekly Rate', 'Start Date', 'Payment Method', 'Status'];
+
+      pdf.setFillColor(59, 70, 87);
+      pdf.rect(margin, yPosition - 5, contentWidth, 8, 'F');
+
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFont(undefined, 'bold');
+      pdf.setFontSize(11);
+      let xPosition = margin + 2;
       headers.forEach((header, idx) => {
-        pdf.text(header, xPosition + cellPadding, yPosition);
+        if (idx === 3) {
+          pdf.text(header, xPosition + colWidths[idx] - 3, yPosition, { align: 'right' });
+        } else {
+          pdf.text(header, xPosition, yPosition);
+        }
         xPosition += colWidths[idx];
       });
-      yPosition += lineHeight + 1;
-      pdf.setDrawColor(200);
-      pdf.line(margin, yPosition - 1, pageWidth - margin, yPosition - 1);
-      yPosition += 2;
 
-      // Draw rows
-      pdf.setFont(undefined, "normal");
-      pdf.setFontSize(8);
+      pdf.setTextColor(0, 0, 0);
+      yPosition += 12;
+
+      let lineIndex = 0;
+      const pageFooter = () => {
+        pdf.setFontSize(9);
+        pdf.setTextColor(150, 150, 150);
+        pdf.text(`Page ${pdf.internal.pages.length}`, pageWidth - margin - 10, pageHeight - 5);
+        pdf.setTextColor(0, 0, 0);
+      };
 
       workers.forEach((worker) => {
-        if (yPosition > pageHeight - 10) {
+        const nameLines = pdf.splitTextToSize(String(worker.name || ''), colWidths[1] - 4);
+        const positionLines = pdf.splitTextToSize(String(worker.position || ''), colWidths[2] - 4);
+        const methodLabel = worker.payment_method
+          ? worker.payment_method.charAt(0).toUpperCase() + worker.payment_method.slice(1).replace(/_/g, ' ')
+          : '-';
+        const methodLines = pdf.splitTextToSize(String(methodLabel), colWidths[5] - 4);
+        const statusLabel = worker.payment_status
+          ? worker.payment_status.charAt(0).toUpperCase() + worker.payment_status.slice(1)
+          : 'Active';
+
+        const maxLines = Math.max(1, nameLines.length, positionLines.length, methodLines.length);
+        const rowHeight = Math.max(12, 6 + maxLines * 4);
+
+        if (yPosition + rowHeight > pageHeight - 15) {
+          pageFooter();
           pdf.addPage();
           yPosition = 15;
+
+          // Repeat table header
+          pdf.setFillColor(59, 70, 87);
+          pdf.rect(margin, yPosition - 5, contentWidth, 8, 'F');
+          pdf.setTextColor(255, 255, 255);
+          pdf.setFont(undefined, 'bold');
+          pdf.setFontSize(11);
+          xPosition = margin + 2;
+          headers.forEach((header, idx) => {
+            if (idx === 3) {
+              pdf.text(header, xPosition + colWidths[idx] - 3, yPosition, { align: 'right' });
+            } else {
+              pdf.text(header, xPosition, yPosition);
+            }
+            xPosition += colWidths[idx];
+          });
+          pdf.setTextColor(0, 0, 0);
+          yPosition += 12;
+          lineIndex = 0;
         }
 
-        xPosition = margin;
-        const cellTextHeight = lineHeight;
+        if (lineIndex % 2 === 0) {
+          pdf.setFillColor(240, 245, 250);
+        } else {
+          pdf.setFillColor(255, 255, 255);
+        }
+        pdf.rect(margin, yPosition - 6, contentWidth, rowHeight, 'F');
+        pdf.setDrawColor(200, 200, 200);
+        pdf.setLineWidth(0.2);
+        pdf.line(margin, yPosition - 6 + rowHeight, margin + contentWidth, yPosition - 6 + rowHeight);
 
-        // ID column
-        pdf.text(worker.id, xPosition + cellPadding, yPosition);
+        xPosition = margin + 2;
+        const baseY = yPosition;
+
+        pdf.setFont(undefined, 'bold');
+        pdf.setFontSize(10);
+        pdf.text(String(worker.id || ''), xPosition, baseY);
         xPosition += colWidths[0];
 
-        // Name column - truncate longer names
-        let nameToPrint = worker.name;
-        if (nameToPrint.length > 30) {
-          nameToPrint = nameToPrint.substring(0, 27) + "...";
+        pdf.setFont(undefined, 'bold');
+        pdf.text(nameLines[0] || '', xPosition, baseY);
+        if (nameLines.length > 1) {
+          pdf.setFont(undefined, 'normal');
+          pdf.setFontSize(9);
+          pdf.setTextColor(80, 80, 80);
+          pdf.text(nameLines.slice(1), xPosition, baseY + 4);
+          pdf.setTextColor(0, 0, 0);
+          pdf.setFontSize(10);
         }
-        pdf.text(nameToPrint, xPosition + cellPadding, yPosition);
         xPosition += colWidths[1];
 
-        // Position column - truncate longer positions
-        let positionToPrint = worker.position;
-        if (positionToPrint.length > 28) {
-          positionToPrint = positionToPrint.substring(0, 25) + "...";
-        }
-        pdf.text(positionToPrint, xPosition + cellPadding, yPosition);
+        pdf.setFont(undefined, 'normal');
+        pdf.setFontSize(9);
+        pdf.text(positionLines, xPosition, baseY);
+        pdf.setFontSize(10);
         xPosition += colWidths[2];
 
-        // Weekly Rate column
-        pdf.text(`$${worker.weekly_rate.toLocaleString()}`, xPosition + cellPadding, yPosition);
+        pdf.setFont(undefined, 'bold');
+        pdf.text(
+          `$${(Number(worker.weekly_rate) || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`,
+          xPosition + colWidths[3] - 3,
+          baseY,
+          { align: 'right' },
+        );
         xPosition += colWidths[3];
 
-        // Start Date column
-        const hire_dateFormatted = new Date(worker.hire_date).toLocaleDateString();
-        pdf.text(hire_dateFormatted, xPosition + cellPadding, yPosition);
+        const hireDate = worker.hire_date ? new Date(worker.hire_date).toLocaleDateString() : '-';
+        pdf.setFont(undefined, 'normal');
+        pdf.text(hireDate, xPosition, baseY);
         xPosition += colWidths[4];
 
-        // Payment Method column
-        let payment_method = worker.payment_method
-          ? worker.payment_method.charAt(0).toUpperCase() + worker.payment_method.slice(1).replace(/_/g, " ")
-          : "-";
-        if (payment_method.length > 20) {
-          payment_method = payment_method.substring(0, 17) + "...";
-        }
-        pdf.text(payment_method, xPosition + cellPadding, yPosition);
+        pdf.setFontSize(9);
+        pdf.text(methodLines, xPosition, baseY);
+        pdf.setFontSize(10);
         xPosition += colWidths[5];
 
-        // Status column
-        const status = worker.payment_status ? worker.payment_status.charAt(0).toUpperCase() + worker.payment_status.slice(1) : "Active";
-        pdf.text(status, xPosition + cellPadding, yPosition);
+        pdf.text(statusLabel, xPosition, baseY);
 
-        yPosition += cellTextHeight + 1;
+        yPosition += rowHeight;
+        lineIndex += 1;
       });
 
-      // Total footer
-      yPosition += 3;
-      pdf.setFont(undefined, "bold");
+      // Footer
+      const footerY = pageHeight - 10;
+      pdf.setDrawColor(200, 200, 200);
+      pdf.line(margin, footerY, pageWidth - margin, footerY);
+      pdf.setFont(undefined, 'bold');
       pdf.setFontSize(9);
-      pdf.text(`Total Workers: ${workers.length}`, margin, yPosition);
-      pdf.text(`Weekly Payroll: $${totalWeeklyPayroll.toLocaleString()}`, margin + 50, yPosition);
+      pdf.setTextColor(0, 0, 0);
+      pdf.text(
+        `Total Workers: ${workers.length} | Active: ${activeWorkers} | Weekly Payroll: $${totalWeeklyPayroll.toLocaleString(undefined, { maximumFractionDigits: 2 })}`,
+        margin,
+        footerY + 5,
+      );
+      pdf.setFontSize(8);
+      pdf.setTextColor(150, 150, 150);
+      pdf.text(`Page ${pdf.internal.pages.length}`, pageWidth - margin - 10, footerY + 5);
 
-      pdf.save(`Workers-List-${new Date().toISOString().split("T")[0]}.pdf`);
+      pdf.save(`Workers-List-${new Date().toISOString().split('T')[0]}.pdf`);
       toast({ title: "Print Successful", description: "Workers list exported as PDF" });
     } catch (error) {
       console.error("Error generating workers list:", error);
@@ -274,129 +376,225 @@ export default function Workers() {
         return;
       }
 
-      const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+      const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
-      let yPosition = 15;
       const margin = 12;
-      const contentWidth = pageWidth - margin * 2;
+      const contentWidth = pageWidth - 2 * margin;
+      let yPosition = 12;
 
-      // Title
-      pdf.setFontSize(16);
-      pdf.setFont(undefined, "bold");
-      pdf.text("Workers Details Report", margin, yPosition);
-      yPosition += 8;
+      const totalWeeklyPayroll = workers.reduce((sum, w) => sum + (Number(w.weekly_rate) || 0), 0);
+      const activeWorkers = workers.filter((w) => w.payment_status === 'active').length;
 
-      // Generated date
+      // Company Header Background
+      pdf.setFillColor(31, 41, 55);
+      pdf.rect(0, 0, pageWidth, 22, 'F');
+
+      // Company Title
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFontSize(20);
+      pdf.setFont(undefined, 'bold');
+      pdf.text('SOUTH PARK CABINETS', margin, 10);
+      yPosition = 18;
+
+      // Subtitle
+      pdf.setFontSize(11);
+      pdf.setFont(undefined, 'normal');
+      pdf.text('Workers Details', margin, yPosition);
+      pdf.setTextColor(150, 150, 150);
       pdf.setFontSize(9);
-      pdf.setFont(undefined, "normal");
-      pdf.text(`Generated: ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`, margin, yPosition);
-      yPosition += 7;
+      pdf.text(
+        `Generated: ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`,
+        pageWidth - margin - 60,
+        yPosition,
+      );
+      pdf.setTextColor(0, 0, 0);
 
-      // Summary section
-      const totalWeeklyPayroll = workers.reduce((sum, w) => sum + w.weekly_rate, 0);
-      const activeWorkers = workers.filter((w) => w.payment_status === "active").length;
+      yPosition = 28;
 
-      pdf.setFontSize(9);
-      pdf.setFont(undefined, "bold");
-      pdf.text("Summary", margin, yPosition);
-      yPosition += 5;
-
-      pdf.setFont(undefined, "normal");
-      const summaryLines = [
-        { label: "Total Workers:", value: workers.length.toString() },
-        { label: "Active Workers:", value: activeWorkers.toString() },
-        { label: "Weekly Payroll Total:", value: `$${totalWeeklyPayroll.toLocaleString()}` },
+      // Summary Statistics Boxes
+      const boxWidth = (contentWidth - 9) / 4;
+      const summaryData = [
+        { label: 'Total Workers', value: workers.length, color: [59, 130, 246] as const },
+        { label: 'Active', value: activeWorkers, color: [34, 197, 94] as const },
+        { label: 'Weekly Payroll', value: `$${totalWeeklyPayroll.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, color: [168, 85, 247] as const },
+        { label: 'Monthly (est.)', value: `$${(totalWeeklyPayroll * 4.33).toLocaleString(undefined, { maximumFractionDigits: 2 })}`, color: [249, 115, 22] as const },
       ];
 
-      summaryLines.forEach((line) => {
-        pdf.text(line.label, margin, yPosition);
-        pdf.text(line.value, margin + 50, yPosition);
-        yPosition += 5;
+      summaryData.forEach((item, idx) => {
+        const xPos = margin + idx * (boxWidth + 3);
+        const [r, g, b] = item.color;
+        pdf.setFillColor(r, g, b);
+        pdf.rect(xPos, yPosition, boxWidth, 12, 'F');
+
+        pdf.setTextColor(255, 255, 255);
+        pdf.setFontSize(8);
+        pdf.setFont(undefined, 'normal');
+        pdf.text(item.label, xPos + 2, yPosition + 4);
+
+        pdf.setFontSize(10);
+        pdf.setFont(undefined, 'bold');
+        pdf.text(String(item.value), xPos + 2, yPosition + 10);
+      });
+      pdf.setTextColor(0, 0, 0);
+
+      yPosition += 18;
+
+      // Table
+      const colWidths = [18, 46, 40, 24, 24, 28, 20, 43, 30];
+      const headers = ['ID', 'Name', 'Position', 'Weekly Rate', 'Start Date', 'Method', 'Status', 'Email', 'Telephone'];
+
+      pdf.setFillColor(59, 70, 87);
+      pdf.rect(margin, yPosition - 5, contentWidth, 8, 'F');
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFont(undefined, 'bold');
+      pdf.setFontSize(11);
+
+      let xPosition = margin + 2;
+      headers.forEach((header, idx) => {
+        if (idx === 3) {
+          pdf.text(header, xPosition + colWidths[idx] - 3, yPosition, { align: 'right' });
+        } else {
+          pdf.text(header, xPosition, yPosition);
+        }
+        xPosition += colWidths[idx];
       });
 
-      yPosition += 5;
+      pdf.setTextColor(0, 0, 0);
+      yPosition += 12;
 
-      // Worker details
-      workers.forEach((worker, index) => {
-        // Check if we need a new page
-        if (yPosition > pageHeight - 40) {
+      let lineIndex = 0;
+      workers.forEach((worker) => {
+        const nameLines = pdf.splitTextToSize(String(worker.name || ''), colWidths[1] - 4);
+        const positionLines = pdf.splitTextToSize(String(worker.position || ''), colWidths[2] - 4);
+        const methodLabel = worker.payment_method
+          ? worker.payment_method.charAt(0).toUpperCase() + worker.payment_method.slice(1).replace(/_/g, ' ')
+          : '-';
+        const methodLines = pdf.splitTextToSize(String(methodLabel), colWidths[5] - 4);
+        const emailLines = pdf.splitTextToSize(String(worker.email || '-'), colWidths[7] - 4);
+        const phoneLines = pdf.splitTextToSize(String(worker.telephone || '-'), colWidths[8] - 4);
+        const statusLabel = worker.payment_status
+          ? worker.payment_status.charAt(0).toUpperCase() + worker.payment_status.slice(1)
+          : 'Active';
+
+        const maxLines = Math.max(1, nameLines.length, positionLines.length, methodLines.length, emailLines.length, phoneLines.length);
+        const rowHeight = Math.max(12, 6 + maxLines * 4);
+
+        if (yPosition + rowHeight > pageHeight - 15) {
+          pdf.setFontSize(9);
+          pdf.setTextColor(150, 150, 150);
+          pdf.text(`Page ${pdf.internal.pages.length}`, pageWidth - margin - 10, pageHeight - 5);
+          pdf.setTextColor(0, 0, 0);
+
           pdf.addPage();
           yPosition = 15;
+
+          pdf.setFillColor(59, 70, 87);
+          pdf.rect(margin, yPosition - 5, contentWidth, 8, 'F');
+          pdf.setTextColor(255, 255, 255);
+          pdf.setFont(undefined, 'bold');
+          pdf.setFontSize(11);
+          xPosition = margin + 2;
+          headers.forEach((header, idx) => {
+            if (idx === 3) {
+              pdf.text(header, xPosition + colWidths[idx] - 3, yPosition, { align: 'right' });
+            } else {
+              pdf.text(header, xPosition, yPosition);
+            }
+            xPosition += colWidths[idx];
+          });
+          pdf.setTextColor(0, 0, 0);
+          yPosition += 12;
+          lineIndex = 0;
         }
 
-        // Worker card header
-        pdf.setFont(undefined, "bold");
+        if (lineIndex % 2 === 0) {
+          pdf.setFillColor(240, 245, 250);
+        } else {
+          pdf.setFillColor(255, 255, 255);
+        }
+        pdf.rect(margin, yPosition - 6, contentWidth, rowHeight, 'F');
+        pdf.setDrawColor(200, 200, 200);
+        pdf.setLineWidth(0.2);
+        pdf.line(margin, yPosition - 6 + rowHeight, margin + contentWidth, yPosition - 6 + rowHeight);
+
+        xPosition = margin + 2;
+        const baseY = yPosition;
+
+        pdf.setFont(undefined, 'bold');
         pdf.setFontSize(10);
-        pdf.setFillColor(230, 230, 230);
-        pdf.rect(margin, yPosition - 3, contentWidth, 7, "F");
-        pdf.text(`${worker.id} - ${worker.name}`, margin + 3, yPosition + 1);
-        yPosition += 8;
+        pdf.text(String(worker.id || ''), xPosition, baseY);
+        xPosition += colWidths[0];
 
-        // Worker details
-        pdf.setFont(undefined, "normal");
+        pdf.text(nameLines[0] || '', xPosition, baseY);
+        if (nameLines.length > 1) {
+          pdf.setFont(undefined, 'normal');
+          pdf.setFontSize(9);
+          pdf.setTextColor(80, 80, 80);
+          pdf.text(nameLines.slice(1), xPosition, baseY + 4);
+          pdf.setTextColor(0, 0, 0);
+          pdf.setFontSize(10);
+          pdf.setFont(undefined, 'bold');
+        }
+        xPosition += colWidths[1];
+
+        pdf.setFont(undefined, 'normal');
         pdf.setFontSize(9);
+        pdf.text(positionLines, xPosition, baseY);
+        xPosition += colWidths[2];
 
-        const detailLines = [
-          { label: "Position:", value: worker.position },
-          { label: "Weekly Rate:", value: `$${worker.weekly_rate.toLocaleString()}` },
-          { label: "Start Date:", value: formatDateString(worker.hire_date) },
-          { label: "Payment Method:", value: worker.payment_method ? worker.payment_method.charAt(0).toUpperCase() + worker.payment_method.slice(1).replace(/_/g, " ") : "-" },
-          { label: "Status:", value: worker.payment_status ? worker.payment_status.charAt(0).toUpperCase() + worker.payment_status.slice(1) : "Active" },
-        ];
+        pdf.setFont(undefined, 'bold');
+        pdf.setFontSize(10);
+        pdf.text(
+          `$${(Number(worker.weekly_rate) || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`,
+          xPosition + colWidths[3] - 3,
+          baseY,
+          { align: 'right' },
+        );
+        xPosition += colWidths[3];
 
-        const labelColumnWidth = contentWidth * 0.35;
-        const valueX = margin + labelColumnWidth + 3;
+        const hireDate = worker.hire_date ? new Date(worker.hire_date).toLocaleDateString() : '-';
+        pdf.setFont(undefined, 'normal');
+        pdf.text(hireDate, xPosition, baseY);
+        xPosition += colWidths[4];
 
-        detailLines.forEach((line) => {
-          pdf.text(line.label, margin, yPosition, { maxWidth: labelColumnWidth });
-          pdf.text(line.value, valueX, yPosition, { maxWidth: contentWidth - labelColumnWidth - 3 });
-          yPosition += 5;
-        });
+        pdf.setFontSize(9);
+        pdf.text(methodLines, xPosition, baseY);
+        pdf.setFontSize(10);
+        xPosition += colWidths[5];
 
-        // Personal information section
-        yPosition += 3;
-        pdf.setFont(undefined, "bold");
-        pdf.setFontSize(8);
-        pdf.text("Personal Information", margin, yPosition);
-        yPosition += 4;
+        pdf.text(statusLabel, xPosition, baseY);
+        xPosition += colWidths[6];
 
-        pdf.setFont(undefined, "normal");
-        const personalLines = [
-          { label: "Email:", value: worker.email || "-" },
-          { label: "Telephone:", value: worker.telephone || "-" },
-          { label: "Address:", value: worker.address || "-" },
-          { label: "Social/TIN:", value: worker.ssn || "-" },
-        ];
+        pdf.setFontSize(9);
+        pdf.text(emailLines, xPosition, baseY);
+        pdf.setFontSize(10);
+        xPosition += colWidths[7];
 
-        personalLines.forEach((line) => {
-          pdf.text(line.label, margin, yPosition, { maxWidth: labelColumnWidth });
-          pdf.text(line.value, valueX, yPosition, { maxWidth: contentWidth - labelColumnWidth - 3 });
-          yPosition += 5;
-        });
+        pdf.setFontSize(9);
+        pdf.text(phoneLines, xPosition, baseY);
+        pdf.setFontSize(10);
 
-        yPosition += 4;
+        yPosition += rowHeight;
+        lineIndex += 1;
       });
 
-      // Footer with total payroll
-      yPosition += 5;
-      if (yPosition > pageHeight - 15) {
-        pdf.addPage();
-        yPosition = 15;
-      }
-
-      pdf.setFont(undefined, "bold");
-      pdf.setFontSize(10);
-      pdf.text("Payroll Summary", margin, yPosition);
-      yPosition += 6;
-
-      pdf.setFont(undefined, "normal");
+      const footerY = pageHeight - 10;
+      pdf.setDrawColor(200, 200, 200);
+      pdf.line(margin, footerY, pageWidth - margin, footerY);
+      pdf.setFont(undefined, 'bold');
       pdf.setFontSize(9);
-      pdf.text(`Total Weekly Payroll: $${totalWeeklyPayroll.toLocaleString()}`, margin, yPosition);
-      yPosition += 5;
-      pdf.text(`Monthly Payroll (est.): $${(totalWeeklyPayroll * 4.33).toLocaleString(undefined, { maximumFractionDigits: 2 })}`, margin, yPosition);
+      pdf.setTextColor(0, 0, 0);
+      pdf.text(
+        `Total Workers: ${workers.length} | Active: ${activeWorkers} | Weekly Payroll: $${totalWeeklyPayroll.toLocaleString(undefined, { maximumFractionDigits: 2 })}`,
+        margin,
+        footerY + 5,
+      );
+      pdf.setFontSize(8);
+      pdf.setTextColor(150, 150, 150);
+      pdf.text(`Page ${pdf.internal.pages.length}`, pageWidth - margin - 10, footerY + 5);
 
-      pdf.save(`Workers-Details-${new Date().toISOString().split("T")[0]}.pdf`);
+      pdf.save(`Workers-Details-${new Date().toISOString().split('T')[0]}.pdf`);
       toast({ title: "Print Successful", description: "Workers details exported as PDF" });
     } catch (error) {
       console.error("Error generating workers details:", error);

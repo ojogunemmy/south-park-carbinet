@@ -43,7 +43,7 @@ export type Payment = {
   id: string;
   employee_id: string;
   amount: number;
-  status: "pending" | "paid" | "canceled";
+  status: "pending" | "paid" | "cancelled" | "canceled";
   week_start_date: string;
   week_end_date: string;
   due_date: string;
