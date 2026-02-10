@@ -160,6 +160,45 @@ export interface Attachment {
   uploadDate?: string;
 }
 
+const normalizeAttachments = (raw: any): Attachment[] => {
+  const list = Array.isArray(raw) ? raw : [];
+
+  return list
+    .map((att: any): Attachment | null => {
+      if (!att) return null;
+
+      // Already in the expected shape
+      if (typeof att.fileName === "string" && typeof att.fileData === "string") {
+        return {
+          id: String(att.id ?? `ATT-${Date.now()}-${Math.random().toString(36).slice(2)}`),
+          fileName: String(att.fileName ?? "Attachment"),
+          fileType: String(att.fileType ?? ""),
+          fileSize: Number(att.fileSize ?? 0) || 0,
+          fileData: String(att.fileData ?? ""),
+          uploadDate: att.uploadDate ? String(att.uploadDate) : undefined,
+        };
+      }
+
+      // Stored contract attachment shape
+      if (typeof att.file_name === "string" && typeof att.file_data === "string") {
+        const dataUri = String(att.file_data ?? "");
+        const inferredType = dataUri.startsWith("data:") ? dataUri.slice(5).split(";")[0] : "";
+
+        return {
+          id: String(att.id ?? `ATT-${Date.now()}-${Math.random().toString(36).slice(2)}`),
+          fileName: String(att.file_name ?? "Attachment"),
+          fileType: String(att.file_type ?? inferredType ?? ""),
+          fileSize: Number(att.file_size ?? att.fileSize ?? 0) || 0,
+          fileData: dataUri,
+          uploadDate: att.upload_date ? String(att.upload_date) : undefined,
+        };
+      }
+
+      return null;
+    })
+    .filter((a: Attachment | null): a is Attachment => Boolean(a && a.fileData && a.fileName));
+};
+
 interface ContractAttachment {
   id: string;
   file_name: string;
@@ -1465,7 +1504,7 @@ export default function Contracts() {
     yPosition += 15;
 
     // Add Attachments (2 per page)
-    const allAttachments = [...(contract.attachments || []), ...attachments];
+    const allAttachments = normalizeAttachments([...(contract.attachments || []), ...attachments]);
     if (allAttachments.length > 0) {
       // Start new page for attachments
       pdf.addPage();
@@ -1512,11 +1551,44 @@ export default function Contracts() {
            const imageFormat = getImageFormatFromDataURI(attachment.fileData);
            if (imageFormat) {
              try {
-                // We fit image within the box (availableWidth x availableHeight)
-                // maintaining aspect ratio is handled by jsPDF if we give dim?
-                // Actually jsPDF stretches if we give w/h. We should calculate ratio if possible,
-                // but for now let's just use fixed width and max height.
-                pdf.addImage(attachment.fileData, imageFormat, margin, imageY, availableWidth, availableHeight, undefined, 'FAST');
+                // Use original image dimensions, but scale down if too large
+                const props = (pdf as any).getImageProperties
+                  ? (pdf as any).getImageProperties(attachment.fileData)
+                  : null;
+
+                if (props?.width && props?.height) {
+                  // Scale down if image is larger than available space, but maintain aspect ratio
+                  let drawW = props.width;
+                  let drawH = props.height;
+
+                  // Convert pixels to mm (assuming 96 DPI)
+                  const pixelsToMm = 25.4 / 96;
+                  drawW = drawW * pixelsToMm;
+                  drawH = drawH * pixelsToMm;
+
+                  // Scale down if too large, but preserve aspect ratio
+                  if (drawW > availableWidth || drawH > availableHeight) {
+                    const scale = Math.min(availableWidth / drawW, availableHeight / drawH);
+                    drawW *= scale;
+                    drawH *= scale;
+                  }
+
+                  // Align to the left
+                  const drawX = margin;
+                  const drawY = imageY;
+
+                  pdf.addImage(attachment.fileData, imageFormat, drawX, drawY, drawW, drawH, undefined, 'FAST');
+
+                  // Add dimensions text below the image
+                  pdf.setFont(undefined, "normal");
+                  pdf.setFontSize(8);
+                  pdf.setTextColor(100, 100, 100);
+                  const dimensionsText = `${props.width} × ${props.height} px`;
+                  pdf.text(dimensionsText, drawX, drawY + drawH + 3);
+                } else {
+                  // Fallback: no properties available, use original dimensions if possible
+                  pdf.addImage(attachment.fileData, imageFormat, margin, imageY, availableWidth, availableHeight, undefined, 'FAST');
+                }
              } catch (e) {
                console.error("Image add failed", e);
                pdf.text("[Image Error]", margin, imageY + 10);
@@ -1781,7 +1853,7 @@ export default function Contracts() {
     pdf.text("Contractor Signature: ______________________________ Date: _______________", margin, yPosition);
 
     // Add all attachments (images, maps, PDFs, documents, etc.)
-    const allAttachments = [...(contract.attachments || []), ...attachments];
+    const allAttachments = normalizeAttachments([...(contract.attachments || []), ...attachments]);
     if (allAttachments.length > 0) {
       // Start new page for attachments
       pdf.addPage();
@@ -1827,7 +1899,44 @@ export default function Contracts() {
            const imageFormat = getImageFormatFromDataURI(attachment.fileData);
            if (imageFormat) {
              try {
-                pdf.addImage(attachment.fileData, imageFormat, margin, imageY, availableWidth, availableHeight, undefined, 'FAST');
+                // Use original image dimensions, but scale down if too large
+                const props = (pdf as any).getImageProperties
+                  ? (pdf as any).getImageProperties(attachment.fileData)
+                  : null;
+
+                if (props?.width && props?.height) {
+                  // Scale down if image is larger than available space, but maintain aspect ratio
+                  let drawW = props.width;
+                  let drawH = props.height;
+
+                  // Convert pixels to mm (assuming 96 DPI)
+                  const pixelsToMm = 25.4 / 96;
+                  drawW = drawW * pixelsToMm;
+                  drawH = drawH * pixelsToMm;
+
+                  // Scale down if too large, but preserve aspect ratio
+                  if (drawW > availableWidth || drawH > availableHeight) {
+                    const scale = Math.min(availableWidth / drawW, availableHeight / drawH);
+                    drawW *= scale;
+                    drawH *= scale;
+                  }
+
+                  // Align to the left
+                  const drawX = margin;
+                  const drawY = imageY;
+
+                  pdf.addImage(attachment.fileData, imageFormat, drawX, drawY, drawW, drawH, undefined, 'FAST');
+
+                  // Add dimensions text below the image
+                  pdf.setFont(undefined, "normal");
+                  pdf.setFontSize(8);
+                  pdf.setTextColor(100, 100, 100);
+                  const dimensionsText = `${props.width} × ${props.height} px`;
+                  pdf.text(dimensionsText, drawX, drawY + drawH + 3);
+                } else {
+                  // Fallback: no properties available, use original dimensions if possible
+                  pdf.addImage(attachment.fileData, imageFormat, margin, imageY, availableWidth, availableHeight, undefined, 'FAST');
+                }
              } catch (e) {
                console.error("Image add failed", e);
                pdf.text("[Image Error]", margin, imageY + 10);
@@ -1879,7 +1988,7 @@ export default function Contracts() {
   const generatePDF = (contract: Contract, type: "cabinet" | "client", attachments?: Attachment[]) => {
     const contractWithAttachments = { 
       ...contract, 
-      attachments: attachments !== undefined ? attachments : contract.attachments 
+      attachments: attachments !== undefined ? normalizeAttachments(attachments) : normalizeAttachments(contract.attachments)
     };
     
     if (type === "cabinet") {
@@ -5522,7 +5631,7 @@ export default function Contracts() {
                   onClick={() => {
                     const contract = contracts.find((c) => c.id === pdfSelectContractId);
                     if (contract) {
-                      setTempPdfAttachments(contract.attachments || []);
+                      setTempPdfAttachments(normalizeAttachments(contract.attachments));
                       setPdfAttachmentType("cabinet");
                       setPdfGenerationStep("attachments");
                     }
@@ -5545,7 +5654,7 @@ export default function Contracts() {
                   onClick={() => {
                     const contract = contracts.find((c) => c.id === pdfSelectContractId);
                     if (contract) {
-                      setTempPdfAttachments(contract.attachments || []);
+                      setTempPdfAttachments(normalizeAttachments(contract.attachments));
                       setPdfAttachmentType("client");
                       setPdfGenerationStep("attachments");
                     }
