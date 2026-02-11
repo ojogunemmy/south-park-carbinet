@@ -1742,223 +1742,130 @@ export default function Employees() {
       return;
     }
 
-    const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-    const pageWidth = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
+    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    let yPosition = 15;
     const margin = 12;
-    const contentWidth = pageWidth - 2 * margin;
-    let yPosition = 12;
+    const col1X = margin;
+    const col2X = margin + 50;
 
-    const generatedLabel = `${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`;
+    doc.setFontSize(16);
+    doc.setFont(undefined, "bold");
+    doc.text("Employee Details Report", col1X, yPosition);
+    yPosition += 8;
+
+    doc.setFontSize(9);
+    doc.setFont(undefined, "normal");
+    doc.text(`Generated: ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`, col1X, yPosition);
+    yPosition += 8;
+
     const totalWeeklyPayroll = employees.reduce((sum, e) => sum + e.weeklyRate, 0);
     const activeEmployees = employees.filter((e) => e.payment_status === "active").length;
-    const avgWeeklyRate = employees.length > 0 ? totalWeeklyPayroll / employees.length : 0;
 
-    // Company Header Background
-    pdf.setFillColor(31, 41, 55);
-    pdf.rect(0, 0, pageWidth, 22, "F");
-    pdf.setTextColor(255, 255, 255);
-    pdf.setFontSize(20);
-    pdf.setFont(undefined, "bold");
-    pdf.text("SOUTH PARK CABINETS", margin, 10);
+    doc.setFontSize(9);
+    doc.setFont(undefined, "bold");
+    doc.text("Summary", col1X, yPosition);
+    yPosition += 5;
 
-    pdf.setFontSize(11);
-    pdf.setFont(undefined, "normal");
-    pdf.text("Employee Details", margin, 18);
-    pdf.setTextColor(150, 150, 150);
-    pdf.setFontSize(9);
-    pdf.text(`Generated: ${generatedLabel}`, pageWidth - margin - 75, 18);
-    pdf.setTextColor(0, 0, 0);
-
-    yPosition = 28;
-
-    // Summary boxes
-    const boxWidth = (contentWidth - 9) / 4;
-    const summaryData = [
-      { label: "Total Employees", value: employees.length, color: [59, 130, 246] as const },
-      { label: "Active", value: activeEmployees, color: [34, 197, 94] as const },
-      { label: "Avg Weekly Rate", value: `$${avgWeeklyRate.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, color: [168, 85, 247] as const },
-      { label: "Weekly Payroll", value: `$${totalWeeklyPayroll.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, color: [249, 115, 22] as const },
+    doc.setFont(undefined, "normal");
+    const summaryLines = [
+      { label: "Total Employees:", value: employees.length.toString() },
+      { label: "Active Employees:", value: activeEmployees.toString() },
+      { label: "Weekly Payroll Total:", value: `$${totalWeeklyPayroll.toLocaleString()}` },
     ];
-    summaryData.forEach((item, idx) => {
-      const xPos = margin + idx * (boxWidth + 3);
-      const [r, g, b] = item.color;
-      pdf.setFillColor(r, g, b);
-      pdf.rect(xPos, yPosition, boxWidth, 12, "F");
-      pdf.setTextColor(255, 255, 255);
-      pdf.setFontSize(8);
-      pdf.setFont(undefined, "normal");
-      pdf.text(item.label, xPos + 2, yPosition + 4);
-      pdf.setFontSize(10);
-      pdf.setFont(undefined, "bold");
-      pdf.text(String(item.value), xPos + 2, yPosition + 10);
+
+    summaryLines.forEach((line) => {
+      doc.text(line.label, col1X, yPosition);
+      doc.text(line.value, col2X, yPosition);
+      yPosition += 5;
     });
-    pdf.setTextColor(0, 0, 0);
 
-    yPosition += 18;
+    yPosition += 5;
 
-    // Table headers
-    const colWidths = [25, 60, 28, 24, 22, 31, 20, 33, 30]; // total = 257
-    const headers = ["ID", "NAME", "POSITION", "WEEKLY", "START", "METHOD", "STATUS", "EMAIL", "PHONE"];
-    pdf.setFillColor(59, 70, 87);
-    pdf.rect(margin, yPosition - 5, contentWidth, 8, "F");
-    pdf.setTextColor(255, 255, 255);
-    pdf.setFont(undefined, "bold");
-    pdf.setFontSize(11);
-
-    let xPosition = margin + 2;
-    headers.forEach((header, idx) => {
-      if (idx === 3) {
-        pdf.text(header, xPosition + colWidths[idx] - 2, yPosition, { align: "right" });
-      } else {
-        pdf.text(header, xPosition, yPosition);
-      }
-      xPosition += colWidths[idx];
-    });
-    pdf.setTextColor(0, 0, 0);
-    yPosition += 12;
-
-    let lineIndex = 0;
     employees.forEach((emp) => {
-      const idLines = pdf.splitTextToSize(emp.id || "-", colWidths[0] - 4);
-      const nameLines = pdf.splitTextToSize(emp.name || "-", colWidths[1] - 4);
-      const positionLines = pdf.splitTextToSize(emp.position || "-", colWidths[2] - 4);
-      const weeklyText = `$${emp.weeklyRate.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
-      const weeklyLines = pdf.splitTextToSize(weeklyText, colWidths[3] - 4);
-      const startDateFormatted = emp.startDate ? new Date(emp.startDate).toLocaleDateString() : "-";
-      const startLines = pdf.splitTextToSize(startDateFormatted, colWidths[4] - 4);
-      const emailLines = pdf.splitTextToSize(emp.email || "-", colWidths[7] - 4);
-      const methodStr = emp.paymentMethod
-        ? emp.paymentMethod.charAt(0).toUpperCase() + emp.paymentMethod.slice(1).replace(/_/g, " ")
-        : "-";
-      const statusStr = emp.payment_status
-        ? emp.payment_status.charAt(0).toUpperCase() + emp.payment_status.slice(1)
-        : "Active";
-
-      const methodLines = pdf.splitTextToSize(methodStr, colWidths[5] - 4);
-      const statusLines = pdf.splitTextToSize(statusStr, colWidths[6] - 4);
-      const phoneLines = pdf.splitTextToSize(emp.telephone || "-", colWidths[8] - 4);
-
-      const rowLines = Math.max(
-        1,
-        idLines.length,
-        nameLines.length,
-        positionLines.length,
-        weeklyLines.length,
-        startLines.length,
-        methodLines.length,
-        statusLines.length,
-        emailLines.length,
-        phoneLines.length,
-      );
-      const rowHeight = Math.max(10, 6 + rowLines * 4);
-
-      if (yPosition + rowHeight > pageHeight - 15) {
-        pdf.setFontSize(9);
-        pdf.setTextColor(150, 150, 150);
-        pdf.text(`Page ${pdf.internal.pages.length}`, pageWidth - margin - 10, pageHeight - 5);
-        pdf.setTextColor(0, 0, 0);
-
-        pdf.addPage();
+      if (yPosition > pageHeight - 40) {
+        doc.addPage();
         yPosition = 15;
-
-        pdf.setFillColor(59, 70, 87);
-        pdf.rect(margin, yPosition - 5, contentWidth, 8, "F");
-        pdf.setTextColor(255, 255, 255);
-        pdf.setFont(undefined, "bold");
-        pdf.setFontSize(11);
-        xPosition = margin + 2;
-        headers.forEach((header, idx) => {
-          if (idx === 3) {
-            pdf.text(header, xPosition + colWidths[idx] - 2, yPosition, { align: "right" });
-          } else {
-            pdf.text(header, xPosition, yPosition);
-          }
-          xPosition += colWidths[idx];
-        });
-        pdf.setTextColor(0, 0, 0);
-        yPosition += 12;
-        lineIndex = 0;
       }
 
-      if (lineIndex % 2 === 0) {
-        pdf.setFillColor(240, 245, 250);
-      } else {
-        pdf.setFillColor(255, 255, 255);
-      }
-      pdf.rect(margin, yPosition - 6, contentWidth, rowHeight, "F");
-      pdf.setDrawColor(200, 200, 200);
-      pdf.setLineWidth(0.2);
-      pdf.line(margin, yPosition - 6 + rowHeight, margin + contentWidth, yPosition - 6 + rowHeight);
+      doc.setFont(undefined, "bold");
+      doc.setFontSize(10);
+      doc.setFillColor(230, 230, 230);
+      doc.rect(margin, yPosition - 3, pageWidth - margin * 2, 7, "F");
+      doc.text(`${emp.id} - ${emp.name}`, margin + 3, yPosition + 1);
+      yPosition += 8;
 
-      xPosition = margin + 2;
-      const baseY = yPosition;
+      doc.setFont(undefined, "normal");
+      doc.setFontSize(9);
 
-      pdf.setFont(undefined, "normal");
-      pdf.setFontSize(9);
-      pdf.text(idLines, xPosition, baseY);
-      xPosition += colWidths[0];
+      doc.setFont(undefined, "bold");
+      doc.text("Position:", col1X, yPosition);
+      doc.setFont(undefined, "normal");
+      doc.text(emp.position, col2X, yPosition);
+      yPosition += 5;
 
-      pdf.setFont(undefined, "bold");
-      pdf.setFontSize(10);
-      pdf.text(nameLines[0] || "", xPosition, baseY);
-      if (nameLines.length > 1) {
-        pdf.setFont(undefined, "normal");
-        pdf.setFontSize(9);
-        pdf.setTextColor(80, 80, 80);
-        pdf.text(nameLines.slice(1), xPosition, baseY + 4);
-        pdf.setTextColor(0, 0, 0);
-      }
-      xPosition += colWidths[1];
+      doc.setFont(undefined, "bold");
+      doc.text("Weekly Rate:", col1X, yPosition);
+      doc.setFont(undefined, "normal");
+      doc.text(`$${emp.weeklyRate.toLocaleString()}`, col2X, yPosition);
+      yPosition += 5;
 
-      pdf.setFont(undefined, "normal");
-      pdf.setFontSize(9);
-      pdf.text(positionLines, xPosition, baseY);
-      xPosition += colWidths[2];
+      doc.setFont(undefined, "bold");
+      doc.text("Start Date:", col1X, yPosition);
+      doc.setFont(undefined, "normal");
+      doc.text(emp.startDate || "-", col2X, yPosition);
+      yPosition += 5;
 
-      pdf.setFont(undefined, "bold");
-      pdf.setFontSize(10);
-      pdf.text(weeklyLines, xPosition + colWidths[3] - 2, baseY, { align: "right" });
-      xPosition += colWidths[3];
+      doc.setFont(undefined, "bold");
+      doc.text("Payment Method:", col1X, yPosition);
+      doc.setFont(undefined, "normal");
+      doc.text(emp.paymentMethod || "-", col2X, yPosition);
+      yPosition += 5;
 
-      pdf.setFont(undefined, "normal");
-      pdf.setFontSize(9);
-      pdf.text(startLines, xPosition, baseY);
-      xPosition += colWidths[4];
+      doc.setFont(undefined, "bold");
+      doc.text("Status:", col1X, yPosition);
+      doc.setFont(undefined, "normal");
+      doc.text(emp.payment_status || "active", col2X, yPosition);
+      yPosition += 8;
 
-      pdf.text(methodLines, xPosition, baseY);
-      xPosition += colWidths[5];
+      doc.setFont(undefined, "bold");
+      doc.text("Personal Information", col1X, yPosition);
+      yPosition += 5;
 
-      pdf.text(statusLines, xPosition, baseY);
-      xPosition += colWidths[6];
+      doc.setFont(undefined, "bold");
+      doc.text("Email:", col1X, yPosition);
+      doc.setFont(undefined, "normal");
+      doc.text(emp.email || "-", col2X, yPosition, { maxWidth: pageWidth - col2X - 10 });
+      yPosition += 5;
 
-      pdf.text(emailLines, xPosition, baseY);
-      xPosition += colWidths[7];
+      doc.setFont(undefined, "bold");
+      doc.text("Telephone:", col1X, yPosition);
+      doc.setFont(undefined, "normal");
+      doc.text(emp.telephone || "-", col2X, yPosition);
+      yPosition += 5;
 
-      pdf.text(phoneLines, xPosition, baseY);
+      doc.setFont(undefined, "bold");
+      doc.text("Address:", col1X, yPosition);
+      doc.setFont(undefined, "normal");
+      doc.text(emp.address || "-", col2X, yPosition, { maxWidth: pageWidth - col2X - 10 });
+      yPosition += 5;
 
-      yPosition += rowHeight;
-      lineIndex += 1;
+      doc.setFont(undefined, "bold");
+      doc.text("Social Security (SSN):", col1X, yPosition);
+      doc.setFont(undefined, "normal");
+      doc.text(emp.ssn || "-", col2X, yPosition);
+      yPosition += 5;
+
+      doc.setFont(undefined, "bold");
+      doc.text("ITIN (W-7):", col1X, yPosition);
+      doc.setFont(undefined, "normal");
+      doc.text(emp.itin || "-", col2X, yPosition);
+      yPosition += 10;
     });
-
-    // Footer
-    const footerY = pageHeight - 10;
-    pdf.setDrawColor(200, 200, 200);
-    pdf.line(margin, footerY, pageWidth - margin, footerY);
-    pdf.setFont(undefined, "bold");
-    pdf.setFontSize(9);
-    pdf.setTextColor(0, 0, 0);
-    pdf.text(
-      `Total Employees: ${employees.length} | Active: ${activeEmployees} | Weekly Payroll: $${totalWeeklyPayroll.toLocaleString(undefined, { maximumFractionDigits: 2 })}`,
-      margin,
-      footerY + 5,
-    );
-    pdf.setFontSize(8);
-    pdf.setTextColor(150, 150, 150);
-    pdf.text(`Page ${pdf.internal.pages.length}`, pageWidth - margin - 10, footerY + 5);
 
     const fileName = `employees_details_${formatDateToString(new Date())}.pdf`;
-    pdf.save(fileName);
+    doc.save(fileName);
   };
 
   return (
