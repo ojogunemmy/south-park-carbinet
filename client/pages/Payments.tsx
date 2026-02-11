@@ -1093,6 +1093,24 @@ export default function Payments() {
       }
 
       console.log("✅ Payment updated in database");
+      // Keep the UI focused on the week that was just paid.
+      const paidWeekStart = payment?.week_start_date;
+      if (paidWeekStart) {
+        setViewMode("weekly");
+        setSelectedWeek(paidWeekStart);
+        setHiddenWeeks((prev) => {
+          if (!prev.has(paidWeekStart)) return prev;
+          const next = new Set(prev);
+          next.delete(paidWeekStart);
+          try {
+            localStorage.setItem(hiddenWeeksStorageKey, JSON.stringify(Array.from(next)));
+          } catch {
+            // ignore
+          }
+          return next;
+        });
+      }
+
       await loadFreshData();
 
       // Capture values before resetting for toast message
@@ -2087,7 +2105,7 @@ Already reversed/corrections kept for ledger: ${Math.max(0, weekPayments.length 
     }
   }, [selectedWeek, selectedYear]);
 
-  // Compute Yearly Stats for "All Payments" view
+  // Compute Yearly Stats for "Yearly Earnings" view
   const yearlyStats = useMemo(() => {
     const stats: Record<string, { id: string, name: string, weeklyRate: number, paid: number, pending: number, total: number, count: number }> = {};
     
@@ -2096,7 +2114,7 @@ Already reversed/corrections kept for ledger: ${Math.max(0, weekPayments.length 
       stats[e.id] = { id: e.id, name: e.name, weeklyRate: e.weekly_rate || 0, paid: 0, pending: 0, total: 0, count: 0 };
     });
 
-    // Aggregate payments (visible entries only)
+    // Aggregate PAID payments only so this matches the paid ledger.
     visiblePayments.forEach(p => {
       // If employee not in map (e.g. deleted), create entry or skip?
       // For now, let's skip if no matching employee to avoid displaying IDs, or handle if needed.
@@ -2109,19 +2127,17 @@ Already reversed/corrections kept for ledger: ${Math.max(0, weekPayments.length 
          return;
       }
       
-      const amount = p.amount || 0;
-      stats[p.employee_id].total += amount;
-      stats[p.employee_id].count += 1;
-      
-      if (p.status === 'paid') {
-        const deduction = p.deduction_amount || 0;
-        stats[p.employee_id].paid += (amount - deduction); // Net paid? Or gross? Usually Total Earned = Gross. Paid = Net? 
-        // Image 2 "Total Earned" vs "Paid" vs "Pending". 
-        // Let's assume Paid = amount for now unless specific logic needed.
-        // Step 750 line 1176: totalPaid uses (amount - deduction). I will use that for consistency.
-      } else if (p.status === 'pending') {
-        stats[p.employee_id].pending += amount;
+      if (p.status !== 'paid' || isCancelledStatus(p.status)) {
+        return;
       }
+
+      const amount = p.amount || 0;
+      const deduction = p.deduction_amount || 0;
+      const netPaid = amount - deduction;
+
+      stats[p.employee_id].total += netPaid;
+      stats[p.employee_id].paid += netPaid;
+      stats[p.employee_id].count += 1;
     });
 
     return Object.values(stats);
@@ -2323,6 +2339,22 @@ Already reversed/corrections kept for ledger: ${Math.max(0, weekPayments.length 
         paid_date: null,
         down_payment: 0,
       });
+
+      // Make sure the new payment is visible right away.
+      setViewMode("weekly");
+      setSelectedWeek(weekStartStr);
+      setHiddenWeeks((prev) => {
+        if (!prev.has(weekStartStr)) return prev;
+        const next = new Set(prev);
+        next.delete(weekStartStr);
+        try {
+          localStorage.setItem(hiddenWeeksStorageKey, JSON.stringify(Array.from(next)));
+        } catch {
+          // ignore
+        }
+        return next;
+      });
+
       await loadFreshData();
 
       // Reset form and close modal
@@ -2909,7 +2941,7 @@ Already reversed/corrections kept for ledger: ${Math.max(0, weekPayments.length 
         <Card className="border-slate-200" data-print-section>
           <CardHeader>
             <CardTitle>Yearly Earnings Summary</CardTitle>
-            <CardDescription>Consolidated payments for 2026</CardDescription>
+            <CardDescription>Paid payments for {selectedYear}</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="hidden lg:block overflow-x-auto">

@@ -1,7 +1,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Plus, AlertCircle, Edit2, Trash2, Printer, Paperclip, Download, Eye, X } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useYear } from "@/contexts/YearContext";
 import { getTodayDate, formatDateString } from "@/utils/yearStorage";
 import jsPDF from "jspdf";
@@ -160,6 +160,7 @@ export default function Bills() {
   const [filterFromDate, setFilterFromDate] = useState<string>("");
   const [filterToDate, setFilterToDate] = useState<string>("");
   const [filterCategory, setFilterCategory] = useState<string>("all");
+  const [filterVendor, setFilterVendor] = useState<string>("all");
   const [paymentDetails, setPaymentDetails] = useState({
     creditCardNumber: "",
     creditCardHolder: "",
@@ -269,11 +270,22 @@ export default function Bills() {
     .filter((b) => b.status === "overdue")
     .reduce((sum, b) => sum + b.amount, 0);
 
+  const availableVendors = useMemo(() => {
+    const vendors = new Set<string>();
+    (bills || []).forEach((b) => {
+      const v = String(b.vendor || "").trim();
+      if (v) vendors.add(v);
+    });
+    return Array.from(vendors).sort((a, b) => a.localeCompare(b));
+  }, [bills]);
+
   const filteredBills = bills
     .filter((bill) => {
       const statusMatch = filterStatus === "all" || bill.status === filterStatus;
       const categoryMatch =
         filterCategory === "all" || normalizeBillCategory(bill.category) === filterCategory;
+      const vendorMatch =
+        filterVendor === "all" || String(bill.vendor || "").trim() === filterVendor;
 
       let dateMatch = true;
       if (filterFromDate || filterToDate) {
@@ -290,7 +302,7 @@ export default function Bills() {
         }
       }
 
-      return statusMatch && dateMatch && categoryMatch;
+      return statusMatch && dateMatch && categoryMatch && vendorMatch;
     })
     .sort((a, b) => {
       // Sort by due_date in descending order (most recent first)
@@ -1993,6 +2005,20 @@ export default function Bills() {
                     ))}
                   </SelectContent>
                 </Select>
+
+                  <Select value={filterVendor} onValueChange={setFilterVendor}>
+                    <SelectTrigger className="w-full sm:w-[180px] border-slate-300">
+                      <SelectValue placeholder="Vendor" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Vendors</SelectItem>
+                      {availableVendors.map((vendor) => (
+                        <SelectItem key={vendor} value={vendor}>
+                          {vendor}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
 
                   <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
                     <Input
