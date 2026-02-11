@@ -2007,16 +2007,24 @@ Already reversed/corrections kept for ledger: ${Math.max(0, weekPayments.length 
     setSelectedReversalPaymentId(null);
   };
 
+  const visiblePayments = useMemo(() => {
+    return (payments || []).filter((p: any) => {
+      const isCorrection = !!p?.is_correction || !!p?.reverses_payment_id;
+      const isReversed = !!p?.is_reversed || !!p?.reversed_by_payment_id;
+      return !isCorrection && !isReversed;
+    });
+  }, [payments]);
+
   // Find the earliest pending payment date (coming week to pay)
   // Get all unique week start dates
-  const availableWeeks = Array.from(new Set(payments.map(p => p.week_start_date)))
+  const availableWeeks = Array.from(new Set(visiblePayments.map((p) => p.week_start_date)))
     .filter((w) => !hiddenWeeks.has(w))
     .sort((a, b) => b.localeCompare(a)); // Sort descending (newest first)
 
   // Determine default week (Earliest Pending > Current Real Week > Latest Available)
   const defaultWeek = useMemo(() => {
     // 1. Try to find earliest pending week
-    const pendingWeeks = payments
+    const pendingWeeks = visiblePayments
       .filter(p => p.status === "pending")
       .map(p => p.week_start_date)
       .filter((w) => !hiddenWeeks.has(w))
@@ -2029,7 +2037,7 @@ Already reversed/corrections kept for ledger: ${Math.max(0, weekPayments.length 
 
     // 3. Fallback to current week (2026-01-26 context)
     return "2026-01-25"; // Approximate default
-  }, [payments, availableWeeks, hiddenWeeks]);
+  }, [visiblePayments, availableWeeks, hiddenWeeks]);
 
   // Persist selected week per year so view survives refresh
   const selectedWeekStorageKey = `payments_selected_week_${selectedYear}`;
@@ -2088,8 +2096,8 @@ Already reversed/corrections kept for ledger: ${Math.max(0, weekPayments.length 
       stats[e.id] = { id: e.id, name: e.name, weeklyRate: e.weekly_rate || 0, paid: 0, pending: 0, total: 0, count: 0 };
     });
 
-    // Aggregate payments
-    payments.forEach(p => {
+    // Aggregate payments (visible entries only)
+    visiblePayments.forEach(p => {
       // If employee not in map (e.g. deleted), create entry or skip?
       // For now, let's skip if no matching employee to avoid displaying IDs, or handle if needed.
       // But usually payments belong to valid employees.
@@ -2117,7 +2125,7 @@ Already reversed/corrections kept for ledger: ${Math.max(0, weekPayments.length 
     });
 
     return Object.values(stats);
-  }, [employees, payments]);
+  }, [employees, visiblePayments]);
 
   const yearlyTotals = useMemo(() => {
     return yearlyStats.reduce((acc, curr) => ({
@@ -2128,7 +2136,7 @@ Already reversed/corrections kept for ledger: ${Math.max(0, weekPayments.length 
     }), { total: 0, paid: 0, pending: 0, count: 0 });
   }, [yearlyStats]);
 
-  const filteredPayments = payments
+  const filteredPayments = visiblePayments
     .filter((p) => {
       const statusMatch =
         filterStatus === "all" ||
@@ -3053,7 +3061,7 @@ Already reversed/corrections kept for ledger: ${Math.max(0, weekPayments.length 
                   <SelectContent>
                     {availableWeeks.map((week) => (
                       <SelectItem key={week} value={week}>
-                        {new Date(week).toLocaleDateString()} ({payments.filter(p => p.week_start_date === week).length} items)
+                        {new Date(week).toLocaleDateString()} ({visiblePayments.filter(p => p.week_start_date === week).length} items)
                       </SelectItem>
                     ))}
                     {!availableWeeks.includes(selectedWeek) && (
@@ -3341,6 +3349,28 @@ Already reversed/corrections kept for ledger: ${Math.max(0, weekPayments.length 
                             <Edit2 className="w-4 h-4" />
                             <span>Edit</span>
                           </button>
+
+                          {(payment.status === "pending" && !isCancelledStatus(payment.status)) && (
+                            <button
+                              className="flex items-center gap-1 text-sm text-red-600 hover:text-red-800"
+                              onClick={() => handleCancelPendingPayment(payment.id)}
+                              title="Remove this payment"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                              <span>Remove</span>
+                            </button>
+                          )}
+
+                          {(payment.status === "paid" && !(payment as any).is_correction && !(payment as any).reversed_by_payment_id) && (
+                            <button
+                              className="flex items-center gap-1 text-sm text-red-600 hover:text-red-800"
+                              onClick={() => handleDeletePaidPayment(payment.id)}
+                              title="Remove this payment (creates a reversal entry)"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                              <span>Remove</span>
+                            </button>
+                          )}
                         </div>
                         <div className="flex gap-4 items-center mt-2 flex-wrap">
                           {payment.status === "pending" && (
@@ -3354,17 +3384,6 @@ Already reversed/corrections kept for ledger: ${Math.max(0, weekPayments.length 
                               </button>
                           )}
 
-                          {payment.status === "pending" && !isCancelledStatus(payment.status) && (
-                            <button
-                              className="flex items-center gap-1 text-sm text-red-600 hover:text-red-800"
-                              onClick={() => handleCancelPendingPayment(payment.id)}
-                              title="Delete pending payment"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                              <span>Delete</span>
-                            </button>
-                          )}
-
                           {payment.status === "paid" && !(payment as any).is_correction && !(payment as any).reversed_by_payment_id && (
                             <>
                               <button
@@ -3374,15 +3393,6 @@ Already reversed/corrections kept for ledger: ${Math.max(0, weekPayments.length 
                               >
                                 <AlertCircle className="w-4 h-4" />
                                 <span>Reverse</span>
-                              </button>
-
-                              <button
-                                className="flex items-center gap-1 text-sm text-red-600 hover:text-red-800"
-                                onClick={() => handleDeletePaidPayment(payment.id)}
-                                title="Delete paid payment (creates a reversal entry to preserve ledger history)"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                                <span>Delete</span>
                               </button>
                             </>
                           )}
@@ -3523,6 +3533,26 @@ Already reversed/corrections kept for ledger: ${Math.max(0, weekPayments.length 
                       >
                         <Edit2 className="w-4 h-4" />
                       </button>
+
+                      {payment.status === "pending" && !isCancelledStatus(payment.status) && (
+                        <button
+                          className="p-2 text-red-600 hover:bg-red-50 rounded-full"
+                          onClick={() => handleCancelPendingPayment(payment.id)}
+                          title="Remove"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+
+                      {payment.status === "paid" && !(payment as any).is_correction && !(payment as any).reversed_by_payment_id && (
+                        <button
+                          className="p-2 text-red-600 hover:bg-red-50 rounded-full"
+                          onClick={() => handleDeletePaidPayment(payment.id)}
+                          title="Remove"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                       {payment.status === "pending" && (
                          <button
                             className="p-2 text-slate-600 hover:bg-slate-200 rounded-full"
@@ -3533,15 +3563,7 @@ Already reversed/corrections kept for ledger: ${Math.max(0, weekPayments.length 
                           </button>
                       )}
 
-                      {payment.status === "pending" && !isCancelledStatus(payment.status) && (
-                        <button
-                          className="p-2 text-red-600 hover:bg-red-50 rounded-full"
-                          onClick={() => handleCancelPendingPayment(payment.id)}
-                          title="Delete"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )}
+                      {/* Remove button already shown above for pending */}
                       
                       {/* Mark as paid button embedded for quick action if pending */}
                       {payment.status === "pending" && (
@@ -3562,13 +3584,7 @@ Already reversed/corrections kept for ledger: ${Math.max(0, weekPayments.length 
                           >
                             <AlertCircle className="w-4 h-4" />
                           </button>
-                          <button
-                            className="p-2 text-red-600 hover:bg-red-50 rounded-full"
-                            onClick={() => handleDeletePaidPayment(payment.id)}
-                            title="Delete paid payment (creates reversal entry)"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {/* Remove button already shown above for paid */}
                         </>
                       )}
                   </div>

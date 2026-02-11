@@ -100,12 +100,19 @@ export default function PaymentHistory() {
       setIsLoading(true);
       const allPayments = await paymentsService.getAll();
       
-      // Filter payments for selected year and include both paid and reversed entries
+      // Filter payments for selected year and show only active/visible paid entries.
+      // (Hide reversal/correction entries and reversed originals so deleted payments/weeks don't display.)
       const yearPayments = (allPayments || [])
         .filter((p: any) => {
           const date = new Date(p.week_start_date);
-          return date.getFullYear() === selectedYear && 
-                 (p.status === "paid" || p.is_correction); // Include paid payments and reversal entries
+          const isCorrection = !!p?.is_correction || !!p?.reverses_payment_id;
+          const isReversed = !!p?.is_reversed || !!p?.reversed_by_payment_id;
+          return (
+            date.getFullYear() === selectedYear &&
+            p.status === "paid" &&
+            !isCorrection &&
+            !isReversed
+          );
         })
         .map((p: any) => ({
           ...p,

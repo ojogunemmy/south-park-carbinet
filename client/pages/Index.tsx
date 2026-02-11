@@ -237,7 +237,10 @@ export default function Index() {
 
     // Sum paid payments by month (filter by selected year)
     payments.forEach((payment: any) => {
-      if (payment.status === "paid" && payment.paid_date) {
+      const isCorrection = !!payment?.is_correction || !!payment?.reverses_payment_id;
+      const isReversed = !!payment?.is_reversed || !!payment?.reversed_by_payment_id;
+
+      if (payment.status === "paid" && payment.paid_date && !isCorrection && !isReversed) {
         const paymentDate = new Date(payment.paid_date);
         if (paymentDate.getFullYear() === selectedYear) {
           const month = paymentDate.getMonth() + 1;
