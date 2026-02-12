@@ -290,165 +290,100 @@ export default function Costs() {
         return;
       }
 
-      const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+      // Match the simple portrait "PROJECT COSTS REPORT" layout
+      const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
-      const margin = 12;
-      const contentWidth = pageWidth - 2 * margin;
-      const footerHeight = 12;
+
+      const leftMargin = 12;
+      const rightMargin = 12;
+      const leftX = leftMargin;
+      const rightX = pageWidth - rightMargin;
+      const contentWidth = pageWidth - leftMargin - rightMargin;
+
+      const lineHeight = 7;
+      const sectionGap = 5;
+      let yPosition = 15;
 
       const formatCurrency = (value: number) =>
         `$${(Number(value) || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 
-      const statusLabel = (status?: string | null) =>
-        status ? String(status).replace(/-/g, " ") : "pending";
+      const safeText = (value: unknown) => (value == null ? "" : String(value));
 
-      const fitText = (text: string, maxWidth: number, fontSize: number) => {
-        pdf.setFontSize(fontSize);
-        const str = text ?? "";
-        if (pdf.getTextWidth(str) <= maxWidth) return str;
-        const ellipsis = "…";
-        let lo = 0;
-        let hi = str.length;
-        while (lo < hi) {
-          const mid = Math.floor((lo + hi) / 2);
-          const candidate = str.slice(0, mid) + ellipsis;
-          if (pdf.getTextWidth(candidate) <= maxWidth) lo = mid + 1;
-          else hi = mid;
+      const ensureSpace = (neededHeight: number) => {
+        if (yPosition + neededHeight <= pageHeight - 15) return;
+        pdf.addPage();
+        yPosition = 15;
+      };
+
+      const drawRightWrapped = (text: string, xRight: number, maxWidth: number) => {
+        const lines = pdf.splitTextToSize(text, maxWidth);
+        lines.forEach((line: string, idx: number) => {
+          pdf.text(line, xRight, yPosition + idx * (lineHeight - 1), { align: "right" });
+        });
+        yPosition += Math.max(1, lines.length) * (lineHeight - 1);
+      };
+
+      const drawTwoColLine = (label: string, value: string, indent = 0) => {
+        const labelX = leftX + indent;
+        const labelMaxWidth = contentWidth * 0.6;
+        const valueMaxWidth = contentWidth * 0.4;
+
+        pdf.text(label, labelX, yPosition, { maxWidth: labelMaxWidth });
+        // Right-align values to create consistent column alignment
+        if (pdf.getTextWidth(value) <= valueMaxWidth) {
+          pdf.text(value, rightX, yPosition, { align: "right" });
+          yPosition += lineHeight;
+        } else {
+          // Wrap long values (e.g., long client names) without breaking alignment
+          drawRightWrapped(value, rightX, valueMaxWidth);
+          yPosition += 1;
         }
-        const finalLen = Math.max(0, lo - 1);
-        return str.slice(0, finalLen) + ellipsis;
       };
 
-      const drawHeader = () => {
-        // Header background
-        pdf.setFillColor(31, 41, 55);
-        pdf.rect(0, 0, pageWidth, 22, "F");
+      // Title
+      pdf.setFontSize(16);
+      pdf.setFont(undefined, "bold");
+      pdf.text("PROJECT COSTS REPORT", leftX, yPosition);
+      yPosition += 10;
 
-        // Title
-        pdf.setTextColor(255, 255, 255);
-        pdf.setFontSize(20);
-        pdf.setFont(undefined, "bold");
-        pdf.text("SOUTH PARK CABINETS", margin, 10);
+      // Generated date
+      pdf.setFontSize(9);
+      pdf.setFont(undefined, "normal");
+      pdf.text(
+        `Generated: ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`,
+        leftX,
+        yPosition,
+      );
+      yPosition += 8;
 
-        // Subtitle
-        pdf.setFontSize(11);
-        pdf.setFont(undefined, "normal");
-        pdf.text("Project Costs Report", margin, 18);
+      // Summary section
+      pdf.setFont(undefined, "bold");
+      pdf.setFontSize(11);
+      pdf.text("SUMMARY", leftX, yPosition);
+      yPosition += lineHeight;
 
-        const filterParts: string[] = [];
-        filterParts.push(`Year: ${selectedYear}`);
-        if (filterStatus !== "all") filterParts.push(`Status: ${statusLabel(filterStatus)}`);
-        if (filterFromDate) filterParts.push(`From: ${filterFromDate}`);
-        if (filterToDate) filterParts.push(`To: ${filterToDate}`);
-        const filters = filterParts.join(" | ");
+      pdf.setFont(undefined, "normal");
+      pdf.setFontSize(10);
 
-        pdf.setTextColor(200, 200, 200);
-        pdf.setFontSize(9);
-        pdf.text(filters, margin, 22 + 6);
+      drawTwoColLine("Total Contract Value:", formatCurrency(totalContractValue), 3);
+      drawTwoColLine("Total Material Costs:", formatCurrency(totalMaterialCosts), 3);
+      drawTwoColLine("Total Labor Costs:", formatCurrency(totalLaborCosts), 3);
+      drawTwoColLine("Total Misc Costs:", formatCurrency(totalMiscCosts), 3);
+      drawTwoColLine("Total Costs:", formatCurrency(totalCosts), 3);
+      drawTwoColLine(
+        "Total Profit:",
+        `${formatCurrency(totalProfit)} (Margin: ${overallProfitMargin.toFixed(1)}%)`,
+        3,
+      );
 
-        pdf.setTextColor(150, 150, 150);
-        pdf.text(
-          `Generated: ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`,
-          pageWidth - margin,
-          18,
-          { align: "right" },
-        );
+      yPosition += sectionGap;
 
-        pdf.setTextColor(0, 0, 0);
-      };
-
-      const drawSummary = (startY: number) => {
-        const boxWidth = (contentWidth - 9) / 4;
-        const summaryData = [
-          { label: "Total Contract Value", value: formatCurrency(totalContractValue), color: [59, 130, 246] as const },
-          { label: "Total Costs", value: formatCurrency(totalCosts), color: [239, 68, 68] as const },
-          { label: "Total Profit", value: formatCurrency(totalProfit), color: [34, 197, 94] as const },
-          { label: "Avg Margin", value: `${overallProfitMargin.toFixed(1)}%`, color: [168, 85, 247] as const },
-        ];
-
-        summaryData.forEach((item, idx) => {
-          const xPos = margin + idx * (boxWidth + 3);
-          const [r, g, b] = item.color;
-          pdf.setFillColor(r, g, b);
-          pdf.rect(xPos, startY, boxWidth, 12, "F");
-
-          pdf.setTextColor(255, 255, 255);
-          pdf.setFontSize(8);
-          pdf.setFont(undefined, "normal");
-          pdf.text(item.label, xPos + 2, startY + 4);
-
-          pdf.setFontSize(10);
-          pdf.setFont(undefined, "bold");
-          pdf.text(String(item.value), xPos + 2, startY + 10);
-        });
-
-        pdf.setTextColor(0, 0, 0);
-        return startY + 18;
-      };
-
-      // Must sum to contentWidth (landscape A4 minus margins)
-      // Wider Contract column so full IDs show without truncation
-      const colWidths = [7, 28, 42, 30, 18, 23, 20, 20, 20, 23, 23, 14];
-      const headers = [
-        "#",
-        "Contract",
-        "Project",
-        "Client",
-        "Status",
-        "Value",
-        "Materials",
-        "Labor",
-        "Misc",
-        "Total",
-        "Profit",
-        "Margin",
-      ];
-
-      const drawTableHeader = (y: number) => {
-        pdf.setFillColor(59, 70, 87);
-        pdf.rect(margin, y - 5, contentWidth, 8, "F");
-        pdf.setTextColor(255, 255, 255);
-        pdf.setFont(undefined, "bold");
-        pdf.setFontSize(10);
-
-        let x = margin + 2;
-        headers.forEach((h, idx) => {
-          const w = colWidths[idx];
-          const isNumberCol = idx >= 5;
-          if (isNumberCol) {
-            pdf.text(h, x + w - 2, y, { align: "right" });
-          } else {
-            pdf.text(h, x, y);
-          }
-          x += w;
-        });
-
-        pdf.setTextColor(0, 0, 0);
-        return y + 10;
-      };
-
-      const drawFooter = (pageNumber: number) => {
-        const y = pageHeight - 8;
-        pdf.setDrawColor(200, 200, 200);
-        pdf.setLineWidth(0.2);
-        pdf.line(margin, y - 4, pageWidth - margin, y - 4);
-        pdf.setFont(undefined, "normal");
-        pdf.setFontSize(8);
-        pdf.setTextColor(150, 150, 150);
-        pdf.text(`Contracts: ${filteredContracts.length}`, margin, y);
-        pdf.text(`Page ${pageNumber}`, pageWidth - margin, y, { align: "right" });
-        pdf.setTextColor(0, 0, 0);
-      };
-
-      // Start
-      drawHeader();
-      let yPosition = drawSummary(34);
-      yPosition = drawTableHeader(yPosition);
-
-      const lineHeight = 4.2;
-      let zebra = 0;
-      let currentPage = 1;
+      // Contract breakdown
+      pdf.setFont(undefined, "bold");
+      pdf.setFontSize(11);
+      pdf.text("CONTRACT BREAKDOWN", leftX, yPosition);
+      yPosition += lineHeight;
 
       filteredContracts.forEach((contract, idx) => {
         const normalized = getCostTracking(contract) as any;
@@ -457,90 +392,40 @@ export default function Costs() {
         const miscCost = calculateMiscCost(normalized.miscellaneous || []);
         const totalCost = materialCost + laborCost + miscCost;
         const profit = calculateProfit(contract);
-        const profitMargin = calculateProfitMargin(contract);
+        const profitMarginPct = calculateProfitMargin(contract);
 
-        const contractIdLines = pdf.splitTextToSize(String(contract.id || ""), colWidths[1] - 3);
-        const projectLines = pdf.splitTextToSize(String(contract.project_name || ""), colWidths[2] - 4);
-        const clientLines = pdf.splitTextToSize(String(contract.client_name || ""), colWidths[3] - 4);
-        const maxLines = Math.max(1, contractIdLines.length, projectLines.length, clientLines.length);
-        const rowHeight = Math.max(8, 2 + maxLines * lineHeight);
+        // Estimate height and page break conservatively
+        ensureSpace(40);
 
-        // Page break
-        if (yPosition + rowHeight > pageHeight - footerHeight) {
-          drawFooter(currentPage);
-          pdf.addPage();
-          currentPage += 1;
-          drawHeader();
-          yPosition = drawSummary(34);
-          yPosition = drawTableHeader(yPosition);
-          zebra = 0;
-        }
-
-        // Row background
-        pdf.setFillColor(zebra % 2 === 0 ? 240 : 255, zebra % 2 === 0 ? 245 : 255, zebra % 2 === 0 ? 250 : 255);
-        pdf.rect(margin, yPosition - 4, contentWidth, rowHeight, "F");
-        pdf.setDrawColor(220, 220, 220);
-        pdf.setLineWidth(0.2);
-        pdf.line(margin, yPosition - 4 + rowHeight, margin + contentWidth, yPosition - 4 + rowHeight);
-
-        // Cell text
-        pdf.setFont(undefined, "normal");
-        pdf.setFontSize(8.5);
-        let x = margin + 2;
-        const topY = yPosition;
-
-        // #
+        // Contract header (wrap project name if needed)
         pdf.setFont(undefined, "bold");
-        pdf.text(String(idx + 1), x, topY);
-        x += colWidths[0];
-
-        // Contract ID (wrap to show full value)
-        pdf.setFont(undefined, "bold");
-        contractIdLines.forEach((line: string, i: number) => {
-          pdf.text(line, x, topY + i * lineHeight);
+        pdf.setFontSize(10);
+        const header = `${idx + 1}. ${safeText(contract.id)} - ${safeText(contract.project_name)}`;
+        const headerLines = pdf.splitTextToSize(header, contentWidth);
+        headerLines.forEach((line: string, lineIdx: number) => {
+          pdf.text(line, leftX, yPosition + lineIdx * (lineHeight - 1));
         });
-        x += colWidths[1];
+        yPosition += Math.max(1, headerLines.length) * (lineHeight - 1);
+        yPosition += 2;
 
-        // Project (wrap)
+        // Contract details
         pdf.setFont(undefined, "normal");
-        projectLines.slice(0, 3).forEach((line: string, i: number) => {
-          pdf.text(line, x, topY + i * lineHeight);
-        });
-        x += colWidths[2];
+        pdf.setFontSize(9);
 
-        // Client (wrap)
-        clientLines.slice(0, 3).forEach((line: string, i: number) => {
-          pdf.text(line, x, topY + i * lineHeight);
-        });
-        x += colWidths[3];
+        drawTwoColLine("Client:", safeText(contract.client_name), 5);
+        drawTwoColLine("Status:", safeText(contract.status).replace(/-/g, " "), 5);
+        drawTwoColLine("Contract Value:", formatCurrency(contract.total_value || 0), 5);
+        drawTwoColLine("Material Costs:", formatCurrency(materialCost), 5);
+        drawTwoColLine("Labor Costs:", formatCurrency(laborCost), 5);
+        drawTwoColLine("Misc Costs:", formatCurrency(miscCost), 5);
+        drawTwoColLine("Total Costs:", formatCurrency(totalCost), 5);
+        drawTwoColLine("Profit:", formatCurrency(profit), 5);
+        drawTwoColLine("Profit Margin:", `${profitMarginPct.toFixed(1)}%`, 5);
 
-        // Status
-        const status = statusLabel(contract.status);
-        pdf.text(fitText(status, colWidths[4] - 3, 8.5), x, topY);
-        x += colWidths[4];
-
-        // Numeric columns (right aligned)
-        const numbers = [
-          formatCurrency(contract.total_value || 0),
-          formatCurrency(materialCost),
-          formatCurrency(laborCost),
-          formatCurrency(miscCost),
-          formatCurrency(totalCost),
-          formatCurrency(profit),
-          `${profitMargin.toFixed(1)}%`,
-        ];
-        numbers.forEach((val, nIdx) => {
-          const w = colWidths[5 + nIdx];
-          pdf.text(val, x + w - 2, topY, { align: "right" });
-          x += w;
-        });
-
-        yPosition += rowHeight;
-        zebra += 1;
+        yPosition += 2;
       });
 
-      drawFooter(currentPage);
-      pdf.save(`Project-Costs-Report-${selectedYear}.pdf`);
+      pdf.save("Costs-Report.pdf");
     } catch (error) {
       console.error("Error generating cost report:", error);
       alert(`Error generating report: ${error instanceof Error ? error.message : "Unknown error"}`);
