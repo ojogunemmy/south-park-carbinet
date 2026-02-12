@@ -2342,10 +2342,145 @@ South Park Cabinets INC
     pdf.text(`$${(contract.total_value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`, margin + 100, yPosition, { align: "right" });
     yPosition += lineHeight + 8;
 
-    // Payments Section - Get paid payments from payment schedule
-    const paidPayments = (contract.payment_schedule || []).filter((p: any) => p.status === 'paid');
-    
-    if (paidPayments.length > 0) {
+    // Payments Section - include partial payments as receipts
+    type ReceiptRow = {
+      dateIso: string;
+      description: string;
+      methodLabel: string;
+      transactionNumber: string;
+      amount: number;
+    };
+
+    const schedule = (contract.payment_schedule || []) as any[];
+    const downPayments = (contract as any).down_payments ?? (contract as any).downPayments ?? [];
+    const receiptRows: ReceiptRow[] = [];
+
+    // Include down payments (if any)
+    if (Array.isArray(downPayments)) {
+      downPayments.forEach((dp: any) => {
+        const dateIso = String(dp?.date ?? dp?.paid_date ?? dp?.paidDate ?? "");
+        const method = normalizePaymentMethodValue(dp?.method ?? dp?.payment_method ?? dp?.paymentMethod);
+        const methodLabel = paymentMethodPlainLabel(method) || "N/A";
+        const transactionNumberRaw =
+          dp?.transaction_reference ||
+          dp?.transactionReference ||
+          dp?.ach_transaction_id ||
+          dp?.wire_reference_number ||
+          dp?.zelle_confirmation_number ||
+          dp?.authorization_code ||
+          dp?.deposit_reference_number ||
+          dp?.receipt_number ||
+          dp?.check_number ||
+          dp?.checkNumber ||
+          "";
+
+        receiptRows.push({
+          dateIso,
+          description: String(dp?.description ?? "Down payment"),
+          methodLabel,
+          transactionNumber: String(transactionNumberRaw),
+          amount: Number(dp?.amount || 0),
+        });
+      });
+    }
+
+    // Include scheduled payments:
+    // - list partial payments as receipts
+    // - keep paid payments included (if partials exist, include any remainder so paid is not omitted)
+    schedule.forEach((payment: any) => {
+      const partials = getPaymentPartialPayments(payment);
+      const amount = Number(payment?.amount || 0);
+      const partialSum = partials.reduce((sum, pp) => sum + Number(pp?.amount || 0), 0);
+
+      // Prefer listing partial payments when they exist and have amounts.
+      // If partials exist but are empty/zero (legacy data), fall back to the full paid amount.
+      if (partials.length > 0 && partialSum > 0) {
+        partials.forEach((pp) => {
+          const dateIso = String(pp.date || payment.paid_date || payment.due_date || "");
+          const methodLabel = paymentMethodPlainLabel(pp.method) || "N/A";
+          const transactionNumberRaw =
+            pp.transaction_reference ||
+            (pp as any).transactionReference ||
+            (pp as any).ach_transaction_id ||
+            (pp as any).wire_reference_number ||
+            (pp as any).zelle_confirmation_number ||
+            (pp as any).authorization_code ||
+            (pp as any).deposit_reference_number ||
+            (pp as any).receipt_number ||
+            pp.check_number ||
+            "";
+
+          receiptRows.push({
+            dateIso,
+            description: String(pp.description || payment.description || "Payment") + " - Partial",
+            methodLabel,
+            transactionNumber: String(transactionNumberRaw),
+            amount: Number(pp.amount || 0),
+          });
+        });
+
+        // If the scheduled payment is marked as paid, include any remaining amount as a final receipt line.
+        if (payment?.status === "paid") {
+          const remaining = amount - partialSum;
+          if (remaining > 0.009) {
+            const dateIso = String(payment.paid_date || payment.due_date || "");
+            const methodLabel =
+              paymentMethodPlainLabel(normalizePaymentMethodValue(payment.payment_method ?? payment.paymentMethod)) || "N/A";
+            const transactionNumberRaw =
+              payment.transaction_reference ||
+              payment.transactionReference ||
+              payment.ach_transaction_id ||
+              payment.wire_reference_number ||
+              payment.zelle_confirmation_number ||
+              payment.authorization_code ||
+              payment.deposit_reference_number ||
+              payment.receipt_number ||
+              payment.check_number ||
+              "";
+
+            receiptRows.push({
+              dateIso,
+              description: String(payment.description || "Payment") + " - Remainder",
+              methodLabel,
+              transactionNumber: String(transactionNumberRaw),
+              amount: remaining,
+            });
+          }
+        }
+
+        return;
+      }
+
+      if (payment?.status === "paid") {
+        const dateIso = String(payment.paid_date || payment.due_date || "");
+        const methodLabel =
+          paymentMethodPlainLabel(normalizePaymentMethodValue(payment.payment_method ?? payment.paymentMethod)) ||
+          "N/A";
+        const transactionNumberRaw =
+          payment.transaction_reference ||
+          payment.transactionReference ||
+          payment.ach_transaction_id ||
+          payment.wire_reference_number ||
+          payment.zelle_confirmation_number ||
+          payment.authorization_code ||
+          payment.deposit_reference_number ||
+          payment.receipt_number ||
+          payment.check_number ||
+          "";
+
+        receiptRows.push({
+          dateIso,
+          description: String(payment.description || "Payment"),
+          methodLabel,
+          transactionNumber: String(transactionNumberRaw),
+          amount,
+        });
+      }
+    });
+
+    const hasReceipts = receiptRows.length > 0;
+
+    if (hasReceipts) {
       pdf.setDrawColor(200, 200, 200);
       pdf.line(margin, yPosition, margin + contentWidth, yPosition);
       yPosition += 8;
@@ -2375,50 +2510,67 @@ South Park Cabinets INC
       pdf.setFontSize(9);
       let totalPaidAmount = 0;
 
-      const sortedPayments = [...paidPayments].sort((a: any, b: any) => 
-        new Date(a.paid_date || a.due_date).getTime() - new Date(b.paid_date || b.due_date).getTime()
-      );
+      const sortedReceipts = [...receiptRows].sort((a, b) => {
+        const aDate = new Date((a.dateIso || "").split("T")[0] || 0).getTime();
+        const bDate = new Date((b.dateIso || "").split("T")[0] || 0).getTime();
+        return aDate - bDate;
+      });
 
-      sortedPayments.forEach((payment: any) => {
-        // Format date as M/D/YYYY
-        const dateToUse = payment.paid_date || payment.due_date;
-        const [year, month, day] = dateToUse.split('-');
-        const paymentDate = `${parseInt(month)}/${parseInt(day)}/${year}`;
+      sortedReceipts.forEach((row) => {
+        // Page break if needed
+        if (yPosition > pageHeight - 35) {
+          pdf.addPage();
+          yPosition = 20;
+          addLogoToPageTop(pdf, pageWidth);
+          pdf.setFont(undefined, "bold");
+          pdf.setFontSize(11);
+          pdf.text("PAYMENTS RECEIVED (continued)", margin, yPosition);
+          yPosition += lineHeight + 3;
 
-        // Get payment method label (no emoji to avoid encoding issues)
-        const methodLabel = paymentMethodPlainLabel(payment.payment_method) || "N/A";
+          pdf.setFont(undefined, "bold");
+          pdf.setFontSize(9);
+          pdf.text("Date", margin, yPosition);
+          pdf.text("Description", margin + 25, yPosition);
+          pdf.text("Method", margin + 85, yPosition);
+          pdf.text("Txn #", margin + 125, yPosition);
+          pdf.text("Amount", margin + contentWidth, yPosition, { align: "right" });
+          yPosition += lineHeight + 4;
 
-        const description = payment.description || "Payment";
-        const amountText = `$${payment.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+          pdf.setDrawColor(220, 220, 220);
+          pdf.line(margin, yPosition, margin + contentWidth, yPosition);
+          yPosition += lineHeight + 3;
+          pdf.setFont(undefined, "normal");
+          pdf.setFontSize(9);
+        }
 
-        // Prefer an explicit transaction/reference number if provided; otherwise fall back to method-specific fields
-        const transactionNumberRaw =
-          payment.transaction_reference ||
-          payment.ach_transaction_id ||
-          payment.wire_reference_number ||
-          payment.zelle_confirmation_number ||
-          payment.authorization_code ||
-          payment.deposit_reference_number ||
-          payment.receipt_number ||
-          payment.check_number ||
-          "";
+        const dateOnly = String(row.dateIso || "").split("T")[0];
+        const parts = dateOnly.split("-");
+        const paymentDate =
+          parts.length === 3
+            ? `${parseInt(parts[1] || "0")}/${parseInt(parts[2] || "0")}/${parts[0]}`
+            : "";
 
-        // Truncate transaction number if too long
+        const amountText = `$${(Number(row.amount) || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+
+        const cleanedTxn = String(row.transactionNumber || "")
+          .replace(/[()]/g, "")
+          .trim();
+
         const transactionNumber =
-          String(transactionNumberRaw).length > 16
-            ? String(transactionNumberRaw).substring(0, 16)
-            : String(transactionNumberRaw);
+          cleanedTxn.length > 16
+            ? cleanedTxn.substring(0, 16)
+            : cleanedTxn;
 
-        // Truncate description if too long
-        const truncatedDesc = description.length > 25 ? description.substring(0, 22) + "..." : description;
+        const desc = String(row.description || "Payment");
+        const truncatedDesc = desc.length > 25 ? desc.substring(0, 22) + "..." : desc;
 
         pdf.text(paymentDate, margin, yPosition);
         pdf.text(truncatedDesc, margin + 25, yPosition);
-        pdf.text(methodLabel, margin + 85, yPosition);
+        pdf.text(row.methodLabel || "N/A", margin + 85, yPosition);
         pdf.text(transactionNumber, margin + 125, yPosition);
         pdf.text(amountText, margin + contentWidth, yPosition, { align: "right" });
 
-        totalPaidAmount += payment.amount;
+        totalPaidAmount += Number(row.amount || 0);
         yPosition += lineHeight + 3;
       });
 
@@ -2435,7 +2587,31 @@ South Park Cabinets INC
       pdf.text(totalPaymentText, margin + contentWidth, yPosition, { align: "right" });
       yPosition += lineHeight + 8;
 
-      // Balance Due
+      // Pending Deposit (remaining balance on partially paid scheduled payments)
+      let totalPendingDeposit = 0;
+      schedule.forEach((payment: any) => {
+        const received = getPaymentReceivedAmount(payment);
+        const amt = Number(payment?.amount || 0);
+        const pending = amt - received;
+        if (received > 0 && pending > 0.009) totalPendingDeposit += pending;
+      });
+
+      if (totalPendingDeposit > 0.009) {
+        pdf.setFont(undefined, "bold");
+        pdf.setFontSize(11);
+        pdf.setTextColor(220, 20, 60);
+        pdf.text("Pending Deposit:", margin, yPosition);
+        pdf.text(
+          `$${totalPendingDeposit.toLocaleString(undefined, { maximumFractionDigits: 2 })}`,
+          margin + contentWidth,
+          yPosition,
+          { align: "right" },
+        );
+        pdf.setTextColor(0, 0, 0);
+        yPosition += lineHeight + 2;
+      }
+
+      // Total Remaining Due
       const balanceDue = (contract.total_value || 0) - totalPaidAmount;
       pdf.setFont(undefined, "bold");
       pdf.setFontSize(10);
@@ -2446,7 +2622,7 @@ South Park Cabinets INC
       } else {
         pdf.setTextColor(0, 0, 0); // Black if zero
       }
-      pdf.text("Balance Due:", margin, yPosition);
+      pdf.text("Total Remaining Due:", margin, yPosition);
       const balanceText = `$${Math.abs(balanceDue).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
       pdf.text(balanceText, margin + contentWidth, yPosition, { align: "right" });
       pdf.setTextColor(0, 0, 0); // Reset color
