@@ -1,6 +1,6 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Plus, AlertCircle, Edit2, Trash2, Download, Printer, ChevronRight, ChevronLeft, Paperclip, FileIcon, X, CircleDollarSign } from "lucide-react";
+import { Plus, AlertCircle, Edit2, Trash2, Download, Printer, ChevronRight, ChevronLeft, Paperclip, FileIcon, X, CircleDollarSign, FileText } from "lucide-react";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import JSZip from "jszip";
@@ -110,7 +110,118 @@ interface Payment {
   transaction_reference?: string;
   receipt_attachment?: string;
   confirmation_upload?: string;
+
+  // Partial payments tracking (optional)
+  partial_payments?: PartialPayment[];
+  partialPayments?: PartialPayment[];
 }
+
+interface PartialPayment {
+  id: string;
+  amount: number;
+  date: string;
+  method: "cash" | "check" | "wire" | "ach" | "credit_card" | "debit_card" | "direct_deposit" | "zelle";
+  description?: string;
+  receipt_attachment?: string;
+  transaction_reference?: string;
+
+  // Bank-like details (optional)
+  bank_name?: string;
+  routing_number?: string;
+  account_number?: string;
+  account_type?: string;
+
+  // Check details (optional)
+  check_number?: string;
+  check_attachment?: string;
+
+  // Card details (optional)
+  card_last4?: string;
+}
+
+const normalizePaymentMethodValue = (
+  value: any
+):
+  | "cash"
+  | "credit_card"
+  | "debit_card"
+  | "check"
+  | "direct_deposit"
+  | "ach"
+  | "wire"
+  | "zelle" => {
+  const v = String(value ?? "").trim();
+  if (v === "wire_transfer") return "wire";
+  if (v === "bank_transfer") return "ach";
+  if (v === "cash") return "cash";
+  if (v === "credit_card") return "credit_card";
+  if (v === "debit_card") return "debit_card";
+  if (v === "check") return "check";
+  if (v === "direct_deposit") return "direct_deposit";
+  if (v === "ach") return "ach";
+  if (v === "wire") return "wire";
+  if (v === "zelle") return "zelle";
+  return "cash";
+};
+
+const normalizePartialPayment = (raw: any): PartialPayment => {
+  const method = normalizePaymentMethodValue(raw?.method ?? raw?.paymentMethod);
+  return {
+    id: String(raw?.id ?? `PP-${Date.now()}-${Math.random().toString(36).slice(2)}`),
+    amount: Number(raw?.amount ?? 0),
+    date: String(raw?.date ?? raw?.paidDate ?? raw?.paid_date ?? getTodayDate()),
+    method,
+    description: raw?.description ?? "",
+    receipt_attachment: raw?.receipt_attachment ?? raw?.receiptAttachment ?? "",
+    transaction_reference:
+      raw?.transaction_reference ?? raw?.transactionReference ?? raw?.authorizationCode ?? "",
+    bank_name: raw?.bank_name ?? raw?.bankName ?? "",
+    routing_number: raw?.routing_number ?? raw?.routingNumber ?? "",
+    account_number: raw?.account_number ?? raw?.accountNumber ?? "",
+    account_type: raw?.account_type ?? raw?.accountType ?? "",
+    check_number: raw?.check_number ?? raw?.checkNumber ?? "",
+    check_attachment: raw?.check_attachment ?? raw?.checkAttachment ?? "",
+    card_last4: raw?.card_last4 ?? raw?.creditCardLast4 ?? raw?.cardLast4 ?? "",
+  };
+};
+
+const normalizePayment = (raw: any): Payment => {
+  const paymentMethod = normalizePaymentMethodValue(raw?.payment_method ?? raw?.paymentMethod);
+  const partialsRaw = raw?.partial_payments ?? raw?.partialPayments;
+  const partialPayments = Array.isArray(partialsRaw)
+    ? partialsRaw.map(normalizePartialPayment)
+    : [];
+
+  return {
+    id: String(raw?.id ?? ""),
+    description: String(raw?.description ?? ""),
+    amount: Number(raw?.amount ?? 0),
+    due_date: String(raw?.due_date ?? raw?.dueDate ?? ""),
+    status: (raw?.status === "paid" ? "paid" : "pending") as "pending" | "paid",
+    paid_date: String(raw?.paid_date ?? raw?.paidDate ?? ""),
+    payment_method: paymentMethod,
+    transaction_reference:
+      String(raw?.transaction_reference ?? raw?.transactionReference ?? ""),
+    receipt_attachment: String(raw?.receipt_attachment ?? raw?.receiptAttachment ?? ""),
+    bank_name: String(raw?.bank_name ?? raw?.bankName ?? ""),
+    routing_number: String(raw?.routing_number ?? raw?.routingNumber ?? ""),
+    account_number: String(raw?.account_number ?? raw?.accountNumber ?? ""),
+    account_type: String(raw?.account_type ?? raw?.accountType ?? ""),
+    check_number: String(raw?.check_number ?? raw?.checkNumber ?? ""),
+    check_attachment: String(raw?.check_attachment ?? raw?.checkAttachment ?? ""),
+    card_last4:
+      String(
+        raw?.card_last4 ??
+          raw?.cardLast4 ??
+          raw?.creditCardLast4 ??
+          raw?.credit_card_last4 ??
+          ""
+      ),
+    credit_card_last4:
+      raw?.credit_card_last4 ?? raw?.creditCardLast4 ?? raw?.credit_card_last4,
+    partial_payments: partialPayments,
+  };
+};
 
 interface MaterialItem {
   id: string;
@@ -390,6 +501,29 @@ export default function Contracts() {
     receipt_attachment: "",
     confirmation_upload: "",
   });
+
+  const [partialPaymentForm, setPartialPaymentForm] = useState<PartialPayment>({
+    id: "",
+    amount: 0,
+    date: getTodayDate(),
+    method: "cash",
+    description: "",
+    receipt_attachment: "",
+    transaction_reference: "",
+    bank_name: "",
+    routing_number: "",
+    account_number: "",
+    account_type: "checking",
+    check_number: "",
+    check_attachment: "",
+    card_last4: "",
+  });
+  const [showPartialPaymentForm, setShowPartialPaymentForm] = useState(false);
+
+  const [isThankYouLetterModalOpen, setIsThankYouLetterModalOpen] = useState(false);
+  const [thankYouLetterContractId, setThankYouLetterContractId] = useState<string | null>(null);
+  const [thankYouLetterContent, setThankYouLetterContent] = useState<string>("");
+
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
   const [expenseForm, setExpenseForm] = useState<Expense>({
@@ -531,6 +665,37 @@ export default function Contracts() {
     return Number.isFinite(month) ? month : null;
   };
 
+  const getPaymentPartialPayments = (payment: any): PartialPayment[] => {
+    const fromSnake = payment?.partial_payments;
+    const fromCamel = payment?.partialPayments;
+    if (Array.isArray(fromSnake)) return fromSnake.map(normalizePartialPayment);
+    if (Array.isArray(fromCamel)) return fromCamel.map(normalizePartialPayment);
+    return [];
+  };
+
+  const getPaymentReceivedAmount = (payment: any): number => {
+    const partialPayments = getPaymentPartialPayments(payment);
+    const partialSum = partialPayments.reduce((sum, pp) => sum + Number(pp?.amount || 0), 0);
+    if (partialPayments.length > 0) return partialSum;
+
+    // Back-compat: if payment was marked paid without partial payments, treat as fully received.
+    if (payment?.status === "paid") return Number(payment?.amount || 0);
+
+    return 0;
+  };
+
+  const getPaymentRemainingAmount = (payment: any): number => {
+    const amount = Number(payment?.amount || 0);
+    const received = getPaymentReceivedAmount(payment);
+    return Math.max(0, amount - received);
+  };
+
+  const isPaymentFullyReceived = (payment: any): boolean => {
+    const amount = Number(payment?.amount || 0);
+    if (amount <= 0) return false;
+    return getPaymentReceivedAmount(payment) >= amount - 0.01;
+  };
+
   const selectedPaymentMonth = filterPaymentMonth === "all" ? null : Number.parseInt(filterPaymentMonth, 10);
   const selectedPaymentMonthLabel = selectedPaymentMonth ? MONTH_LABELS_SHORT[selectedPaymentMonth - 1] : null;
   
@@ -540,10 +705,10 @@ export default function Contracts() {
       .filter((p: any) => p.status === "paid")
       .filter((p: any) => {
         if (!selectedPaymentMonth) return true;
-        const month = getMonthFromISODate(p.paid_date || p.paidDate || p.due_date);
+        const month = getMonthFromISODate(p.paid_date || p.paidDate || p.due_date || p.dueDate);
         return month === selectedPaymentMonth;
       });
-    return sum + paidPayments.reduce((paySum: number, p: any) => paySum + (p.amount || 0), 0);
+    return sum + paidPayments.reduce((paySum: number, p: any) => paySum + Number(p.amount || 0), 0);
   }, 0);
   
   // Calculate total amount due (pending payments)
@@ -552,10 +717,10 @@ export default function Contracts() {
       .filter((p: any) => p.status === "pending")
       .filter((p: any) => {
         if (!selectedPaymentMonth) return true;
-        const month = getMonthFromISODate(p.due_date);
+        const month = getMonthFromISODate(p.due_date || p.dueDate);
         return month === selectedPaymentMonth;
       });
-    return sum + pendingPayments.reduce((paySum: number, p: any) => paySum + (p.amount || 0), 0);
+    return sum + pendingPayments.reduce((paySum: number, p: any) => paySum + Number(p.amount || 0), 0);
   }, 0);
 
 
@@ -879,25 +1044,14 @@ export default function Contracts() {
   const handleOpenPaymentModal = (contractId: string, payment?: Payment) => {
     setSelectedContractId(contractId);
     if (payment) {
+      const normalized = normalizePayment(payment);
       setPaymentForm({
-        id: payment.id,
-        description: payment.description || "",
-        amount: payment.amount || 0,
-        due_date: payment.due_date || "",
-        status: payment.status || "pending",
-        paid_date: payment.paid_date || "",
-        payment_method: payment.payment_method || "cash",
-        bank_name: payment.bank_name || "",
-        routing_number: payment.routing_number || "",
-        account_number: payment.account_number || "",
-        account_type: payment.account_type || "checking",
-        check_attachment: payment.check_attachment || "",
-        check_number: payment.check_number || "",
-        credit_card_last4: payment.credit_card_last4 || "",
-        transaction_reference: payment.transaction_reference || "",
-        receipt_attachment: payment.receipt_attachment || "",
+        ...(payment as any),
+        ...normalized,
+        partial_payments: normalized.partial_payments || [],
       });
       setEditingPaymentId(payment.id);
+      setShowPartialPaymentForm(false);
     } else {
       const contract = contracts.find((c) => c.id === contractId);
       const newPaymentId = `PAY-${Date.now()}`;
@@ -915,11 +1069,13 @@ export default function Contracts() {
         account_type: "checking",
         check_attachment: "",
         check_number: "",
-        credit_card_last4: "",
+        card_last4: "",
         transaction_reference: "",
         receipt_attachment: "",
+        partial_payments: [],
       });
       setEditingPaymentId(null);
+      setShowPartialPaymentForm(false);
     }
     setIsPaymentModalOpen(true);
   };
@@ -930,17 +1086,41 @@ export default function Contracts() {
       return;
     }
 
+    if (
+      paymentForm.payment_method === "wire" &&
+      (!String((paymentForm as any).bank_name || "").trim() ||
+        !String((paymentForm as any).transaction_reference || "").trim())
+    ) {
+      alert("Wire transfer requires Bank Name and TRN (Transaction Reference Number)");
+      return;
+    }
+
     // Note: Payment method specific fields are optional to accommodate irregular payment information
 
     try {
       const contract = contracts.find(c => c.id === selectedContractId);
       if (!contract) return;
 
+      const existingSchedule = (contract.payment_schedule || []) as any[];
       const updatedSchedule = editingPaymentId
-        ? contract.payment_schedule.map((p: any) => p.id === editingPaymentId ? paymentForm : p)
-        : [...(contract.payment_schedule || []), paymentForm];
+        ? existingSchedule.map((p: any) => (p.id === editingPaymentId ? { ...p, ...paymentForm } : p))
+        : [...existingSchedule, paymentForm];
 
-      await contractsService.update(selectedContractId, { payment_schedule: updatedSchedule });
+      const canonicalSchedule = (updatedSchedule || []).map((p: any) => {
+        const normalized = normalizePayment(p);
+        return {
+          ...p,
+          ...normalized,
+          partial_payments: normalized.partial_payments || [],
+        };
+      });
+
+      await contractsService.update(selectedContractId, { payment_schedule: canonicalSchedule });
+
+      // Update local state immediately so the UI reflects the change even if refresh is slow
+      setContracts((prev) =>
+        prev.map((c) => (c.id === selectedContractId ? ({ ...c, payment_schedule: canonicalSchedule } as any) : c)),
+      );
       
       toast({
         title: "✅ Success",
@@ -962,12 +1142,27 @@ export default function Contracts() {
         account_type: "checking",
         check_attachment: "",
         check_number: "",
-        credit_card_last4: "",
+        card_last4: "",
         transaction_reference: "",
         receipt_attachment: ""
       });
       setEditingPaymentId(null);
       setSelectedContractId(null);
+      setShowPartialPaymentForm(false);
+      setPartialPaymentForm({
+        id: "",
+        amount: 0,
+        date: getTodayDate(),
+        method: "cash",
+        description: "",
+        transaction_reference: "",
+        bank_name: "",
+        routing_number: "",
+        account_number: "",
+        check_number: "",
+        check_attachment: "",
+        card_last4: "",
+      });
       fetchData();
     } catch (error) {
       console.error("Error saving payment:", error);
@@ -980,13 +1175,226 @@ export default function Contracts() {
       try {
         const contract = contracts.find(c => c.id === contractId);
         if (!contract) return;
-        const updatedSchedule = contract.payment_schedule.filter((p: any) => p.id !== paymentId);
-        await contractsService.update(contractId, { payment_schedule: updatedSchedule });
+        const updatedSchedule = ((contract.payment_schedule || []) as any[]).filter((p: any) => p.id !== paymentId);
+        const canonicalSchedule = updatedSchedule.map((p: any) => {
+          const normalized = normalizePayment(p);
+          return { ...p, ...normalized, partial_payments: normalized.partial_payments || [] };
+        });
+
+        await contractsService.update(contractId, { payment_schedule: canonicalSchedule });
+        setContracts((prev) =>
+          prev.map((c) => (c.id === contractId ? ({ ...c, payment_schedule: canonicalSchedule } as any) : c)),
+        );
         fetchData();
       } catch (error) {
         console.error("Error deleting payment:", error);
       }
     }
+  };
+
+  const handleAddPartialPayment = async () => {
+    if (!selectedContractId || !editingPaymentId) {
+      alert("No payment selected");
+      return;
+    }
+
+    if (!partialPaymentForm.amount || partialPaymentForm.amount <= 0 || !partialPaymentForm.date) {
+      alert("Please enter a partial payment amount and date");
+      return;
+    }
+
+    try {
+      const contract = contracts.find((c) => c.id === selectedContractId);
+      if (!contract) return;
+
+      const schedule = (contract.payment_schedule || []) as any[];
+      const updatedSchedule = schedule.map((payment: any) => {
+        if (payment.id !== editingPaymentId) return payment;
+
+        const existing = getPaymentPartialPayments(payment);
+        const newPartial: PartialPayment = {
+          ...partialPaymentForm,
+          id: `PP-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        };
+
+        return {
+          ...payment,
+          partial_payments: [...existing, newPartial],
+        };
+      });
+
+      const canonicalSchedule = updatedSchedule.map((p: any) => {
+        const normalized = normalizePayment(p);
+        return { ...p, ...normalized, partial_payments: normalized.partial_payments || [] };
+      });
+
+      await contractsService.update(selectedContractId, { payment_schedule: canonicalSchedule });
+      setContracts((prev) =>
+        prev.map((c) => (c.id === selectedContractId ? ({ ...c, payment_schedule: canonicalSchedule } as any) : c)),
+      );
+
+      toast({
+        title: "✅ Partial Payment Recorded",
+        description: `$${partialPaymentForm.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })} recorded`,
+      });
+
+      setPartialPaymentForm({
+        id: "",
+        amount: 0,
+        date: getTodayDate(),
+        method: "cash",
+        description: "",
+        receipt_attachment: "",
+        transaction_reference: "",
+        bank_name: "",
+        routing_number: "",
+        account_number: "",
+        account_type: "checking",
+        check_number: "",
+        check_attachment: "",
+        card_last4: "",
+      });
+      setShowPartialPaymentForm(false);
+
+      fetchData();
+    } catch (error) {
+      console.error("Error adding partial payment:", error);
+      toast({ title: "Error", description: "Failed to record partial payment", variant: "destructive" });
+    }
+  };
+
+  const handleDeletePartialPayment = async (paymentId: string, partialPaymentId: string) => {
+    if (!selectedContractId) return;
+    if (!window.confirm("Delete this partial payment?")) return;
+
+    try {
+      const contract = contracts.find((c) => c.id === selectedContractId);
+      if (!contract) return;
+
+      const updatedSchedule = (contract.payment_schedule || []).map((payment: any) => {
+        if (payment.id !== paymentId) return payment;
+        const existing = getPaymentPartialPayments(payment);
+        return {
+          ...payment,
+          partial_payments: existing.filter((pp) => pp.id !== partialPaymentId),
+        };
+      });
+
+      const canonicalSchedule = updatedSchedule.map((p: any) => {
+        const normalized = normalizePayment(p);
+        return { ...p, ...normalized, partial_payments: normalized.partial_payments || [] };
+      });
+
+      await contractsService.update(selectedContractId, { payment_schedule: canonicalSchedule });
+      setContracts((prev) =>
+        prev.map((c) => (c.id === selectedContractId ? ({ ...c, payment_schedule: canonicalSchedule } as any) : c)),
+      );
+      fetchData();
+    } catch (error) {
+      console.error("Error deleting partial payment:", error);
+    }
+  };
+
+  const generateThankYouLetterTemplate = (contract: Contract): string => {
+    const currentDate = new Date().toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    });
+
+    const totalReceived = (contract.payment_schedule || []).reduce((sum: number, payment: any) => {
+      return sum + getPaymentReceivedAmount(payment);
+    }, 0);
+
+    const totalValue = Number(contract.total_value || 0);
+    const remaining = Math.max(0, totalValue - totalReceived);
+
+    const firstName = String(contract.client_name || "").trim().split(" ")[0] || "there";
+
+    return `South Park Cabinets INC
+[Company Address]
+[City, State ZIP]
+
+${currentDate}
+
+${contract.client_name || ""}
+${contract.client_address || ""}
+${contract.client_city || ""}${contract.client_city && contract.client_state ? ", " : ""}${contract.client_state || ""} ${contract.client_zip || ""}
+
+Dear ${firstName},
+
+Thank you for your payment of $${totalReceived.toLocaleString(undefined, { maximumFractionDigits: 2 })} received on ${currentDate} for the ${contract.project_name} project located at ${contract.project_location}.
+
+We greatly appreciate your prompt payment and your continued trust in South Park Cabinets INC. Your payment has been processed and applied to your contract.
+
+Project Details:
+Contract ID: ${contract.id}
+Project Name: ${contract.project_name}
+Total Contract Value: $${totalValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+Amount Received: $${totalReceived.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+Remaining Balance: $${remaining.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+
+We look forward to completing your project to your satisfaction. If you have any questions or concerns, please do not hesitate to contact us.
+
+Thank you again for your business!
+
+Sincerely,
+
+South Park Cabinets INC
+[Your Name]
+[Your Title]
+[Phone Number]
+[Email Address]`;
+  };
+
+  const generateThankYouLetterPDF = (contract: Contract, letterContent: string) => {
+    const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const margin = 20;
+    const contentWidth = pageWidth - 2 * margin;
+
+    pdf.setFont(undefined, "normal");
+    pdf.setFontSize(10);
+
+    const lines = String(letterContent || "").split("\n");
+    let yPosition = margin;
+
+    lines.forEach((line) => {
+      if (yPosition > pageHeight - margin) {
+        pdf.addPage();
+        yPosition = margin;
+      }
+
+      if (line.includes("Project Details:") || line.includes("Dear ") || line.includes("Sincerely,")) {
+        pdf.setFont(undefined, "bold");
+      } else {
+        pdf.setFont(undefined, "normal");
+      }
+
+      const splitText = pdf.splitTextToSize(line, contentWidth);
+      splitText.forEach((textLine: string) => {
+        if (yPosition > pageHeight - margin) {
+          pdf.addPage();
+          yPosition = margin;
+        }
+        pdf.text(textLine, margin, yPosition);
+        yPosition += 6;
+      });
+
+      if (line === "") yPosition += 3;
+    });
+
+    pdf.save(`${contract.id}-Thank-You-Letter.pdf`);
+  };
+
+  const handleOpenThankYouLetterModal = (contractId: string) => {
+    const contract = contracts.find((c) => c.id === contractId);
+    if (!contract) return;
+    const template = generateThankYouLetterTemplate(contract);
+    setThankYouLetterContent(template);
+    setThankYouLetterContractId(contractId);
+    setIsThankYouLetterModalOpen(true);
   };
 
   const handleSaveExpense = async (contractId: string) => {
@@ -2127,260 +2535,86 @@ export default function Contracts() {
 
   const printAllContracts = () => {
     try {
-      if (filteredContracts.length === 0) {
+      console.log("Print function called, contracts count:", contracts.length);
+
+      if (contracts.length === 0) {
         alert("No contracts to print");
         return;
       }
 
-      const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+      const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
-      const margin = 12;
-      const contentWidth = pageWidth - 2 * margin;
-      let yPosition = 12;
+      let yPosition = 15;
+      const margin = 10;
+      const lineHeight = 6;
 
-      const generatedLabel = `${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`;
+      // Add logo
+      addLogoToPageTop(pdf, pageWidth);
 
-      const hardWrap = (text: string, maxWidth: number) => {
-        const safeText = String(text ?? "");
-        const initial = pdf.splitTextToSize(safeText, maxWidth) as string[];
-        const out: string[] = [];
-
-        for (const line of initial) {
-          if (pdf.getTextWidth(line) <= maxWidth + 0.01) {
-            out.push(line);
-            continue;
-          }
-          let current = "";
-          for (const ch of line) {
-            const next = current + ch;
-            if (current && pdf.getTextWidth(next) > maxWidth) {
-              out.push(current);
-              current = ch;
-            } else {
-              current = next;
-            }
-          }
-          if (current) out.push(current);
-        }
-
-        return out.length ? out : [""];
-      };
-
-      // Summary data
-      const totalValue = filteredContracts.reduce((sum, c) => sum + (c.total_value || 0), 0);
-      const completedCount = filteredContracts.filter((c) => c.status === "completed").length;
-      const inProgressCount = filteredContracts.filter((c) => c.status === "in-progress").length;
-      const overdueCount = filteredContracts.filter((c) => c.due_date && isOverdue(c.due_date)).length;
-
-      // Company Header Background
-      pdf.setFillColor(31, 41, 55);
-      pdf.rect(0, 0, pageWidth, 22, "F");
-
-      // Company Title
-      pdf.setTextColor(255, 255, 255);
-      pdf.setFontSize(20);
+      // Title
+      pdf.setFontSize(16);
       pdf.setFont(undefined, "bold");
-      pdf.text("SOUTH PARK CABINETS", margin, 10);
+      pdf.text("CONTRACTS REPORT", margin, yPosition);
+      yPosition += 10;
 
-      // Subtitle
-      pdf.setFontSize(11);
+      // Generated date
+      pdf.setFontSize(9);
       pdf.setFont(undefined, "normal");
-      pdf.text("Contracts Report", margin, 18);
-      pdf.setTextColor(150, 150, 150);
-      pdf.setFontSize(9);
-      pdf.text(`Generated: ${generatedLabel}`, pageWidth - margin - 75, 18);
-      pdf.setTextColor(0, 0, 0);
+      pdf.text(`Generated: ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`, margin, yPosition);
+      yPosition += 8;
+      pdf.text(`Total Contracts: ${contracts.length}`, margin, yPosition);
+      yPosition += 10;
 
-      yPosition = 28;
-
-      // Summary Statistics Boxes
-      const boxWidth = (contentWidth - 9) / 4;
-      const summaryData = [
-        { label: "Total Contracts", value: filteredContracts.length, color: [59, 130, 246] as const },
-        { label: "In Progress", value: inProgressCount, color: [168, 85, 247] as const },
-        { label: "Completed", value: completedCount, color: [34, 197, 94] as const },
-        { label: "Total Value", value: `$${totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}`, color: [249, 115, 22] as const },
-      ];
-
-      summaryData.forEach((item, idx) => {
-        const xPos = margin + idx * (boxWidth + 3);
-        const [r, g, b] = item.color;
-        pdf.setFillColor(r, g, b);
-        pdf.rect(xPos, yPosition, boxWidth, 12, "F");
-
-        pdf.setTextColor(255, 255, 255);
-        pdf.setFontSize(8);
-        pdf.setFont(undefined, "normal");
-        pdf.text(item.label, xPos + 2, yPosition + 4);
-
-        pdf.setFontSize(10);
-        pdf.setFont(undefined, "bold");
-        pdf.text(String(item.value), xPos + 2, yPosition + 10);
-      });
-      pdf.setTextColor(0, 0, 0);
-
-      yPosition += 18;
-
-      // Table headers
-      const colWidths = [8, 28, 70, 50, 22, 28, 24, 24];
-      const headers = ["#", "ID", "PROJECT", "CLIENT", "STATUS", "VALUE", "START", "DUE"];
-
-      pdf.setFillColor(59, 70, 87);
-      pdf.rect(margin, yPosition - 5, contentWidth, 8, "F");
-      pdf.setTextColor(255, 255, 255);
+      // Contracts list
       pdf.setFont(undefined, "bold");
-      pdf.setFontSize(11);
-      let xPosition = margin + 2;
-      headers.forEach((header, idx) => {
-        if (idx === headers.length - 1 || idx === headers.length - 3) {
-          pdf.text(header, xPosition + colWidths[idx] - 3, yPosition, { align: "right" });
-        } else {
-          pdf.text(header, xPosition, yPosition);
-        }
-        xPosition += colWidths[idx];
-      });
-      pdf.setTextColor(0, 0, 0);
-      yPosition += 12;
+      pdf.setFontSize(10);
 
-      let lineIndex = 0;
-      filteredContracts.forEach((contract, contractIdx) => {
-        const valueText = `$${(contract.total_value || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
-        const statusText = (contract.status || "").replace(/-/g, " ");
-        const startText = formatDateString(contract.start_date);
-        const dueText = formatDateString(contract.due_date);
-
-        const numLines = hardWrap(String(contractIdx + 1), colWidths[0] - 2);
-        const idLines = hardWrap(String(contract.id || "-"), colWidths[1] - 4);
-        const projectLines = hardWrap(contract.project_name || "-", colWidths[2] - 4);
-        const clientLines = hardWrap(contract.client_name || "-", colWidths[3] - 4);
-        const statusLines = hardWrap(statusText || "-", colWidths[4] - 4);
-        const valueLines = hardWrap(valueText, colWidths[5] - 4);
-        const startLines = hardWrap(startText || "-", colWidths[6] - 4);
-        const dueLines = hardWrap(dueText || "-", colWidths[7] - 4);
-
-        const rowLines = Math.max(
-          1,
-          numLines.length,
-          idLines.length,
-          projectLines.length,
-          clientLines.length,
-          statusLines.length,
-          valueLines.length,
-          startLines.length,
-          dueLines.length,
-        );
-        const rowHeight = Math.max(10, 6 + rowLines * 4);
-
-        if (yPosition + rowHeight > pageHeight - 15) {
-          pdf.setFontSize(9);
-          pdf.setTextColor(150, 150, 150);
-          pdf.text(`Page ${pdf.internal.pages.length}`, pageWidth - margin - 10, pageHeight - 5);
-          pdf.setTextColor(0, 0, 0);
-
+      contracts.forEach((contract, idx) => {
+        if (yPosition > pageHeight - 20) {
           pdf.addPage();
+          addLogoToPageTop(pdf, pageWidth);
           yPosition = 15;
-
-          pdf.setFillColor(59, 70, 87);
-          pdf.rect(margin, yPosition - 5, contentWidth, 8, "F");
-          pdf.setTextColor(255, 255, 255);
-          pdf.setFont(undefined, "bold");
-          pdf.setFontSize(11);
-          xPosition = margin + 2;
-          headers.forEach((header, idx) => {
-            if (idx === headers.length - 1 || idx === headers.length - 3) {
-              pdf.text(header, xPosition + colWidths[idx] - 3, yPosition, { align: "right" });
-            } else {
-              pdf.text(header, xPosition, yPosition);
-            }
-            xPosition += colWidths[idx];
-          });
-          pdf.setTextColor(0, 0, 0);
-          yPosition += 12;
-          lineIndex = 0;
         }
 
-        // Alternating row background
-        if (lineIndex % 2 === 0) {
-          pdf.setFillColor(240, 245, 250);
-        } else {
-          pdf.setFillColor(255, 255, 255);
+        // Contract header
+        pdf.text(`${idx + 1}. ${contract.id} - ${contract.project_name || ""}`, margin, yPosition);
+        yPosition += lineHeight;
+
+        // Contract details
+        pdf.setFont(undefined, "normal");
+        pdf.setFontSize(9);
+
+        pdf.text(`Client: ${contract.client_name || ""}`, margin + 5, yPosition);
+        yPosition += lineHeight;
+        pdf.text(`Status: ${(contract.status || "").replace("-", " ")}`, margin + 5, yPosition);
+        yPosition += lineHeight;
+        pdf.text(
+          `Value: $${Number(contract.total_value || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })} | Deposit: $${Number(contract.deposit_amount || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
+          margin + 5,
+          yPosition,
+        );
+        yPosition += lineHeight;
+        pdf.text(
+          `Start: ${formatDateString(contract.start_date)} | Due: ${formatDateString(contract.due_date)}`,
+          margin + 5,
+          yPosition,
+        );
+        yPosition += lineHeight;
+
+        if ((contract.payment_schedule || []).length > 0) {
+          pdf.text(`Payments: ${(contract.payment_schedule || []).length}`, margin + 5, yPosition);
+          yPosition += lineHeight;
         }
-        pdf.rect(margin, yPosition - 6, contentWidth, rowHeight, "F");
 
-        // Border line
-        pdf.setDrawColor(200, 200, 200);
-        pdf.setLineWidth(0.2);
-        pdf.line(margin, yPosition - 6 + rowHeight, margin + contentWidth, yPosition - 6 + rowHeight);
-
-        // Row content
-        xPosition = margin + 2;
-        const baseY = yPosition;
-
+        yPosition += 4;
         pdf.setFont(undefined, "bold");
         pdf.setFontSize(10);
-        pdf.text(numLines, xPosition, baseY);
-        xPosition += colWidths[0];
-
-        pdf.setFont(undefined, "normal");
-        pdf.setFontSize(9);
-        pdf.text(idLines, xPosition, baseY);
-        xPosition += colWidths[1];
-
-        pdf.setFont(undefined, "bold");
-        pdf.setFontSize(10);
-        pdf.text(projectLines[0] || "", xPosition, baseY);
-        if (projectLines.length > 1) {
-          pdf.setFont(undefined, "normal");
-          pdf.setFontSize(9);
-          pdf.setTextColor(80, 80, 80);
-          pdf.text(projectLines.slice(1), xPosition, baseY + 4);
-          pdf.setTextColor(0, 0, 0);
-        }
-        xPosition += colWidths[2];
-
-        pdf.setFont(undefined, "normal");
-        pdf.setFontSize(9);
-        pdf.text(clientLines, xPosition, baseY);
-        xPosition += colWidths[3];
-
-        pdf.setFont(undefined, "normal");
-        pdf.setFontSize(10);
-        pdf.text(statusLines, xPosition, baseY);
-        xPosition += colWidths[4];
-
-        pdf.setFont(undefined, "bold");
-        pdf.setFontSize(10);
-        pdf.text(valueLines, xPosition + colWidths[5] - 3, baseY, { align: "right" });
-        xPosition += colWidths[5];
-
-        pdf.setFont(undefined, "normal");
-        pdf.setFontSize(9);
-        pdf.text(startLines, xPosition, baseY);
-        xPosition += colWidths[6];
-        pdf.text(dueLines, xPosition, baseY);
-
-        yPosition += rowHeight;
-        lineIndex += 1;
       });
 
-      // Footer
-      const footerY = pageHeight - 10;
-      pdf.setDrawColor(200, 200, 200);
-      pdf.line(margin, footerY, pageWidth - margin, footerY);
-      pdf.setFont(undefined, "bold");
-      pdf.setFontSize(9);
-      pdf.setTextColor(0, 0, 0);
-      pdf.text(
-        `Total Contracts: ${filteredContracts.length} | Overdue: ${overdueCount} | Total Value: $${totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
-        margin,
-        footerY + 5,
-      );
-      pdf.setFontSize(8);
-      pdf.setTextColor(150, 150, 150);
-      pdf.text(`Page ${pdf.internal.pages.length}`, pageWidth - margin - 10, footerY + 5);
-
-      pdf.save(`Contracts-Report-${new Date().toISOString().split("T")[0]}.pdf`);
+      console.log("PDF created successfully");
+      pdf.save("Contracts-Report.pdf");
+      console.log("PDF saved");
     } catch (error) {
       console.error("Error generating contracts report:", error);
       alert(`Error generating report: ${error instanceof Error ? error.message : "Unknown error"}`);
@@ -3948,110 +4182,188 @@ export default function Contracts() {
                     {contracts.find((c) => c.id === selectedContractId)?.project_name} - {contracts.find((c) => c.id === selectedContractId)?.client_name}
                   </CardDescription>
                 </div>
-                <Button
-                  onClick={() => handleOpenPaymentModal(selectedContractId)}
-                  className="gap-2 bg-green-600 hover:bg-green-700"
-                >
-                  <Plus className="w-4 h-4" />
-                  Add Payment
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    onClick={() => handleOpenPaymentModal(selectedContractId)}
+                    className="gap-2 bg-green-600 hover:bg-green-700"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add Payment
+                  </Button>
+                  <Button
+                    onClick={() => handleOpenThankYouLetterModal(selectedContractId)}
+                    className="gap-2 bg-blue-600 hover:bg-blue-700"
+                  >
+                    <FileText className="w-4 h-4" />
+                    Thank You Letter
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
                   {(() => {
-                    const schedule =
+                    const scheduleRaw =
                       contracts.find((c) => c.id === selectedContractId)?.payment_schedule ?? [];
+                    const schedule = scheduleRaw.map(normalizePayment);
 
-                    const visibleSchedule = schedule.filter((payment: any) => {
-                      if (!selectedPaymentMonth) return true;
-                      if (payment.status === "paid") {
-                        const month = getMonthFromISODate(payment.paid_date || payment.paidDate || payment.due_date);
-                        return month === selectedPaymentMonth;
-                      }
-                      const month = getMonthFromISODate(payment.due_date);
-                      return month === selectedPaymentMonth;
-                    });
-
-                    if (visibleSchedule.length === 0) {
+                    if (schedule.length === 0) {
                       return (
                         <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 text-sm text-slate-600">
-                          No payments{selectedPaymentMonthLabel ? ` for ${selectedPaymentMonthLabel}` : ""}.
+                          No payments.
                         </div>
                       );
                     }
 
-                    return visibleSchedule.map((payment: any) => (
-                      <div
-                        key={payment.id}
-                        className="p-4 bg-slate-50 rounded-lg border border-slate-200 space-y-3"
-                      >
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <p className="font-semibold text-slate-900">{payment.description}</p>
-                            <p className="text-sm text-slate-600">
-                              Due: {formatDateString(payment.due_date)}
-                            </p>
+                    const sortedSchedule = [...schedule].sort((a: any, b: any) => {
+                      const aIsDownPayment = String(a.description || "").toLowerCase().includes("down");
+                      const bIsDownPayment = String(b.description || "").toLowerCase().includes("down");
+                      if (aIsDownPayment && !bIsDownPayment) return -1;
+                      if (!aIsDownPayment && bIsDownPayment) return 1;
+                      return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
+                    });
+
+                    return sortedSchedule.map((payment: any) => {
+                      const partialPayments = getPaymentPartialPayments(payment);
+                      const received = getPaymentReceivedAmount(payment);
+                      const remaining = getPaymentRemainingAmount(payment);
+                      const progressPct = payment.amount > 0 ? (received / payment.amount) * 100 : 0;
+
+                      return (
+                        <div
+                          key={payment.id}
+                          className="p-4 bg-slate-50 rounded-lg border border-slate-200 space-y-3"
+                        >
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <p className="font-semibold text-slate-900">{payment.description}</p>
+                              <p className="text-sm text-slate-600">
+                                Due: {formatDateString(payment.due_date)}
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <p className="font-bold text-slate-900">${Number(payment.amount || 0).toLocaleString()}</p>
+                              <span
+                                className={`inline-block px-2 py-1 rounded text-xs font-medium ${
+                                  isPaymentFullyReceived(payment)
+                                    ? "bg-green-100 text-green-800"
+                                    : "bg-yellow-100 text-yellow-800"
+                                }`}
+                              >
+                                {isPaymentFullyReceived(payment) ? "Received" : "Pending"}
+                              </span>
+                            </div>
                           </div>
-                          <div className="text-right">
-                            <p className="font-bold text-slate-900">${payment.amount.toLocaleString()}</p>
-                            <span
-                              className={`inline-block px-2 py-1 rounded text-xs font-medium ${
-                                payment.status === "paid"
-                                  ? "bg-green-100 text-green-800"
-                                  : "bg-yellow-100 text-yellow-800"
-                              }`}
+
+                          {/* Payment progress display */}
+                          {partialPayments.length > 0 && (
+                            <div className="bg-white p-3 rounded border border-slate-200 space-y-2">
+                              <div className="flex justify-between text-sm">
+                                <span className="text-slate-600">
+                                  Received:{" "}
+                                  <span className="font-semibold text-green-700">
+                                    ${received.toLocaleString()}
+                                  </span>
+                                </span>
+                                <span className="text-slate-600">
+                                  Pending Deposit:{" "}
+                                  <span className="font-semibold text-orange-700">
+                                    ${remaining.toLocaleString()}
+                                  </span>
+                                </span>
+                              </div>
+                              <div className="w-full bg-slate-200 rounded-full h-2">
+                                <div
+                                  className="bg-green-500 h-2 rounded-full transition-all"
+                                  style={{ width: `${Math.min(progressPct, 100)}%` }}
+                                ></div>
+                              </div>
+
+                              <div className="space-y-2 mt-2">
+                                {partialPayments.map((pp: PartialPayment) => (
+                                  <div key={pp.id} className="bg-slate-50 p-2 rounded border border-slate-150 text-xs">
+                                    <div className="mb-1">
+                                      <p className="font-semibold text-slate-900">
+                                        • {formatDateString(pp.date)}: ${pp.amount.toLocaleString()} ({paymentMethodPlainLabel(pp.method)})
+                                      </p>
+                                      {pp.transaction_reference && (
+                                        <p className="text-green-700 font-semibold ml-2">
+                                          Transaction #: {pp.transaction_reference}
+                                        </p>
+                                      )}
+                                    </div>
+                                    <div className="space-y-0.5 text-slate-600 ml-2">
+                                      {(pp.method === "wire" || pp.method === "ach" || pp.method === "direct_deposit") && (
+                                        <>
+                                          {pp.bank_name && <p>Bank: {pp.bank_name}</p>}
+                                          {pp.routing_number && <p>Routing: {pp.routing_number}</p>}
+                                          {pp.account_number && <p>Account: {pp.account_number}</p>}
+                                        </>
+                                      )}
+                                      {pp.method === "check" && (
+                                        <>
+                                          {pp.check_number && <p>Check #: {pp.check_number}</p>}
+                                          {pp.check_attachment && <p className="text-green-600">✓ Check image attached</p>}
+                                        </>
+                                      )}
+                                      {(pp.method === "credit_card" || pp.method === "debit_card") && (
+                                        <>
+                                          {pp.card_last4 && <p>Card Last 4: {pp.card_last4}</p>}
+                                        </>
+                                      )}
+                                      {pp.description && <p className="italic">Note: {pp.description}</p>}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {payment.status === "paid" && (
+                            <div className="bg-white p-3 rounded border border-slate-200 space-y-2">
+                              {payment.paid_date && (
+                                <p className="text-sm text-slate-600">
+                                  <span className="font-semibold">Paid Date:</span>{" "}
+                                  {payment.paid_date ? formatDateString(payment.paid_date) : "-"}
+                                </p>
+                              )}
+                              {payment.payment_method && (
+                                <p className="text-sm text-slate-600">
+                                  <span className="font-semibold">Method:</span>{" "}
+                                  {paymentMethodEmojiLabel(payment.payment_method)}
+                                  {payment.check_number && ` (#${payment.check_number})`}
+                                  {(payment.card_last4 || payment.credit_card_last4) && ` (****${payment.card_last4 || payment.credit_card_last4})`}
+                                </p>
+                              )}
+                              {payment.transaction_reference && (
+                                <p className="text-sm text-slate-600">
+                                  <span className="font-semibold">Reference:</span> {payment.transaction_reference}
+                                </p>
+                              )}
+                              {payment.receipt_attachment && (
+                                <p className="text-sm text-blue-600">📎 Receipt attached: {payment.receipt_attachment}</p>
+                              )}
+                            </div>
+                          )}
+
+                          <div className="flex gap-2 justify-end">
+                            <button
+                              onClick={() => handleOpenPaymentModal(selectedContractId, payment)}
+                              className="text-blue-600 hover:text-blue-800 hover:bg-blue-50 p-2 rounded transition-colors"
+                              title="Edit payment"
                             >
-                              {payment.status}
-                            </span>
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleDeletePayment(selectedContractId, payment.id)}
+                              className="text-red-600 hover:text-red-800 hover:bg-red-50 p-2 rounded transition-colors"
+                              title="Delete payment"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
                           </div>
                         </div>
-
-                        {payment.status === "paid" && (
-                          <div className="bg-white p-3 rounded border border-slate-200 space-y-2">
-                            {payment.paidDate && (
-                              <p className="text-sm text-slate-600">
-                                <span className="font-semibold">Paid Date:</span> {payment.paidDate ? formatDateString(payment.paidDate) : '-'}
-                              </p>
-                            )}
-                            {payment.paymentMethod && (
-                              <p className="text-sm text-slate-600">
-                                <span className="font-semibold">Method:</span>{" "}
-                                {paymentMethodEmojiLabel(payment.paymentMethod)}
-                                {payment.checkNumber && ` (#${payment.checkNumber})`}
-                                {payment.creditCardLast4 && ` (****${payment.creditCardLast4})`}
-                              </p>
-                            )}
-                            {payment.transactionReference && (
-                              <p className="text-sm text-slate-600">
-                                <span className="font-semibold">Reference:</span> {payment.transactionReference}
-                              </p>
-                            )}
-                            {payment.receiptAttachment && (
-                              <p className="text-sm text-blue-600">
-                                📎 Receipt attached: {payment.receiptAttachment}
-                              </p>
-                            )}
-                          </div>
-                        )}
-
-                        <div className="flex gap-2 justify-end">
-                          <button
-                            onClick={() => handleOpenPaymentModal(selectedContractId, payment)}
-                            className="text-blue-600 hover:text-blue-800 hover:bg-blue-50 p-2 rounded transition-colors"
-                            title="Edit payment"
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => handleDeletePayment(selectedContractId, payment.id)}
-                            className="text-red-600 hover:text-red-800 hover:bg-red-50 p-2 rounded transition-colors"
-                            title="Delete payment"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-                    ));
+                      );
+                    });
                   })()}
                 </div>
               </CardContent>
@@ -4063,11 +4375,32 @@ export default function Contracts() {
         <Dialog open={isPaymentModalOpen} onOpenChange={setIsPaymentModalOpen}>
           <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>{editingPaymentId ? "Edit Payment" : "Add Payment"}</DialogTitle>
-              <DialogDescription>
-                {editingPaymentId ? "Update payment details and method" : "Add a new payment to the schedule with payment method"}
+              <DialogTitle className={`text-lg font-bold ${editingPaymentId ? 'text-blue-600' : 'text-green-600'}`}>
+                {editingPaymentId ? "✏️ Update Payment" : "➕ Add New Payment"}
+              </DialogTitle>
+              <DialogDescription className="text-sm">
+                {editingPaymentId
+                  ? "Modify the payment details below, or add partial payments to track multiple receipts toward this payment"
+                  : "Create a new scheduled payment with its payment method and terms"}
               </DialogDescription>
             </DialogHeader>
+            {/* Edit mode summary */}
+            {editingPaymentId && (
+              <div className="bg-blue-50 border border-blue-300 rounded-lg p-4 mb-4">
+                <p className="text-sm font-semibold text-blue-900 mb-2">✏️ Editing Payment</p>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <p className="text-blue-700 font-medium">Description:</p>
+                    <p className="text-blue-900 font-semibold">{paymentForm.description}</p>
+                  </div>
+                  <div>
+                    <p className="text-blue-700 font-medium">Current Amount:</p>
+                    <p className="text-blue-900 font-semibold">${Number(paymentForm.amount || 0).toLocaleString()}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="space-y-4 py-4">
               <div className="space-y-2">
                 <Label htmlFor="description">Description *</Label>
@@ -4106,6 +4439,148 @@ export default function Contracts() {
               </div>
 
               <div className="space-y-2">
+                <Label htmlFor="contractPaymentMethod">Payment Method *</Label>
+                <Select
+                  value={paymentForm.payment_method ?? "cash"}
+                  onValueChange={(value) => {
+                    setPaymentForm({ ...paymentForm, payment_method: value as any });
+
+                    if (value === "wire") {
+                      setTimeout(() => {
+                        const wireSection = document.getElementById("wireTransferSection");
+                        if (wireSection) {
+                          wireSection.scrollIntoView({ behavior: "smooth", block: "center" });
+                        }
+                      }, 100);
+                    }
+                  }}
+                >
+                  <SelectTrigger id="contractPaymentMethod" className="border-slate-300">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="cash">Cash</SelectItem>
+                    <SelectItem value="check">Check</SelectItem>
+                    <SelectItem value="zelle">Zelle</SelectItem>
+                    <SelectItem value="direct_deposit">Direct Deposit</SelectItem>
+                    <SelectItem value="ach">Bank Transfer (ACH)</SelectItem>
+                    <SelectItem value="wire">Wire Transfer</SelectItem>
+                    <SelectItem value="credit_card">Credit Card</SelectItem>
+                    <SelectItem value="debit_card">Debit Card</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-slate-500">Select how the payment will be made</p>
+              </div>
+
+              {paymentForm.payment_method === "wire" && (
+                <>
+                  <div className="bg-red-600 text-white p-4 rounded-lg border-2 border-red-800 shadow-lg">
+                    <p className="font-bold text-lg mb-2">🚨 WIRE TRANSFER SELECTED</p>
+                    <p className="text-sm">You MUST fill the 2 fields below before you can save this payment:</p>
+                    <ul className="text-sm mt-2 list-disc list-inside space-y-1">
+                      <li>1️⃣ Bank Name</li>
+                      <li>2️⃣ TRN (Transaction Reference Number)</li>
+                    </ul>
+                    <p className="text-xs mt-3 font-semibold">👇 Scroll down to see all fields</p>
+                  </div>
+
+                  {(() => {
+                    const bankNameFilled = !!String((paymentForm as any).bank_name || "").trim();
+                    const trnFilled = !!String((paymentForm as any).transaction_reference || "").trim();
+                    const filledCount = [bankNameFilled, trnFilled].filter(Boolean).length;
+                    const allFilled = filledCount === 2;
+
+                    return (
+                      <div
+                        id="wireTransferSection"
+                        className="bg-gradient-to-b from-red-50 to-orange-50 border-4 border-red-600 p-6 rounded-xl space-y-6 shadow-2xl"
+                        style={{ scrollMarginTop: "20px" }}
+                      >
+                        <div className="text-center space-y-2 bg-red-600 text-white p-4 rounded-lg">
+                          <p className="text-3xl font-bold">🔴 WIRE TRANSFER PAYMENT REQUIRED</p>
+                          <p className="text-lg font-semibold">Fill ALL 2 fields below to save payment</p>
+                          <div className="text-2xl font-bold mt-2">{filledCount}/2 Fields Completed</div>
+                          <div className="w-full bg-red-400 rounded-full h-3 mt-3 overflow-hidden">
+                            <div
+                              className={`h-full transition-all duration-300 ${
+                                allFilled ? "bg-green-500" : "bg-yellow-400"
+                              }`}
+                              style={{ width: `${(filledCount / 2) * 100}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        <div
+                          className={`p-4 rounded-lg border-3 transition-all ${
+                            bankNameFilled
+                              ? "border-green-600 bg-green-100"
+                              : "border-red-600 bg-red-100 animate-pulse"
+                          }`}
+                        >
+                          <Label htmlFor="wireBankName" className="text-lg font-bold block mb-3">
+                            <span className="text-2xl">1️⃣</span> Bank Name {bankNameFilled ? "✅" : "⚠️ REQUIRED"}
+                          </Label>
+                          <Input
+                            id="wireBankName"
+                            placeholder="e.g., Wells Fargo, Chase Bank, Truist Bank"
+                            value={String((paymentForm as any).bank_name ?? "")}
+                            onChange={(e) => setPaymentForm({ ...paymentForm, bank_name: e.target.value })}
+                            className={`border-3 text-base p-3 font-semibold h-12 text-lg ${
+                              !bankNameFilled ? "border-red-600 bg-white" : "border-green-600 bg-green-50"
+                            }`}
+                          />
+                        </div>
+
+                        <div
+                          className={`p-4 rounded-lg border-3 transition-all ${
+                            trnFilled
+                              ? "border-green-600 bg-green-100"
+                              : "border-red-600 bg-red-100 animate-pulse"
+                          }`}
+                        >
+                          <Label htmlFor="wireTrn" className="text-lg font-bold block mb-3">
+                            <span className="text-2xl">2️⃣</span> TRN (Transaction Reference Number) {trnFilled ? "✅" : "⚠️ REQUIRED"}
+                          </Label>
+                          <Input
+                            id="wireTrn"
+                            placeholder="e.g., 2026012900539475"
+                            value={String((paymentForm as any).transaction_reference ?? "")}
+                            onChange={(e) => setPaymentForm({ ...paymentForm, transaction_reference: e.target.value })}
+                            className={`border-3 text-base p-3 font-semibold h-12 text-lg ${
+                              !trnFilled ? "border-red-600 bg-white" : "border-green-600 bg-green-50"
+                            }`}
+                          />
+                          <p className="text-xs text-green-900 font-semibold mt-2">✓ This is your bank confirmation/reference number</p>
+                        </div>
+
+                        <div
+                          className={`p-4 rounded-lg border-3 font-mono text-sm ${
+                            allFilled ? "border-green-600 bg-green-100" : "border-red-600 bg-red-100"
+                          }`}
+                        >
+                          <p className="font-bold text-base mb-3">📋 Field Status Summary:</p>
+                          <div className="space-y-2">
+                            <p>1️⃣ Bank Name: {bankNameFilled ? "✅ FILLED" : "❌ EMPTY"}</p>
+                            <p>2️⃣ TRN: {trnFilled ? "✅ FILLED" : "❌ EMPTY"}</p>
+                          </div>
+                          {!allFilled && (
+                            <p className="text-red-700 font-bold mt-3 text-center">
+                              🚫 YOU MUST FILL ALL 2 FIELDS ABOVE BEFORE SAVING
+                            </p>
+                          )}
+                          {allFilled && (
+                            <p className="text-green-700 font-bold mt-3 text-center text-base">
+                              ✅ ALL 2 FIELDS COMPLETE - READY TO SAVE!
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </>
+              )}
+
+              <div className="space-y-2">
                 <Label htmlFor="paymentStatus">Status *</Label>
                 <Select
                   value={paymentForm.status ?? "pending"}
@@ -4122,366 +4597,95 @@ export default function Contracts() {
               </div>
 
               {paymentForm.status === "paid" && (
-                <div className="space-y-2">
-                  <Label htmlFor="paidDate">Paid Date</Label>
-                  <Input
-                    id="paidDate"
-                    type="date"
-                    value={paymentForm.paid_date ?? ""}
-                    onChange={(e) => setPaymentForm({ ...paymentForm, paid_date: e.target.value || "" })}
-                    className="border-slate-300"
-                  />
-                </div>
-              )}
-
-              <div className="border-t pt-4">
-                <h3 className="font-semibold text-slate-900 mb-3">Payment Method *</h3>
-                <Select value={paymentForm.payment_method ?? "cash"} onValueChange={(value) => setPaymentForm({ ...paymentForm, payment_method: value as any })}>
-                  <SelectTrigger className="border-slate-300">
-                    <SelectValue placeholder="Select payment method" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="cash">💵 Cash</SelectItem>
-                    <SelectItem value="credit_card">💳 Credit Card</SelectItem>
-                    <SelectItem value="debit_card">💳 Debit Card</SelectItem>
-                    <SelectItem value="check">🧾 Check</SelectItem>
-                    <SelectItem value="direct_deposit">📥 Direct Deposit</SelectItem>
-                    <SelectItem value="ach">🏦 Bank Transfer (ACH)</SelectItem>
-                    <SelectItem value="wire">🏦 Wire Transfer</SelectItem>
-                    <SelectItem value="zelle">⚡ Zelle</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* 💳 Credit Card Fields */}
-              {paymentForm.payment_method === "credit_card" && (
-                <div className="bg-blue-50 p-4 rounded space-y-3 border border-blue-200">
-                  <p className="text-sm font-semibold text-blue-900">💳 Credit Card Information</p>
-
+                <>
                   <div className="space-y-2">
-                    <Label htmlFor="cardholder_name">Cardholder Name</Label>
+                    <Label htmlFor="paidDate">Paid Date</Label>
                     <Input
-                      id="cardholder_name"
-                      placeholder="John Doe"
-                      value={paymentForm.cardholder_name ?? ""}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, cardholder_name: e.target.value })}
-                      className="border-slate-300 bg-white"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="card_last4">Card Last 4 Digits</Label>
-                    <Input
-                      id="card_last4"
-                      placeholder="4242"
-                      value={paymentForm.card_last4 ?? ""}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, card_last4: e.target.value })}
-                      className="border-slate-300 bg-white"
-                      maxLength={4}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="card_expiration">Expiration Date</Label>
-                    <Input
-                      id="card_expiration"
-                      placeholder="MM/YY"
-                      value={paymentForm.card_expiration ?? ""}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, card_expiration: e.target.value })}
-                      className="border-slate-300 bg-white"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="authorization_code">Authorization Code / Transaction ID</Label>
-                    <Input
-                      id="authorization_code"
-                      placeholder="AUTH-123456"
-                      value={paymentForm.authorization_code ?? ""}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, authorization_code: e.target.value })}
-                      className="border-slate-300 bg-white"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="payment_processor">Payment Processor</Label>
-                    <Input
-                      id="payment_processor"
-                      placeholder="Stripe, Square, PayPal, etc."
-                      value={paymentForm.payment_processor ?? ""}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, payment_processor: e.target.value })}
-                      className="border-slate-300 bg-white"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="receipt_upload_cc">Receipt Upload</Label>
-                    <Input
-                      id="receipt_upload_cc"
-                      type="file"
-                      accept="image/*,.pdf"
-                      onChange={(e) => setPaymentForm({ ...paymentForm, receipt_attachment: e.target.files?.[0]?.name || "" })}
-                      className="border-slate-300 bg-white"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* 💳 Debit Card Fields */}
-              {paymentForm.payment_method === "debit_card" && (
-                <div className="bg-purple-50 p-4 rounded space-y-3 border border-purple-200">
-                  <p className="text-sm font-semibold text-purple-900">💳 Debit Card Information</p>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="debit_cardholder_name">Cardholder Name</Label>
-                    <Input
-                      id="debit_cardholder_name"
-                      placeholder="John Doe"
-                      value={paymentForm.cardholder_name ?? ""}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, cardholder_name: e.target.value })}
-                      className="border-slate-300 bg-white"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="debit_card_last4">Debit Card Last 4 Digits</Label>
-                    <Input
-                      id="debit_card_last4"
-                      placeholder="4242"
-                      value={paymentForm.card_last4 ?? ""}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, card_last4: e.target.value })}
-                      className="border-slate-300 bg-white"
-                      maxLength={4}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="debit_auth_code">Transaction ID / Auth Code</Label>
-                    <Input
-                      id="debit_auth_code"
-                      placeholder="TXN-123456"
-                      value={paymentForm.authorization_code ?? ""}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, authorization_code: e.target.value })}
-                      className="border-slate-300 bg-white"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="debit_bank_name">Bank Name</Label>
-                    <Input
-                      id="debit_bank_name"
-                      placeholder="Chase, Bank of America, etc."
-                      value={paymentForm.bank_name ?? ""}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, bank_name: e.target.value })}
-                      className="border-slate-300 bg-white"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="debit_processor">Processor Used</Label>
-                    <Input
-                      id="debit_processor"
-                      placeholder="Stripe, Square, etc."
-                      value={paymentForm.payment_processor ?? ""}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, payment_processor: e.target.value })}
-                      className="border-slate-300 bg-white"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="receipt_upload_debit">Receipt Upload</Label>
-                    <Input
-                      id="receipt_upload_debit"
-                      type="file"
-                      accept="image/*,.pdf"
-                      onChange={(e) => setPaymentForm({ ...paymentForm, receipt_attachment: e.target.files?.[0]?.name || "" })}
-                      className="border-slate-300 bg-white"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* 💵 Cash Fields */}
-              {paymentForm.payment_method === "cash" && (
-                <div className="bg-green-50 p-4 rounded space-y-3 border border-green-200">
-                  <p className="text-sm font-semibold text-green-900">💵 Cash Payment Information</p>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="received_by">Received By (Employee Name)</Label>
-                    <Input
-                      id="received_by"
-                      placeholder="John Smith"
-                      value={paymentForm.received_by ?? ""}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, received_by: e.target.value })}
-                      className="border-slate-300 bg-white"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="payment_location">Payment Location</Label>
-                    <Input
-                      id="payment_location"
-                      placeholder="Office, Job Site, etc."
-                      value={paymentForm.payment_location ?? ""}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, payment_location: e.target.value })}
-                      className="border-slate-300 bg-white"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="receipt_number">Receipt Number (Manual)</Label>
-                    <Input
-                      id="receipt_number"
-                      placeholder="RCP-001"
-                      value={paymentForm.receipt_number ?? ""}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, receipt_number: e.target.value })}
-                      className="border-slate-300 bg-white"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="cash_notes">Notes</Label>
-                    <Input
-                      id="cash_notes"
-                      placeholder="Additional details..."
-                      value={paymentForm.notes ?? ""}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, notes: e.target.value })}
-                      className="border-slate-300 bg-white"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="signed_receipt_upload">Upload Signed Receipt</Label>
-                    <Input
-                      id="signed_receipt_upload"
-                      type="file"
-                      accept="image/*,.pdf"
-                      onChange={(e) => setPaymentForm({ ...paymentForm, receipt_attachment: e.target.files?.[0]?.name || "" })}
-                      className="border-slate-300 bg-white"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* 🏦 Wire Transfer Fields */}
-              {paymentForm.payment_method === "wire" && (
-                <div className="bg-indigo-50 p-4 rounded space-y-3 border border-indigo-200">
-                  <p className="text-sm font-semibold text-indigo-900">🏦 Wire Transfer Information</p>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="sending_bank_name">Sending Bank Name</Label>
-                    <Input
-                      id="sending_bank_name"
-                      placeholder="Wells Fargo, Chase, etc."
-                      value={paymentForm.sending_bank_name ?? ""}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, sending_bank_name: e.target.value })}
-                      className="border-slate-300 bg-white"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="sender_name">Sender Name</Label>
-                    <Input
-                      id="sender_name"
-                      placeholder="Company or Person Name"
-                      value={paymentForm.sender_name ?? ""}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, sender_name: e.target.value })}
-                      className="border-slate-300 bg-white"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="wire_reference_number">Wire Reference Number</Label>
-                    <Input
-                      id="wire_reference_number"
-                      placeholder="WIRE-123456"
-                      value={paymentForm.wire_reference_number ?? ""}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, wire_reference_number: e.target.value })}
-                      className="border-slate-300 bg-white"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="account_last4">Last 4 Digits Account</Label>
-                    <Input
-                      id="account_last4"
-                      placeholder="1234"
-                      value={paymentForm.account_last4 ?? ""}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, account_last4: e.target.value })}
-                      className="border-slate-300 bg-white"
-                      maxLength={4}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="transfer_date">Transfer Date</Label>
-                    <Input
-                      id="transfer_date"
+                      id="paidDate"
                       type="date"
-                      value={paymentForm.transfer_date ?? ""}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, transfer_date: e.target.value })}
-                      className="border-slate-300 bg-white"
+                      value={paymentForm.paid_date ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, paid_date: e.target.value || "" })}
+                      className="border-slate-300"
                     />
                   </div>
 
+                  {paymentForm.payment_method !== "cash" && paymentForm.payment_method !== "wire" && (
+                    <div className="space-y-2">
+                      <Label htmlFor="transactionRef">Transaction Reference</Label>
+                      <Input
+                        id="transactionRef"
+                        placeholder="e.g., TXN-001, Check #123, Auth Code"
+                        value={(paymentForm as any).transaction_reference ?? ""}
+                        onChange={(e) => setPaymentForm({ ...paymentForm, transaction_reference: e.target.value })}
+                        className="border-slate-300"
+                      />
+                      <p className="text-xs text-slate-500">
+                        Transaction ID, reference number, or confirmation code
+                      </p>
+                    </div>
+                  )}
+
                   <div className="space-y-2">
-                    <Label htmlFor="wire_confirmation_upload">Confirmation Upload</Label>
+                    <Label htmlFor="receiptAttachment">Receipt/Confirmation (optional)</Label>
                     <Input
-                      id="wire_confirmation_upload"
+                      id="receiptAttachment"
                       type="file"
                       accept="image/*,.pdf"
-                      onChange={(e) => setPaymentForm({ ...paymentForm, confirmation_upload: e.target.files?.[0]?.name || "" })}
-                      className="border-slate-300 bg-white"
+                      onChange={(e) => setPaymentForm({ ...paymentForm, receipt_attachment: e.target.files?.[0]?.name || "" })}
+                      className="border-slate-300"
                     />
+                    <p className="text-xs text-slate-500">
+                      Upload payment receipt, confirmation email, or bank statement
+                    </p>
                   </div>
-                </div>
+                </>
               )}
 
-              {/* 🏦 Bank Transfer (ACH) Fields */}
-              {paymentForm.payment_method === "ach" && (
-                <div className="bg-cyan-50 p-4 rounded space-y-3 border border-cyan-200">
-                  <p className="text-sm font-semibold text-cyan-900">🏦 Bank Transfer (ACH) Information</p>
+              {(paymentForm.payment_method === "direct_deposit" || paymentForm.payment_method === "ach") && (
+                <div className="bg-slate-50 p-4 rounded space-y-3 border border-slate-200">
+                  <p className="text-sm font-semibold text-slate-700">Bank Information</p>
 
                   <div className="space-y-2">
-                    <Label htmlFor="ach_bank_name">Bank Name</Label>
+                    <Label htmlFor="bankName">Bank Name</Label>
                     <Input
-                      id="ach_bank_name"
-                      placeholder="Wells Fargo, Chase, etc."
-                      value={paymentForm.bank_name ?? ""}
+                      id="bankName"
+                      placeholder="e.g., Wells Fargo, Chase Bank"
+                      value={(paymentForm as any).bank_name ?? ""}
                       onChange={(e) => setPaymentForm({ ...paymentForm, bank_name: e.target.value })}
-                      className="border-slate-300 bg-white"
+                      className="border-slate-300"
                     />
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="routing_number_ach">Routing Number (internal only)</Label>
+                    <Label htmlFor="routingNumber">Routing Number</Label>
                     <Input
-                      id="routing_number_ach"
+                      id="routingNumber"
                       placeholder="9-digit routing number"
-                      value={paymentForm.routing_number ?? ""}
+                      value={(paymentForm as any).routing_number ?? ""}
                       onChange={(e) => setPaymentForm({ ...paymentForm, routing_number: e.target.value })}
-                      className="border-slate-300 bg-white"
-                      type="password"
+                      className="border-slate-300"
                     />
-                    <p className="text-xs text-slate-500">Will be encrypted and hidden</p>
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="ach_account_last4">Account Last 4 Digits</Label>
+                    <Label htmlFor="accountNumber">Account Number</Label>
                     <Input
-                      id="ach_account_last4"
-                      placeholder="1234"
-                      value={paymentForm.account_last4 ?? ""}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, account_last4: e.target.value })}
-                      className="border-slate-300 bg-white"
-                      maxLength={4}
+                      id="accountNumber"
+                      type="password"
+                      placeholder="Account number (will be masked)"
+                      value={(paymentForm as any).account_number ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, account_number: e.target.value })}
+                      className="border-slate-300"
                     />
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="account_type_ach">Account Type</Label>
-                    <Select value={paymentForm.account_type ?? "checking"} onValueChange={(value) => setPaymentForm({ ...paymentForm, account_type: value as any })}>
-                      <SelectTrigger className="border-slate-300 bg-white">
+                    <Label htmlFor="accountType">Account Type</Label>
+                    <Select
+                      value={(paymentForm as any).account_type ?? "checking"}
+                      onValueChange={(value) => setPaymentForm({ ...paymentForm, account_type: value as any })}
+                    >
+                      <SelectTrigger className="border-slate-300">
                         <SelectValue placeholder="Select account type" />
                       </SelectTrigger>
                       <SelectContent>
@@ -4490,294 +4694,351 @@ export default function Contracts() {
                       </SelectContent>
                     </Select>
                   </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="ach_transaction_id">ACH Transaction ID</Label>
-                    <Input
-                      id="ach_transaction_id"
-                      placeholder="ACH-123456"
-                      value={paymentForm.ach_transaction_id ?? ""}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, ach_transaction_id: e.target.value })}
-                      className="border-slate-300 bg-white"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="ach_sender_name">Sender Name</Label>
-                    <Input
-                      id="ach_sender_name"
-                      placeholder="Company or Person Name"
-                      value={paymentForm.sender_name ?? ""}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, sender_name: e.target.value })}
-                      className="border-slate-300 bg-white"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="ach_confirmation_upload">Confirmation Upload</Label>
-                    <Input
-                      id="ach_confirmation_upload"
-                      type="file"
-                      accept="image/*,.pdf"
-                      onChange={(e) => setPaymentForm({ ...paymentForm, confirmation_upload: e.target.files?.[0]?.name || "" })}
-                      className="border-slate-300 bg-white"
-                    />
-                  </div>
                 </div>
               )}
 
-              {/* ⚡ Zelle Fields */}
-              {paymentForm.payment_method === "zelle" && (
-                <div className="bg-violet-50 p-4 rounded space-y-3 border border-violet-200">
-                  <p className="text-sm font-semibold text-violet-900">⚡ Zelle Payment Information</p>
+              {paymentForm.payment_method === "check" && (
+                <div className="bg-slate-50 p-4 rounded space-y-3 border border-slate-200">
+                  <p className="text-sm font-semibold text-slate-700">Check Information</p>
 
                   <div className="space-y-2">
-                    <Label htmlFor="zelle_sender_name">Sender Name</Label>
+                    <Label htmlFor="checkNumber">Check Number</Label>
                     <Input
-                      id="zelle_sender_name"
-                      placeholder="John Doe"
-                      value={paymentForm.sender_name ?? ""}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, sender_name: e.target.value })}
-                      className="border-slate-300 bg-white"
+                      id="checkNumber"
+                      placeholder="e.g., 1001"
+                      value={(paymentForm as any).check_number ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, check_number: e.target.value })}
+                      className="border-slate-300"
                     />
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="zelle_email">Sender Email</Label>
+                    <Label htmlFor="checkBankName">Bank Name</Label>
                     <Input
-                      id="zelle_email"
-                      type="email"
-                      placeholder="john@example.com"
-                      value={paymentForm.zelle_email ?? ""}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, zelle_email: e.target.value })}
-                      className="border-slate-300 bg-white"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="zelle_phone">Sender Phone</Label>
-                    <Input
-                      id="zelle_phone"
-                      placeholder="(555) 123-4567"
-                      value={paymentForm.zelle_phone ?? ""}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, zelle_phone: e.target.value })}
-                      className="border-slate-300 bg-white"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="zelle_confirmation_number">Zelle Confirmation Number</Label>
-                    <Input
-                      id="zelle_confirmation_number"
-                      placeholder="ZELLE-123456"
-                      value={paymentForm.zelle_confirmation_number ?? ""}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, zelle_confirmation_number: e.target.value })}
-                      className="border-slate-300 bg-white"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="zelle_date_sent">Date Sent</Label>
-                    <Input
-                      id="zelle_date_sent"
-                      type="date"
-                      value={paymentForm.transfer_date ?? ""}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, transfer_date: e.target.value })}
-                      className="border-slate-300 bg-white"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="zelle_screenshot_upload">Screenshot Upload</Label>
-                    <Input
-                      id="zelle_screenshot_upload"
-                      type="file"
-                      accept="image/*,.pdf"
-                      onChange={(e) => setPaymentForm({ ...paymentForm, receipt_attachment: e.target.files?.[0]?.name || "" })}
-                      className="border-slate-300 bg-white"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* 📥 Direct Deposit Fields */}
-              {paymentForm.payment_method === "direct_deposit" && (
-                <div className="bg-amber-50 p-4 rounded space-y-3 border border-amber-200">
-                  <p className="text-sm font-semibold text-amber-900">📥 Direct Deposit Information</p>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="depositor_name">Depositor Name / Company</Label>
-                    <Input
-                      id="depositor_name"
-                      placeholder="Company Name or Person"
-                      value={paymentForm.depositor_name ?? ""}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, depositor_name: e.target.value })}
-                      className="border-slate-300 bg-white"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="dd_bank_name">Bank Name</Label>
-                    <Input
-                      id="dd_bank_name"
-                      placeholder="Wells Fargo, Chase, etc."
-                      value={paymentForm.bank_name ?? ""}
+                      id="checkBankName"
+                      placeholder="e.g., Wells Fargo, Chase Bank"
+                      value={(paymentForm as any).bank_name ?? ""}
                       onChange={(e) => setPaymentForm({ ...paymentForm, bank_name: e.target.value })}
-                      className="border-slate-300 bg-white"
+                      className="border-slate-300"
                     />
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="deposit_reference_number">Deposit Reference Number</Label>
+                    <Label htmlFor="checkAttachment">Attach Check Image (optional)</Label>
                     <Input
-                      id="deposit_reference_number"
-                      placeholder="DEP-123456"
-                      value={paymentForm.deposit_reference_number ?? ""}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, deposit_reference_number: e.target.value })}
-                      className="border-slate-300 bg-white"
+                      id="checkAttachment"
+                      type="file"
+                      accept="image/*,.pdf"
+                      onChange={(e) => setPaymentForm({ ...paymentForm, check_attachment: e.target.files?.[0]?.name || "" })}
+                      className="border-slate-300"
                     />
                   </div>
+                </div>
+              )}
+
+              {(paymentForm.payment_method === "credit_card" || paymentForm.payment_method === "debit_card") && (
+                <div className="bg-slate-50 p-4 rounded space-y-3 border border-slate-200">
+                  <p className="text-sm font-semibold text-slate-700">
+                    {paymentForm.payment_method === "credit_card" ? "Credit Card Information" : "Debit Card Information"}
+                  </p>
 
                   <div className="space-y-2">
-                    <Label htmlFor="dd_account_last4">Account Last 4 Digits</Label>
+                    <Label htmlFor="cardLast4">Last 4 Digits of Card</Label>
                     <Input
-                      id="dd_account_last4"
-                      placeholder="1234"
-                      value={paymentForm.account_last4 ?? ""}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, account_last4: e.target.value })}
-                      className="border-slate-300 bg-white"
+                      id="cardLast4"
+                      placeholder="e.g., 4242"
+                      value={(paymentForm as any).card_last4 ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, card_last4: e.target.value })}
+                      className="border-slate-300"
                       maxLength={4}
                     />
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="deposit_date">Deposit Date</Label>
+                    <Label htmlFor="cardTxnRef">Transaction/Authorization Code</Label>
                     <Input
-                      id="deposit_date"
-                      type="date"
-                      value={paymentForm.deposit_date ?? ""}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, deposit_date: e.target.value })}
-                      className="border-slate-300 bg-white"
+                      id="cardTxnRef"
+                      placeholder="e.g., TXN-1234567890"
+                      value={(paymentForm as any).transaction_reference ?? ""}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, transaction_reference: e.target.value })}
+                      className="border-slate-300"
                     />
                   </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="dd_confirmation_upload">Confirmation Upload</Label>
-                    <Input
-                      id="dd_confirmation_upload"
-                      type="file"
-                      accept="image/*,.pdf"
-                      onChange={(e) => setPaymentForm({ ...paymentForm, confirmation_upload: e.target.files?.[0]?.name || "" })}
-                      className="border-slate-300 bg-white"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* 🧾 Check Fields */}
-              {paymentForm.payment_method === "check" && (
-                <div className="bg-slate-50 p-4 rounded space-y-3 border border-slate-300">
-                  <p className="text-sm font-semibold text-slate-900">🧾 Check Information</p>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="check_number">Check Number</Label>
-                    <Input
-                      id="check_number"
-                      placeholder="1001"
-                      value={paymentForm.check_number ?? ""}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, check_number: e.target.value })}
-                      className="border-slate-300 bg-white"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="check_bank_name_field">Bank Name</Label>
-                    <Input
-                      id="check_bank_name_field"
-                      placeholder="Wells Fargo, Chase, etc."
-                      value={paymentForm.check_bank_name ?? ""}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, check_bank_name: e.target.value })}
-                      className="border-slate-300 bg-white"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="check_account_holder">Account Holder Name</Label>
-                    <Input
-                      id="check_account_holder"
-                      placeholder="John Doe"
-                      value={paymentForm.check_account_holder ?? ""}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, check_account_holder: e.target.value })}
-                      className="border-slate-300 bg-white"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="check_deposit_date">Deposit Date</Label>
-                    <Input
-                      id="check_deposit_date"
-                      type="date"
-                      value={paymentForm.check_deposit_date ?? ""}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, check_deposit_date: e.target.value })}
-                      className="border-slate-300 bg-white"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="check_front_image">Front Check Image Upload</Label>
-                    <Input
-                      id="check_front_image"
-                      type="file"
-                      accept="image/*,.pdf"
-                      onChange={(e) => setPaymentForm({ ...paymentForm, check_front_image: e.target.files?.[0]?.name || "" })}
-                      className="border-slate-300 bg-white"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="check_back_image">Back Check Image Upload</Label>
-                    <Input
-                      id="check_back_image"
-                      type="file"
-                      accept="image/*,.pdf"
-                      onChange={(e) => setPaymentForm({ ...paymentForm, check_back_image: e.target.files?.[0]?.name || "" })}
-                      className="border-slate-300 bg-white"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="check_status_field">Check Status</Label>
-                    <Select value={paymentForm.check_status ?? "pending"} onValueChange={(value) => setPaymentForm({ ...paymentForm, check_status: value as any })}>
-                      <SelectTrigger className="border-slate-300 bg-white">
-                        <SelectValue placeholder="Select check status" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="pending">⏳ Pending</SelectItem>
-                        <SelectItem value="cleared">✅ Cleared</SelectItem>
-                        <SelectItem value="bounced">❌ Bounced</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-              )}
-
-              {/* Receipt upload for paid payments */}
-              {paymentForm.status === "paid" && (
-                <div className="border-t pt-4 space-y-2">
-                  <Label htmlFor="receiptAttachment">Receipt/Confirmation Upload</Label>
-                  <Input
-                    id="receiptAttachment"
-                    type="file"
-                    accept="image/*,.pdf"
-                    onChange={(e) => setPaymentForm({ ...paymentForm, receipt_attachment: e.target.files?.[0]?.name || "" })}
-                    className="border-slate-300"
-                  />
-                  <p className="text-xs text-slate-500">
-                    Upload payment receipt, confirmation email, or bank statement
-                  </p>
                 </div>
               )}
             </div>
+
+            {/* Record Partial Payment Section */}
+            {editingPaymentId && (
+              <div className="border-t pt-4 mt-4">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-semibold text-slate-900">Record Partial Payment</h3>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowPartialPaymentForm(!showPartialPaymentForm)}
+                    className="gap-2"
+                  >
+                    {showPartialPaymentForm ? "Cancel" : "+ Add Partial Payment"}
+                  </Button>
+                </div>
+
+                {showPartialPaymentForm && (
+                  <div className="bg-slate-50 p-4 rounded border border-slate-200 space-y-3 mb-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="partialAmount">Amount *</Label>
+                      <Input
+                        id="partialAmount"
+                        type="number"
+                        placeholder="0.00"
+                        value={partialPaymentForm.amount}
+                        onChange={(e) => setPartialPaymentForm({ ...partialPaymentForm, amount: parseFloat(e.target.value) || 0 })}
+                        className="border-slate-300"
+                        step="0.01"
+                        min="0"
+                      />
+                      {(() => {
+                        const contract = contracts.find((c) => c.id === selectedContractId);
+                        const current = contract?.payment_schedule?.find((p: any) => p.id === editingPaymentId);
+                        if (!current) return null;
+                        return (
+                          <p className="text-xs text-slate-500">
+                            Remaining balance: ${getPaymentRemainingAmount(current).toLocaleString()}
+                          </p>
+                        );
+                      })()}
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="partialPaymentDate">Date *</Label>
+                      <Input
+                        id="partialPaymentDate"
+                        type="date"
+                        value={partialPaymentForm.date}
+                        onChange={(e) => setPartialPaymentForm({ ...partialPaymentForm, date: e.target.value })}
+                        className="border-slate-300"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="partialPaymentMethod">Payment Method *</Label>
+                      <Select
+                        value={partialPaymentForm.method}
+                        onValueChange={(value) => setPartialPaymentForm({ ...partialPaymentForm, method: value as any })}
+                      >
+                        <SelectTrigger className="border-slate-300">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="cash">Cash</SelectItem>
+                          <SelectItem value="check">Check</SelectItem>
+                          <SelectItem value="wire">Wire Transfer</SelectItem>
+                          <SelectItem value="ach">Bank Transfer (ACH)</SelectItem>
+                          <SelectItem value="credit_card">Credit Card</SelectItem>
+                          <SelectItem value="debit_card">Debit Card</SelectItem>
+                          <SelectItem value="direct_deposit">Direct Deposit</SelectItem>
+                          <SelectItem value="zelle">Zelle</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="partialPaymentDesc">Description (Optional)</Label>
+                      <Input
+                        id="partialPaymentDesc"
+                        placeholder="e.g., Partial deposit received"
+                        value={partialPaymentForm.description || ""}
+                        onChange={(e) => setPartialPaymentForm({ ...partialPaymentForm, description: e.target.value })}
+                        className="border-slate-300"
+                      />
+                    </div>
+
+                    {partialPaymentForm.method && (
+                      ["wire", "ach", "credit_card", "direct_deposit", "debit_card", "zelle"].includes(
+                        partialPaymentForm.method
+                      ) && (
+                        <div className="space-y-2">
+                          <Label htmlFor="partialPaymentTRN">
+                            {partialPaymentForm.method === "wire"
+                              ? "Transaction Reference Number (TRN)"
+                              : partialPaymentForm.method === "credit_card" || partialPaymentForm.method === "debit_card"
+                              ? "Authorization Code"
+                              : "Reference Number"}
+                            {" "}(Optional)
+                          </Label>
+                          <Input
+                            id="partialPaymentTRN"
+                            placeholder={partialPaymentForm.method === "wire" ? "e.g., WIR-20260210-001" : "e.g., REF-12345"}
+                            value={partialPaymentForm.transaction_reference || ""}
+                            onChange={(e) =>
+                              setPartialPaymentForm({
+                                ...partialPaymentForm,
+                                transaction_reference: e.target.value,
+                              })
+                            }
+                            className="border-slate-300"
+                          />
+                        </div>
+                      )
+                    )}
+
+                    {partialPaymentForm.method && (
+                      ["wire", "ach", "direct_deposit"].includes(partialPaymentForm.method) && (
+                        <>
+                          <div className="space-y-2">
+                            <Label htmlFor="partialPaymentBankName">Bank Name (Optional)</Label>
+                            <Input
+                              id="partialPaymentBankName"
+                              placeholder="e.g., Chase Bank"
+                              value={partialPaymentForm.bank_name || ""}
+                              onChange={(e) => setPartialPaymentForm({ ...partialPaymentForm, bank_name: e.target.value })}
+                              className="border-slate-300"
+                            />
+                          </div>
+
+                          <div className="space-y-2">
+                            <Label htmlFor="partialPaymentRoutingNumber">Routing Number (Optional)</Label>
+                            <Input
+                              id="partialPaymentRoutingNumber"
+                              placeholder="e.g., 123456789"
+                              value={partialPaymentForm.routing_number || ""}
+                              onChange={(e) => setPartialPaymentForm({ ...partialPaymentForm, routing_number: e.target.value })}
+                              className="border-slate-300"
+                            />
+                          </div>
+
+                          <div className="space-y-2">
+                            <Label htmlFor="partialPaymentAccountNumber">Account Number (Optional)</Label>
+                            <Input
+                              id="partialPaymentAccountNumber"
+                              placeholder="e.g., ****5678"
+                              type="password"
+                              value={partialPaymentForm.account_number || ""}
+                              onChange={(e) => setPartialPaymentForm({ ...partialPaymentForm, account_number: e.target.value })}
+                              className="border-slate-300"
+                            />
+                          </div>
+                        </>
+                      )
+                    )}
+
+                    {partialPaymentForm.method === "check" && (
+                      <>
+                        <div className="space-y-2">
+                          <Label htmlFor="partialPaymentCheckNumber">Check Number (Optional)</Label>
+                          <Input
+                            id="partialPaymentCheckNumber"
+                            placeholder="e.g., 1001"
+                            value={partialPaymentForm.check_number || ""}
+                            onChange={(e) => setPartialPaymentForm({ ...partialPaymentForm, check_number: e.target.value })}
+                            className="border-slate-300"
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="partialPaymentCheckAttachment">Check Image/Document (Optional)</Label>
+                          <Input
+                            id="partialPaymentCheckAttachment"
+                            type="file"
+                            accept="image/*,.pdf"
+                            onChange={(e) => setPartialPaymentForm({ ...partialPaymentForm, check_attachment: e.target.files?.[0]?.name || "" })}
+                            className="border-slate-300"
+                          />
+                          {partialPaymentForm.check_attachment && (
+                            <p className="text-xs text-green-600">✓ File uploaded</p>
+                          )}
+                        </div>
+                      </>
+                    )}
+
+                    {partialPaymentForm.method && ["credit_card", "debit_card"].includes(partialPaymentForm.method) && (
+                      <div className="space-y-2">
+                        <Label htmlFor="partialPaymentCardLast4">
+                          Last 4 Digits of {partialPaymentForm.method === "credit_card" ? "Credit Card" : "Debit Card"} (Optional)
+                        </Label>
+                        <Input
+                          id="partialPaymentCardLast4"
+                          placeholder="e.g., 4242"
+                          maxLength={4}
+                          value={partialPaymentForm.card_last4 || ""}
+                          onChange={(e) => setPartialPaymentForm({ ...partialPaymentForm, card_last4: e.target.value })}
+                          className="border-slate-300"
+                        />
+                      </div>
+                    )}
+
+                    <Button
+                      onClick={handleAddPartialPayment}
+                      className="w-full bg-green-600 hover:bg-green-700"
+                    >
+                      Record Partial Payment
+                    </Button>
+                  </div>
+                )}
+
+                {/* Display existing partial payments */}
+                {(() => {
+                  const contract = contracts.find((c) => c.id === selectedContractId);
+                  const currentPayment = contract?.payment_schedule?.find((p: any) => p.id === editingPaymentId);
+                  const pps = currentPayment ? getPaymentPartialPayments(currentPayment) : [];
+                  if (!currentPayment || pps.length === 0) {
+                    return <p className="text-sm text-slate-500 italic">No partial payments recorded yet</p>;
+                  }
+
+                  return (
+                    <div className="space-y-2">
+                      {pps.map((pp: PartialPayment) => (
+                        <div key={pp.id} className="bg-white p-3 rounded border border-slate-200">
+                          <div className="flex justify-between items-start mb-2">
+                            <div className="text-sm">
+                              <p className="font-semibold text-slate-900">${pp.amount.toLocaleString()}</p>
+                              <p className="text-xs text-slate-600">
+                                {formatDateString(pp.date)} • {paymentMethodPlainLabel(pp.method)}
+                              </p>
+                              {pp.description && <p className="text-xs text-slate-600 mt-1">{pp.description}</p>}
+                            </div>
+                            <button
+                              onClick={() => handleDeletePartialPayment(editingPaymentId, pp.id)}
+                              className="text-red-600 hover:text-red-800 p-2"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+
+                          <div className="text-xs text-slate-600 space-y-1 border-t border-slate-100 pt-2">
+                            {(pp.method === "wire" || pp.method === "ach" || pp.method === "direct_deposit") && (
+                              <>
+                                {pp.bank_name && <p>Bank: {pp.bank_name}</p>}
+                                {pp.routing_number && <p>Routing: {pp.routing_number}</p>}
+                                {pp.account_number && <p>Account: {pp.account_number}</p>}
+                                {pp.transaction_reference && <p>Reference: {pp.transaction_reference}</p>}
+                              </>
+                            )}
+                            {pp.method === "check" && (
+                              <>
+                                {pp.check_number && <p>Check #: {pp.check_number}</p>}
+                                {pp.check_attachment && <p className="text-green-600">✓ Check image attached</p>}
+                              </>
+                            )}
+                            {(pp.method === "credit_card" || pp.method === "debit_card") && (
+                              <>
+                                {pp.card_last4 && <p>Card Last 4: {pp.card_last4}</p>}
+                                {pp.transaction_reference && <p>Auth/Ref: {pp.transaction_reference}</p>}
+                              </>
+                            )}
+                            {pp.method === "zelle" && (
+                              <>
+                                {pp.transaction_reference && <p>Reference: {pp.transaction_reference}</p>}
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
 
             <div className="flex gap-3 justify-end pt-4">
               <Button
@@ -4792,61 +5053,19 @@ export default function Contracts() {
                     status: "pending",
                     paid_date: "",
                     payment_method: "cash",
-                    
-                    // Credit Card & Debit Card fields
-                    cardholder_name: "",
-                    card_last4: "",
-                    card_expiration: "",
-                    authorization_code: "",
-                    payment_processor: "",
-                    credit_card_last4: "",
-                    
-                    // Cash fields
-                    received_by: "",
-                    payment_location: "",
-                    receipt_number: "",
-                    notes: "",
-                    
-                    // Wire Transfer fields
-                    sending_bank_name: "",
-                    sender_name: "",
-                    wire_reference_number: "",
-                    account_last4: "",
-                    transfer_date: "",
-                    
-                    // Bank Transfer (ACH) fields
                     bank_name: "",
                     routing_number: "",
                     account_number: "",
                     account_type: "checking",
-                    ach_transaction_id: "",
-                    
-                    // Zelle fields
-                    zelle_email: "",
-                    zelle_phone: "",
-                    zelle_confirmation_number: "",
-                    
-                    // Direct Deposit fields
-                    depositor_name: "",
-                    deposit_reference_number: "",
-                    deposit_date: "",
-                    
-                    // Check fields
                     check_number: "",
-                    check_bank_name: "",
-                    check_account_holder: "",
-                    check_deposit_date: "",
-                    check_front_image: "",
-                    check_back_image: "",
-                    check_status: "pending",
                     check_attachment: "",
-                    
-                    // Common fields
+                    card_last4: "",
                     transaction_reference: "",
                     receipt_attachment: "",
-                    confirmation_upload: "",
+                    partial_payments: [],
                   });
                   setEditingPaymentId(null);
+                  setShowPartialPaymentForm(false);
                 }}
                 className="border-slate-300"
               >
@@ -4858,6 +5077,47 @@ export default function Contracts() {
               >
                 {editingPaymentId ? "Update Payment" : "Add Payment"}
               </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Thank You Letter Modal */}
+      {isThankYouLetterModalOpen && thankYouLetterContractId && (
+        <Dialog
+          open={isThankYouLetterModalOpen}
+          onOpenChange={(open) => !open && setIsThankYouLetterModalOpen(false)}
+        >
+          <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
+            <DialogTitle>Thank You Letter - {thankYouLetterContractId}</DialogTitle>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-semibold">Edit your thank you letter:</label>
+                <textarea
+                  value={thankYouLetterContent}
+                  onChange={(e) => setThankYouLetterContent(e.target.value)}
+                  className="w-full h-96 p-3 border border-slate-300 rounded-md font-mono text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Thank you letter content..."
+                />
+              </div>
+              <div className="flex gap-3 justify-end">
+                <Button variant="outline" onClick={() => setIsThankYouLetterModalOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => {
+                    const contract = contracts.find((c) => c.id === thankYouLetterContractId);
+                    if (contract) {
+                      generateThankYouLetterPDF(contract, thankYouLetterContent);
+                      setIsThankYouLetterModalOpen(false);
+                    }
+                  }}
+                  className="bg-green-600 hover:bg-green-700 gap-2"
+                >
+                  <Download className="w-4 h-4" />
+                  Download Letter
+                </Button>
+              </div>
             </div>
           </DialogContent>
         </Dialog>
