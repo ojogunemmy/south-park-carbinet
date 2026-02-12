@@ -32,6 +32,7 @@ export default function Materials() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedMaterial, setSelectedMaterial] = useState<Material | null>(null);
   const [filterCategory, setFilterCategory] = useState<string>("all");
+  const [filterVendor, setFilterVendor] = useState<string>("all");
   const [loading, setLoading] = useState(true);
   const [formData, setFormData] = useState<Partial<Material>>({});
   const fetchMaterials = async () => {
@@ -56,11 +57,13 @@ export default function Materials() {
   }, [selectedYear]);
 
   const categories = [...new Set(materials.map((m) => m.category || "Uncategorized"))].sort();
+  const availableVendors = [...new Set(materials.map((m) => m.supplier || "No Supplier").filter(Boolean))].sort();
 
-  const filteredMaterials =
-    filterCategory === "all"
-      ? materials
-      : materials.filter((m) => m.category === filterCategory);
+  const filteredMaterials = materials.filter((m) => {
+    const categoryMatch = filterCategory === "all" || m.category === filterCategory;
+    const vendorMatch = filterVendor === "all" || m.supplier === filterVendor;
+    return categoryMatch && vendorMatch;
+  });
 
   const handleAddMaterial = async () => {
     if (!formData.code || !formData.name || !formData.category || !formData.unit_price) {
@@ -490,20 +493,39 @@ export default function Materials() {
         <CardHeader>
           <CardTitle>Materials List</CardTitle>
           <CardDescription>All materials in the catalog</CardDescription>
-          <div className="mt-4">
-            <Select value={filterCategory} onValueChange={setFilterCategory}>
-              <SelectTrigger className="w-full lg:w-40 border-slate-300">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Categories</SelectItem>
-                {categories.map((cat) => (
-                  <SelectItem key={cat} value={cat}>
-                    {cat}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          <div className="mt-4 flex gap-4">
+            <div>
+              <Label className="text-sm font-medium text-slate-700 mb-2 block">Category</Label>
+              <Select value={filterCategory} onValueChange={setFilterCategory}>
+                <SelectTrigger className="w-full lg:w-40 border-slate-300">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Categories</SelectItem>
+                  {categories.map((cat) => (
+                    <SelectItem key={cat} value={cat}>
+                      {cat}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-sm font-medium text-slate-700 mb-2 block">Vendor</Label>
+              <Select value={filterVendor} onValueChange={setFilterVendor}>
+                <SelectTrigger className="w-full lg:w-40 border-slate-300">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Vendors</SelectItem>
+                  {availableVendors.map((vendor) => (
+                    <SelectItem key={vendor} value={vendor}>
+                      {vendor}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
