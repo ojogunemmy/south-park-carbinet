@@ -602,8 +602,16 @@ export default function Contracts() {
     fetchData();
   }, []);
 
-
-
+  // Update thank you letter content when contracts change and modal is open
+  useEffect(() => {
+    if (isThankYouLetterModalOpen && thankYouLetterContractId) {
+      const contract = contracts.find((c) => c.id === thankYouLetterContractId);
+      if (contract) {
+        const template = generateThankYouLetterTemplate(contract);
+        setThankYouLetterContent(template);
+      }
+    }
+  }, [contracts, isThankYouLetterModalOpen, thankYouLetterContractId]);
 
   const filteredContracts = contracts
     .filter((contract) => {
