@@ -1152,7 +1152,8 @@ export default function Contracts() {
         check_number: "",
         card_last4: "",
         transaction_reference: "",
-        receipt_attachment: ""
+        receipt_attachment: "",
+        partial_payments: []
       });
       setEditingPaymentId(null);
       setSelectedContractId(null);
@@ -1201,13 +1202,50 @@ export default function Contracts() {
   };
 
   const handleAddPartialPayment = async () => {
-    if (!selectedContractId || !editingPaymentId) {
-      alert("No payment selected");
+    if (!selectedContractId) {
+      alert("No contract selected");
       return;
     }
 
     if (!partialPaymentForm.amount || partialPaymentForm.amount <= 0 || !partialPaymentForm.date) {
       alert("Please enter a partial payment amount and date");
+      return;
+    }
+
+    const newPartial: PartialPayment = {
+      ...partialPaymentForm,
+      id: `PP-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    };
+
+    // New payment (add mode): store partials on the unsaved paymentForm
+    if (!editingPaymentId) {
+      setPaymentForm((prev) => ({
+        ...prev,
+        partial_payments: [...(prev.partial_payments || []), newPartial],
+      }));
+
+      toast({
+        title: "✅ Partial Payment Added",
+        description: `$${partialPaymentForm.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })} added`,
+      });
+
+      setPartialPaymentForm({
+        id: "",
+        amount: 0,
+        date: getTodayDate(),
+        method: "cash",
+        description: "",
+        receipt_attachment: "",
+        transaction_reference: "",
+        bank_name: "",
+        routing_number: "",
+        account_number: "",
+        account_type: "checking",
+        check_number: "",
+        check_attachment: "",
+        card_last4: "",
+      });
+      setShowPartialPaymentForm(false);
       return;
     }
 
@@ -1220,10 +1258,6 @@ export default function Contracts() {
         if (payment.id !== editingPaymentId) return payment;
 
         const existing = getPaymentPartialPayments(payment);
-        const newPartial: PartialPayment = {
-          ...partialPaymentForm,
-          id: `PP-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-        };
 
         return {
           ...payment,
@@ -4953,19 +4987,18 @@ South Park Cabinets INC
             </div>
 
             {/* Record Partial Payment Section */}
-            {editingPaymentId && (
-              <div className="border-t pt-4 mt-4">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="font-semibold text-slate-900">Record Partial Payment</h3>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setShowPartialPaymentForm(!showPartialPaymentForm)}
-                    className="gap-2"
-                  >
-                    {showPartialPaymentForm ? "Cancel" : "+ Add Partial Payment"}
-                  </Button>
-                </div>
+            <div className="border-t pt-4 mt-4">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-semibold text-slate-900">Record Partial Payment</h3>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowPartialPaymentForm(!showPartialPaymentForm)}
+                  className="gap-2"
+                >
+                  {showPartialPaymentForm ? "Cancel" : "+ Add Partial Payment"}
+                </Button>
+              </div>
 
                 {showPartialPaymentForm && (
                   <div className="bg-slate-50 p-4 rounded border border-slate-200 space-y-3 mb-4">
@@ -4982,12 +5015,26 @@ South Park Cabinets INC
                         min="0"
                       />
                       {(() => {
-                        const contract = contracts.find((c) => c.id === selectedContractId);
-                        const current = contract?.payment_schedule?.find((p: any) => p.id === editingPaymentId);
-                        if (!current) return null;
+                        if (editingPaymentId) {
+                          const contract = contracts.find((c) => c.id === selectedContractId);
+                          const current = contract?.payment_schedule?.find((p: any) => p.id === editingPaymentId);
+                          if (!current) return null;
+                          return (
+                            <p className="text-xs text-slate-500">
+                              Remaining balance: ${getPaymentRemainingAmount(current).toLocaleString()}
+                            </p>
+                          );
+                        }
+
+                        const partialSum = (paymentForm.partial_payments || []).reduce(
+                          (sum, pp) => sum + Number(pp?.amount || 0),
+                          0,
+                        );
+                        const remaining = Number(paymentForm.amount || 0) - partialSum;
+                        if (!Number.isFinite(remaining) || remaining <= 0) return null;
                         return (
                           <p className="text-xs text-slate-500">
-                            Remaining balance: ${getPaymentRemainingAmount(current).toLocaleString()}
+                            Remaining balance: ${remaining.toLocaleString()}
                           </p>
                         );
                       })()}
@@ -5162,10 +5209,16 @@ South Park Cabinets INC
 
                 {/* Display existing partial payments */}
                 {(() => {
-                  const contract = contracts.find((c) => c.id === selectedContractId);
-                  const currentPayment = contract?.payment_schedule?.find((p: any) => p.id === editingPaymentId);
-                  const pps = currentPayment ? getPaymentPartialPayments(currentPayment) : [];
-                  if (!currentPayment || pps.length === 0) {
+                  let pps: PartialPayment[] = [];
+                  if (editingPaymentId) {
+                    const contract = contracts.find((c) => c.id === selectedContractId);
+                    const currentPayment = contract?.payment_schedule?.find((p: any) => p.id === editingPaymentId);
+                    pps = currentPayment ? getPaymentPartialPayments(currentPayment) : [];
+                  } else {
+                    pps = paymentForm.partial_payments || [];
+                  }
+
+                  if (pps.length === 0) {
                     return <p className="text-sm text-slate-500 italic">No partial payments recorded yet</p>;
                   }
 
@@ -5182,7 +5235,16 @@ South Park Cabinets INC
                               {pp.description && <p className="text-xs text-slate-600 mt-1">{pp.description}</p>}
                             </div>
                             <button
-                              onClick={() => handleDeletePartialPayment(editingPaymentId, pp.id)}
+                              onClick={() => {
+                                if (editingPaymentId) {
+                                  handleDeletePartialPayment(editingPaymentId, pp.id);
+                                } else {
+                                  setPaymentForm((prev) => ({
+                                    ...prev,
+                                    partial_payments: (prev.partial_payments || []).filter((p) => p.id !== pp.id),
+                                  }));
+                                }
+                              }}
                               className="text-red-600 hover:text-red-800 p-2"
                             >
                               <Trash2 className="w-4 h-4" />
@@ -5221,8 +5283,7 @@ South Park Cabinets INC
                     </div>
                   );
                 })()}
-              </div>
-            )}
+            </div>
 
             <div className="flex gap-3 justify-end pt-4">
               <Button
