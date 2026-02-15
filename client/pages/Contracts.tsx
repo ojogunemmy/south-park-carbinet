@@ -223,6 +223,47 @@ const normalizePayment = (raw: any): Payment => {
   };
 };
 
+const getLatestPartialPaymentDate = (partials: PartialPayment[]): string => {
+  const dates = (partials || [])
+    .map((pp) => String(pp?.date || "").trim())
+    .filter(Boolean);
+  if (dates.length === 0) return "";
+  // ISO (YYYY-MM-DD) sorts lexicographically.
+  return dates.sort()[dates.length - 1];
+};
+
+const canonicalizePaymentSchedule = (schedule: any[]): any[] => {
+  return (schedule || []).map((p: any) => {
+    const normalized = normalizePayment(p);
+    const partials = normalized.partial_payments || [];
+
+    if (partials.length === 0) {
+      return {
+        ...p,
+        ...normalized,
+        partial_payments: partials,
+      };
+    }
+
+    const amount = Number(normalized.amount || 0);
+    const received = partials.reduce((sum, pp) => sum + Number(pp?.amount || 0), 0);
+    const fullyReceived = amount > 0 && received >= amount - 0.01;
+
+    const derivedStatus: "pending" | "paid" = fullyReceived ? "paid" : "pending";
+    const derivedPaidDate = fullyReceived
+      ? String(normalized.paid_date || getLatestPartialPaymentDate(partials) || "")
+      : "";
+
+    return {
+      ...p,
+      ...normalized,
+      status: derivedStatus,
+      paid_date: derivedPaidDate,
+      partial_payments: partials,
+    };
+  });
+};
+
 interface MaterialItem {
   id: string;
   name: string;
@@ -673,6 +714,33 @@ export default function Contracts() {
     return Number.isFinite(month) ? month : null;
   };
 
+  const getPaymentReceivedAmountForMonth = (payment: any, month: number | null): number => {
+    if (!month) return getPaymentReceivedAmount(payment);
+
+    const partialPayments = getPaymentPartialPayments(payment);
+    if (partialPayments.length > 0) {
+      return partialPayments
+        .filter((pp) => getMonthFromISODate(pp.date) === month)
+        .reduce((sum, pp) => sum + Number(pp?.amount || 0), 0);
+    }
+
+    if (payment?.status === "paid") {
+      const paidMonth = getMonthFromISODate(
+        payment?.paid_date || payment?.paidDate || payment?.due_date || payment?.dueDate,
+      );
+      return paidMonth === month ? Number(payment?.amount || 0) : 0;
+    }
+
+    return 0;
+  };
+
+  const getPaymentRemainingAmountForMonth = (payment: any, month: number | null): number => {
+    if (!month) return getPaymentRemainingAmount(payment);
+    const dueMonth = getMonthFromISODate(payment?.due_date || payment?.dueDate);
+    if (dueMonth !== month) return 0;
+    return getPaymentRemainingAmount(payment);
+  };
+
   const getPaymentPartialPayments = (payment: any): PartialPayment[] => {
     const fromSnake = payment?.partial_payments;
     const fromCamel = payment?.partialPayments;
@@ -709,26 +777,26 @@ export default function Contracts() {
   
   // Calculate total amount paid from payment schedules
   const totalAmountPaid = filteredContracts.reduce((sum, c) => {
-    const paidPayments = (c.payment_schedule || [])
-      .filter((p: any) => p.status === "paid")
-      .filter((p: any) => {
-        if (!selectedPaymentMonth) return true;
-        const month = getMonthFromISODate(p.paid_date || p.paidDate || p.due_date || p.dueDate);
-        return month === selectedPaymentMonth;
-      });
-    return sum + paidPayments.reduce((paySum: number, p: any) => paySum + Number(p.amount || 0), 0);
+    const schedule = (c.payment_schedule || []).map(normalizePayment);
+    return (
+      sum +
+      schedule.reduce(
+        (paySum: number, p: any) => paySum + getPaymentReceivedAmountForMonth(p, selectedPaymentMonth),
+        0,
+      )
+    );
   }, 0);
   
   // Calculate total amount due (pending payments)
   const totalAmountDue = filteredContracts.reduce((sum, c) => {
-    const pendingPayments = (c.payment_schedule || [])
-      .filter((p: any) => p.status === "pending")
-      .filter((p: any) => {
-        if (!selectedPaymentMonth) return true;
-        const month = getMonthFromISODate(p.due_date || p.dueDate);
-        return month === selectedPaymentMonth;
-      });
-    return sum + pendingPayments.reduce((paySum: number, p: any) => paySum + Number(p.amount || 0), 0);
+    const schedule = (c.payment_schedule || []).map(normalizePayment);
+    return (
+      sum +
+      schedule.reduce(
+        (paySum: number, p: any) => paySum + getPaymentRemainingAmountForMonth(p, selectedPaymentMonth),
+        0,
+      )
+    );
   }, 0);
 
 
@@ -1111,17 +1179,20 @@ export default function Contracts() {
 
       const existingSchedule = (contract.payment_schedule || []) as any[];
       const updatedSchedule = editingPaymentId
-        ? existingSchedule.map((p: any) => (p.id === editingPaymentId ? { ...p, ...paymentForm } : p))
+        ? existingSchedule.map((p: any) => {
+            if (p.id !== editingPaymentId) return p;
+
+            // Preserve server-saved partial payments unless the form explicitly has them.
+            const existingNormalized = normalizePayment(p);
+            const existingPartials = getPaymentPartialPayments(existingNormalized);
+            const merged = { ...p, ...paymentForm } as any;
+            const formPartials = getPaymentPartialPayments(paymentForm as any);
+            merged.partial_payments = (formPartials.length > 0 ? formPartials : existingPartials) as any;
+            return merged;
+          })
         : [...existingSchedule, paymentForm];
 
-      const canonicalSchedule = (updatedSchedule || []).map((p: any) => {
-        const normalized = normalizePayment(p);
-        return {
-          ...p,
-          ...normalized,
-          partial_payments: normalized.partial_payments || [],
-        };
-      });
+      const canonicalSchedule = canonicalizePaymentSchedule(updatedSchedule || []);
 
       await contractsService.update(selectedContractId, { payment_schedule: canonicalSchedule });
 
@@ -1185,10 +1256,7 @@ export default function Contracts() {
         const contract = contracts.find(c => c.id === contractId);
         if (!contract) return;
         const updatedSchedule = ((contract.payment_schedule || []) as any[]).filter((p: any) => p.id !== paymentId);
-        const canonicalSchedule = updatedSchedule.map((p: any) => {
-          const normalized = normalizePayment(p);
-          return { ...p, ...normalized, partial_payments: normalized.partial_payments || [] };
-        });
+        const canonicalSchedule = canonicalizePaymentSchedule(updatedSchedule);
 
         await contractsService.update(contractId, { payment_schedule: canonicalSchedule });
         setContracts((prev) =>
@@ -1265,15 +1333,18 @@ export default function Contracts() {
         };
       });
 
-      const canonicalSchedule = updatedSchedule.map((p: any) => {
-        const normalized = normalizePayment(p);
-        return { ...p, ...normalized, partial_payments: normalized.partial_payments || [] };
-      });
+      const canonicalSchedule = canonicalizePaymentSchedule(updatedSchedule);
 
       await contractsService.update(selectedContractId, { payment_schedule: canonicalSchedule });
       setContracts((prev) =>
         prev.map((c) => (c.id === selectedContractId ? ({ ...c, payment_schedule: canonicalSchedule } as any) : c)),
       );
+
+      // Keep the edit form in sync so clicking "Update Payment" doesn't overwrite partials.
+      setPaymentForm((prev) => {
+        const existing = getPaymentPartialPayments(prev as any);
+        return { ...prev, partial_payments: [...existing, newPartial] } as any;
+      });
 
       toast({
         title: "✅ Partial Payment Recorded",
@@ -1322,15 +1393,23 @@ export default function Contracts() {
         };
       });
 
-      const canonicalSchedule = updatedSchedule.map((p: any) => {
-        const normalized = normalizePayment(p);
-        return { ...p, ...normalized, partial_payments: normalized.partial_payments || [] };
-      });
+      const canonicalSchedule = canonicalizePaymentSchedule(updatedSchedule as any[]);
 
       await contractsService.update(selectedContractId, { payment_schedule: canonicalSchedule });
       setContracts((prev) =>
         prev.map((c) => (c.id === selectedContractId ? ({ ...c, payment_schedule: canonicalSchedule } as any) : c)),
       );
+
+      // Keep the edit form in sync (edit mode only)
+      if (editingPaymentId && paymentId === editingPaymentId) {
+        setPaymentForm((prev) => {
+          const existing = getPaymentPartialPayments(prev as any);
+          return {
+            ...prev,
+            partial_payments: existing.filter((pp) => pp.id !== partialPaymentId),
+          } as any;
+        });
+      }
       fetchData();
     } catch (error) {
       console.error("Error deleting partial payment:", error);
@@ -4135,24 +4214,15 @@ South Park Cabinets INC
                     </tr>
                   ) : (
                     filteredContracts.map((contract, idx) => {
-                      const paidPayments = (contract.payment_schedule || [])
-                        .filter((p: any) => p.status === "paid")
-                        .filter((p: any) => {
-                          if (!selectedPaymentMonth) return true;
-                          const month = getMonthFromISODate(p.paid_date || p.paidDate || p.due_date);
-                          return month === selectedPaymentMonth;
-                        });
-
-                      const pendingPayments = (contract.payment_schedule || [])
-                        .filter((p: any) => p.status === "pending")
-                        .filter((p: any) => {
-                          if (!selectedPaymentMonth) return true;
-                          const month = getMonthFromISODate(p.due_date);
-                          return month === selectedPaymentMonth;
-                        });
-
-                      const amountPaid = paidPayments.reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
-                      const amountDue = pendingPayments.reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
+                      const schedule = (contract.payment_schedule || []).map(normalizePayment);
+                      const amountPaid = schedule.reduce(
+                        (sum: number, p: any) => sum + getPaymentReceivedAmountForMonth(p, selectedPaymentMonth),
+                        0,
+                      );
+                      const amountDue = schedule.reduce(
+                        (sum: number, p: any) => sum + getPaymentRemainingAmountForMonth(p, selectedPaymentMonth),
+                        0,
+                      );
 
                       return (
                         <tr key={contract.id} className={idx % 2 === 0 ? "bg-white" : "bg-slate-50"}>
@@ -4291,13 +4361,12 @@ South Park Cabinets INC
                           <span className="font-semibold text-green-600">
                             ${
                               (contract.payment_schedule || [])
-                                .filter((p: any) => p.status === "paid")
-                                .filter((p: any) => {
-                                  if (!selectedPaymentMonth) return true;
-                                    const month = getMonthFromISODate(p.paid_date || p.paidDate || p.due_date);
-                                  return month === selectedPaymentMonth;
-                                })
-                                .reduce((sum: number, p: any) => sum + (p.amount || 0), 0)
+                                .map(normalizePayment)
+                                .reduce(
+                                  (sum: number, p: any) =>
+                                    sum + getPaymentReceivedAmountForMonth(p, selectedPaymentMonth),
+                                  0,
+                                )
                                 .toLocaleString()
                             }
                           </span>
@@ -4309,13 +4378,12 @@ South Park Cabinets INC
                           <span className="font-semibold text-orange-600">
                             ${
                               (contract.payment_schedule || [])
-                                .filter((p: any) => p.status === "pending")
-                                .filter((p: any) => {
-                                  if (!selectedPaymentMonth) return true;
-                                  const month = getMonthFromISODate(p.due_date);
-                                  return month === selectedPaymentMonth;
-                                })
-                                .reduce((sum: number, p: any) => sum + (p.amount || 0), 0)
+                                .map(normalizePayment)
+                                .reduce(
+                                  (sum: number, p: any) =>
+                                    sum + getPaymentRemainingAmountForMonth(p, selectedPaymentMonth),
+                                  0,
+                                )
                                 .toLocaleString()
                             }
                           </span>
@@ -4333,8 +4401,9 @@ South Park Cabinets INC
                        <div className="pt-2">
                           <span className="block text-xs text-slate-400 mb-1">Payment Status</span>
                           {(() => {
-                              const totalPayments = contract.payment_schedule?.length || 0;
-                              const paidPayments = contract.payment_schedule?.filter(p => p.status === 'paid').length || 0;
+                              const schedule = (contract.payment_schedule || []).map(normalizePayment);
+                              const totalPayments = schedule.length;
+                              const paidPayments = schedule.filter((p: any) => isPaymentFullyReceived(p)).length;
                               const badgeColor = paidPayments === 0 
                                 ? "bg-red-50 text-red-700 border-red-100" 
                                 : "bg-yellow-50 text-yellow-700 border-yellow-100";
@@ -4422,7 +4491,8 @@ South Park Cabinets INC
                   {(() => {
                     const scheduleRaw =
                       contracts.find((c) => c.id === selectedContractId)?.payment_schedule ?? [];
-                    const schedule = scheduleRaw.map(normalizePayment);
+                    const scheduleArray = Array.isArray(scheduleRaw) ? scheduleRaw : [];
+                    const schedule = scheduleArray.map(normalizePayment);
 
                     if (schedule.length === 0) {
                       return (
@@ -4437,10 +4507,13 @@ South Park Cabinets INC
                       const bIsDownPayment = String(b.description || "").toLowerCase().includes("down");
                       if (aIsDownPayment && !bIsDownPayment) return -1;
                       if (!aIsDownPayment && bIsDownPayment) return 1;
-                      return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
+
+                      const aTime = a?.due_date ? new Date(a.due_date).getTime() : Number.POSITIVE_INFINITY;
+                      const bTime = b?.due_date ? new Date(b.due_date).getTime() : Number.POSITIVE_INFINITY;
+                      return aTime - bTime;
                     });
 
-                    return sortedSchedule.map((payment: any) => {
+                    return sortedSchedule.map((payment: any, idx: number) => {
                       const partialPayments = getPaymentPartialPayments(payment);
                       const received = getPaymentReceivedAmount(payment);
                       const remaining = getPaymentRemainingAmount(payment);
@@ -4448,7 +4521,7 @@ South Park Cabinets INC
 
                       return (
                         <div
-                          key={payment.id}
+                          key={String(payment.id || `${payment.description || "payment"}-${payment.due_date || ""}-${idx}`)}
                           className="p-4 bg-slate-50 rounded-lg border border-slate-200 space-y-3"
                         >
                           <div className="flex justify-between items-start">
@@ -6150,10 +6223,11 @@ South Park Cabinets INC
         const contract = contracts.find((c) => c.id === detailsContractId);
         if (!contract) return null;
 
-        const paidPayments = (contract.payment_schedule || []).filter((p: any) => p.status === "paid");
-        const pendingPaymentCount = (contract.payment_schedule || []).filter((p: any) => p.status === "pending").length;
-        const totalPaid = paidPayments.reduce((sum: number, p: any) => sum + p.amount, 0);
-        const totalRemaining = (contract.payment_schedule || []).reduce((sum: number, p: any) => sum + (p.status === "pending" ? p.amount : 0), 0);
+        const schedule = (contract.payment_schedule || []).map(normalizePayment);
+        const pendingPaymentCount = schedule.filter((p: any) => getPaymentRemainingAmount(p) > 0.01).length;
+        const paidPaymentCount = schedule.filter((p: any) => isPaymentFullyReceived(p)).length;
+        const totalPaid = schedule.reduce((sum: number, p: any) => sum + getPaymentReceivedAmount(p), 0);
+        const totalRemaining = schedule.reduce((sum: number, p: any) => sum + getPaymentRemainingAmount(p), 0);
 
         return (
           <Sheet open={!!detailsContractId} onOpenChange={(open) => !open && setDetailsContractId(null)}>
@@ -6220,7 +6294,7 @@ South Park Cabinets INC
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-slate-600">Paid:</span>
-                      <span className="font-medium text-green-600">{paidPayments.length}</span>
+                      <span className="font-medium text-green-600">{paidPaymentCount}</span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-slate-600">Pending:</span>
